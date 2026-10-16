@@ -6,9 +6,12 @@ use std::ptr;
 use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, POINT,
 };
+use windows_sys::Win32::Globalization::GetUserDefaultLocaleName;
 use windows_sys::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint,
+    GetMonitorInfoW, HMONITOR, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint,
 };
+use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
+use windows_sys::Win32::System::SystemServices::LOCALE_NAME_MAX_LENGTH;
 use windows_sys::Win32::System::Threading::CreateMutexW;
 use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
@@ -44,8 +47,16 @@ impl Drop for SingleInstance {
 pub fn work_area_under_cursor() -> Option<WorkArea> {
     let mut cursor = POINT { x: 0, y: 0 };
     unsafe { GetCursorPos(&mut cursor) };
-    let monitor = unsafe { MonitorFromPoint(cursor, MONITOR_DEFAULTTOPRIMARY) };
+    monitor_work_area(unsafe { MonitorFromPoint(cursor, MONITOR_DEFAULTTOPRIMARY) })
+}
 
+/// Work area and DPI scale of the primary monitor.
+pub fn primary_work_area() -> Option<WorkArea> {
+    let origin = POINT { x: 0, y: 0 };
+    monitor_work_area(unsafe { MonitorFromPoint(origin, MONITOR_DEFAULTTOPRIMARY) })
+}
+
+fn monitor_work_area(monitor: HMONITOR) -> Option<WorkArea> {
     let mut info: MONITORINFO = unsafe { std::mem::zeroed() };
     info.cbSize = size_of::<MONITORINFO>() as u32;
     if unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
@@ -92,6 +103,36 @@ pub fn reveal_in_folder(path: &str) -> io::Result<()> {
         .raw_arg(format!("/select,\"{path}\""))
         .spawn()
         .map(drop)
+}
+
+/// The user's locale name, such as "pt-BR". Empty if Windows does not report one.
+pub fn user_language() -> String {
+    let mut name = [0u16; LOCALE_NAME_MAX_LENGTH as usize];
+    let length = unsafe { GetUserDefaultLocaleName(name.as_mut_ptr(), name.len() as i32) };
+    if length <= 1 {
+        return String::new();
+    }
+    String::from_utf16_lossy(&name[..length as usize - 1])
+}
+
+/// Whether Windows asks apps for the dark theme (Settings > Personalization > Colors).
+pub fn system_uses_dark_theme() -> bool {
+    let key = wide(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+    let value = wide("AppsUseLightTheme");
+    let mut light: u32 = 1;
+    let mut size = size_of::<u32>() as u32;
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            key.as_ptr(),
+            value.as_ptr(),
+            RRF_RT_REG_DWORD,
+            ptr::null_mut(),
+            (&mut light as *mut u32).cast(),
+            &mut size,
+        )
+    };
+    status == 0 && light == 0
 }
 
 fn wide(text: &str) -> Vec<u16> {
