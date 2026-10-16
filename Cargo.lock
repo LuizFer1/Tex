@@ -4315,7 +4315,7 @@ dependencies = [
 
 [[package]]
 name = "tex-app"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "global-hotkey",
  "serde",
@@ -4328,14 +4328,14 @@ dependencies = [
 
 [[package]]
 name = "tex-index"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "unicode-normalization",
 ]
 
 [[package]]
 name = "tex-indexer"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "tex-index",
  "tex-ipc",
@@ -4345,7 +4345,7 @@ dependencies = [
 
 [[package]]
 name = "tex-ipc"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "postcard",
  "serde",
@@ -4353,7 +4353,7 @@ dependencies = [
 
 [[package]]
 name = "tex-platform"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "windows-sys 0.59.0",
 ]
