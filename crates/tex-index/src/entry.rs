@@ -49,8 +49,12 @@ impl Entry {
         self.flags & DIR != 0
     }
 
-    pub fn is_hidden_or_system(&self) -> bool {
-        self.flags & (HIDDEN | SYSTEM) != 0
+    pub fn is_hidden(&self) -> bool {
+        self.flags & HIDDEN != 0
+    }
+
+    pub fn is_system(&self) -> bool {
+        self.flags & SYSTEM != 0
     }
 }
 
@@ -83,6 +87,7 @@ mod tests {
         };
         assert!(entry.in_use());
         assert!(entry.is_dir());
-        assert!(entry.is_hidden_or_system());
+        assert!(entry.is_hidden());
+        assert!(!entry.is_system());
     }
 }

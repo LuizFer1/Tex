@@ -4,11 +4,13 @@ use crate::entry::{Attributes, Entry, ROOT, Record};
 
 const MAX_DEPTH: u16 = 512;
 const MIN_COMPACT_BYTES: usize = 64 * 1024;
-const LOOKUP_CACHE_SIZE: usize = 8;
+const LOOKUP_CACHE_SIZE: usize = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Lineage {
-    pub visible: bool,
+    pub hidden: bool,
+    pub system: bool,
+    pub excluded: bool,
     pub in_home: bool,
     pub in_app_root: bool,
     pub depth: u16,
@@ -231,22 +233,26 @@ impl VolumeIndex {
         found
     }
 
-    /// Walks from `record` up to the root. `visible` is false if the record or an ancestor is hidden,
-    /// system, the Windows folder, or NTFS metadata at the root. Inside an app root (a Start Menu
-    /// folder) only the entries below that root count. `None` for orphans and cycles.
+    /// Walks from `record` up to the root. `hidden` is set by a hidden record or ancestor; `system`
+    /// by a system one, the Windows folder or NTFS metadata at the root; `excluded` by a record in
+    /// `excluded`. Inside an app root (a Start Menu folder) only the entries below that root count
+    /// for `hidden` and `system`. `None` for orphans and cycles.
     pub(crate) fn lineage(
         &self,
         record: Record,
         home: Option<Record>,
         app_roots: &[Record],
+        excluded: &[Record],
     ) -> Option<Lineage> {
         let mut lineage = Lineage {
-            visible: true,
+            hidden: false,
+            system: false,
+            excluded: false,
             in_home: false,
             in_app_root: false,
             depth: 0,
         };
-        let mut visible_below_root = true;
+        let mut below_root = (false, false);
         let mut current = record;
         while current != ROOT {
             if lineage.depth >= MAX_DEPTH {
@@ -256,21 +262,30 @@ impl VolumeIndex {
             if Some(current) == home {
                 lineage.in_home = true;
             }
+            if excluded.contains(&current) {
+                lineage.excluded = true;
+            }
             if !lineage.in_app_root && app_roots.contains(&current) {
                 lineage.in_app_root = true;
-                visible_below_root = lineage.visible;
+                below_root = (lineage.hidden, lineage.system);
             }
-            if entry.is_hidden_or_system()
+            if entry.is_hidden() {
+                lineage.hidden = true;
+            }
+            if entry.is_system()
                 || Some(current) == self.windows_dir
                 || (entry.parent == ROOT && is_root_metadata(self.entry_name(entry)))
             {
-                lineage.visible = false;
+                lineage.system = true;
             }
             lineage.depth += 1;
             current = entry.parent;
         }
+        if excluded.contains(&ROOT) {
+            lineage.excluded = true;
+        }
         if lineage.in_app_root {
-            lineage.visible = visible_below_root;
+            (lineage.hidden, lineage.system) = below_root;
         }
         Some(lineage)
     }
@@ -358,7 +373,7 @@ mod tests {
             },
         );
         assert_eq!(volume.garbage(), 0);
-        assert!(volume.entry(20).unwrap().is_hidden_or_system());
+        assert!(volume.entry(20).unwrap().is_hidden());
     }
 
     #[test]
@@ -445,15 +460,21 @@ mod tests {
     #[test]
     fn lineage_reports_depth_and_home() {
         let volume = sample();
-        let lineage = volume.lineage(22, Some(20), &[]).unwrap();
+        let lineage = volume.lineage(22, Some(20), &[], &[]).unwrap();
         assert_eq!(lineage.depth, 3);
         assert!(lineage.in_home);
-        assert!(lineage.visible);
-        assert!(!volume.lineage(22, Some(99), &[]).unwrap().in_home);
+        assert!(lineage.visible());
+        assert!(!volume.lineage(22, Some(99), &[], &[]).unwrap().in_home);
+    }
+
+    impl Lineage {
+        fn visible(&self) -> bool {
+            !self.hidden && !self.system
+        }
     }
 
     #[test]
-    fn hidden_or_system_ancestor_hides_descendants() {
+    fn hidden_ancestor_marks_hidden() {
         let mut volume = sample();
         volume.upsert(
             23,
@@ -465,21 +486,52 @@ mod tests {
             },
         );
         volume.upsert(24, 23, "config.json", FILE);
-        assert!(!volume.lineage(24, None, &[]).unwrap().visible);
-        assert!(volume.lineage(22, None, &[]).unwrap().visible);
+        let lineage = volume.lineage(24, None, &[], &[]).unwrap();
+        assert!(lineage.hidden);
+        assert!(!lineage.system);
+        assert!(volume.lineage(22, None, &[], &[]).unwrap().visible());
     }
 
     #[test]
-    fn windows_dir_and_root_metadata_are_hidden() {
+    fn system_ancestor_marks_system() {
+        let mut volume = sample();
+        volume.upsert(
+            23,
+            21,
+            "Cache",
+            Attributes {
+                system: true,
+                ..DIR
+            },
+        );
+        volume.upsert(24, 23, "data.bin", FILE);
+        let lineage = volume.lineage(24, None, &[], &[]).unwrap();
+        assert!(lineage.system);
+        assert!(!lineage.hidden);
+    }
+
+    #[test]
+    fn excluded_folder_marks_itself_and_descendants() {
+        let volume = sample();
+        assert!(volume.lineage(21, None, &[], &[21]).unwrap().excluded);
+        assert!(volume.lineage(22, None, &[], &[21]).unwrap().excluded);
+        assert!(!volume.lineage(20, None, &[], &[21]).unwrap().excluded);
+        assert!(volume.lineage(22, None, &[], &[ROOT]).unwrap().excluded);
+    }
+
+    #[test]
+    fn windows_dir_and_root_metadata_are_system() {
         let mut volume = sample();
         volume.upsert(30, ROOT, "Windows", DIR);
         volume.upsert(31, 30, "notepad.exe", FILE);
         volume.set_windows_dir(Some(30));
         volume.upsert(32, ROOT, "$Extend", DIR);
         volume.upsert(33, ROOT, "System Volume Information", DIR);
-        assert!(!volume.lineage(31, None, &[]).unwrap().visible);
-        assert!(!volume.lineage(32, None, &[]).unwrap().visible);
-        assert!(!volume.lineage(33, None, &[]).unwrap().visible);
+        for record in [31, 32, 33] {
+            let lineage = volume.lineage(record, None, &[], &[]).unwrap();
+            assert!(lineage.system);
+            assert!(!lineage.hidden);
+        }
     }
 
     #[test]
@@ -495,14 +547,14 @@ mod tests {
                 system: true,
             },
         );
-        assert!(volume.lineage(22, None, &[]).unwrap().visible);
+        assert!(volume.lineage(22, None, &[], &[]).unwrap().visible());
     }
 
     #[test]
     fn lineage_is_none_for_orphans() {
         let mut volume = sample();
         volume.upsert(30, 99, "orphan.txt", FILE);
-        assert!(volume.lineage(30, None, &[]).is_none());
+        assert!(volume.lineage(30, None, &[], &[]).is_none());
     }
 
     #[test]
@@ -529,12 +581,12 @@ mod tests {
                 ..FILE
             },
         );
-        let lineage = volume.lineage(42, None, &[41]).unwrap();
-        assert!(lineage.visible);
+        let lineage = volume.lineage(42, None, &[41], &[]).unwrap();
+        assert!(lineage.visible());
         assert!(lineage.in_app_root);
-        assert!(!volume.lineage(43, None, &[41]).unwrap().visible);
-        assert!(!volume.lineage(42, None, &[]).unwrap().visible);
-        assert!(!volume.lineage(22, None, &[41]).unwrap().in_app_root);
+        assert!(!volume.lineage(43, None, &[41], &[]).unwrap().visible());
+        assert!(!volume.lineage(42, None, &[], &[]).unwrap().visible());
+        assert!(!volume.lineage(22, None, &[41], &[]).unwrap().in_app_root);
     }
 
     #[test]

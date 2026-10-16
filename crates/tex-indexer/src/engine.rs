@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use tex_index::{Query, SearchRequest, VolumeIndex};
+use tex_index::{Categories, Query, SearchRequest, VolumeIndex};
 use tex_ipc::{Filter, Hit, Request, Response, Results, SearchQuery, VolumeState, VolumeStatus};
 
 pub trait Handler: Send + Sync {
@@ -120,6 +120,9 @@ impl Engine {
             limit: request.limit as usize,
             home: (!request.home.is_empty()).then_some(request.home.as_str()),
             include_hidden: request.include_hidden,
+            include_system: false,
+            excluded_folders: &[],
+            categories: Categories::ALL,
             app_roots: &app_roots,
         };
         let Some(outcome) = tex_index::search(&indexes, &search_request, &|| false) else {

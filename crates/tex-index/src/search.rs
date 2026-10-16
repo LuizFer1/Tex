@@ -27,7 +27,26 @@ pub struct SearchRequest<'a> {
     pub limit: usize,
     pub home: Option<&'a str>,
     pub include_hidden: bool,
+    pub include_system: bool,
+    pub excluded_folders: &'a [&'a str],
+    pub categories: Categories,
     pub app_roots: &'a [&'a str],
+}
+
+/// Which kinds of results a search may return.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Categories {
+    pub apps: bool,
+    pub files: bool,
+    pub folders: bool,
+}
+
+impl Categories {
+    pub const ALL: Self = Self {
+        apps: true,
+        files: true,
+        folders: true,
+    };
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,6 +95,16 @@ pub fn search(
                 .collect()
         })
         .collect();
+    let excluded: Vec<Vec<Record>> = volumes
+        .iter()
+        .map(|volume| {
+            request
+                .excluded_folders
+                .iter()
+                .filter_map(|folder| volume.cached_lookup(folder))
+                .collect()
+        })
+        .collect();
     let chunks: Vec<(usize, usize)> = volumes
         .iter()
         .enumerate()
@@ -103,7 +132,7 @@ pub fn search(
                         else {
                             return Some(worker);
                         };
-                        worker.scan(volumes[v], v, start, homes[v], &roots[v]);
+                        worker.scan(volumes[v], v, start, homes[v], &roots[v], &excluded[v]);
                     }
                 })
             })
@@ -160,6 +189,7 @@ impl<'a> Worker<'a> {
         start: usize,
         home: Option<Record>,
         app_roots: &[Record],
+        excluded: &[Record],
     ) {
         let entries = volume.entries();
         let end = (start + CHUNK).min(entries.len());
@@ -176,14 +206,28 @@ impl<'a> Worker<'a> {
             let Some(kind) = self.request.query.matches(name, &mut self.scratch) else {
                 continue;
             };
-            let Some(lineage) = volume.lineage(record, home, app_roots) else {
+            let Some(lineage) = volume.lineage(record, home, app_roots, excluded) else {
                 continue;
             };
-            if !lineage.visible && !self.request.include_hidden {
+            if (lineage.hidden && !self.request.include_hidden)
+                || (lineage.system && !self.request.include_system)
+                || lineage.excluded
+            {
                 continue;
             }
             let app = app_rank(entry.is_dir(), name, lineage.in_app_root);
             let is_app = app != NOT_APP;
+            let categories = self.request.categories;
+            let shown = if is_app {
+                categories.apps
+            } else if entry.is_dir() {
+                categories.folders
+            } else {
+                categories.files
+            };
+            if !shown {
+                continue;
+            }
             if (self.request.filter == Filter::Apps && !is_app)
                 || (self.request.filter == Filter::Files && is_app)
             {
@@ -315,14 +359,36 @@ mod tests {
     ) -> SearchOutcome {
         let query = Query::parse(text).unwrap();
         let request = SearchRequest {
-            query: &query,
             filter,
             limit,
             home,
             include_hidden,
-            app_roots: &[],
+            ..base(&query)
         };
         search(volumes, &request, &|| false).unwrap()
+    }
+
+    fn base(query: &Query) -> SearchRequest<'_> {
+        SearchRequest {
+            query,
+            filter: Filter::All,
+            limit: 10,
+            home: None,
+            include_hidden: false,
+            include_system: false,
+            excluded_folders: &[],
+            categories: Categories::ALL,
+            app_roots: &[],
+        }
+    }
+
+    fn found(volume: &VolumeIndex, request: &SearchRequest) -> Vec<String> {
+        search(&[volume], request, &|| false)
+            .unwrap()
+            .hits
+            .into_iter()
+            .map(|hit| hit.path)
+            .collect()
     }
 
     fn paths(outcome: &SearchOutcome) -> Vec<&str> {
@@ -354,16 +420,74 @@ mod tests {
     }
 
     #[test]
-    fn hidden_items_only_with_include_hidden() {
+    fn hidden_and_system_are_separate() {
         let c = drive_c();
+        let query = Query::parse("relatorio").unwrap();
+        let with = |include_hidden, include_system| {
+            found(
+                &c,
+                &SearchRequest {
+                    include_hidden,
+                    include_system,
+                    ..base(&query)
+                },
+            )
+        };
+        let tmp = r"C:\Users\luis\AppData\relatorio.tmp".to_string();
+        let log = r"C:\Windows\relatorio.log".to_string();
+        let bak = r"C:\$Recycle.Bin\relatorio.bak".to_string();
+        assert_eq!(with(false, false).len(), 3);
+        let hidden = with(true, false);
+        assert!(hidden.contains(&tmp) && !hidden.contains(&log) && !hidden.contains(&bak));
+        let system = with(false, true);
+        assert!(!system.contains(&tmp) && system.contains(&log) && !system.contains(&bak));
+        let both = with(true, true);
+        assert!(both.contains(&tmp) && both.contains(&log) && both.contains(&bak));
+    }
+
+    #[test]
+    fn excluded_folder_hides_descendants() {
+        let c = drive_c();
+        let query = Query::parse("relatorio").unwrap();
+        let request = SearchRequest {
+            excluded_folders: &[r"C:\Projetos"],
+            ..base(&query)
+        };
         assert_eq!(
-            run(&[&c], "relatorio", Filter::All, 10, None, false).total,
-            3
+            found(&c, &request),
+            [r"C:\Users\luis\Documents\Relatório final.pdf"]
         );
+    }
+
+    #[test]
+    fn excluded_folder_itself_is_hidden() {
+        let c = drive_c();
+        let query = Query::parse("projetos").unwrap();
+        let request = SearchRequest {
+            excluded_folders: &[r"c:\projetos\"],
+            ..base(&query)
+        };
+        assert!(found(&c, &request).is_empty());
+    }
+
+    #[test]
+    fn disabled_categories_do_not_use_the_limit() {
+        let c = drive_c();
+        let query = Query::parse("relatorio").unwrap();
+        let request = SearchRequest {
+            limit: 1,
+            categories: Categories {
+                folders: false,
+                ..Categories::ALL
+            },
+            ..base(&query)
+        };
+        let outcome = search(&[&c], &request, &|| false).unwrap();
         assert_eq!(
-            run(&[&c], "relatorio", Filter::All, 10, None, true).total,
-            6
+            paths(&outcome),
+            [r"C:\Users\luis\Documents\Relatório final.pdf"]
         );
+        assert_eq!(outcome.total, 2);
     }
 
     #[test]
@@ -444,15 +568,7 @@ mod tests {
     fn cancelled_search_returns_none() {
         let c = drive_c();
         let query = Query::parse("relatorio").unwrap();
-        let request = SearchRequest {
-            query: &query,
-            filter: Filter::All,
-            limit: 10,
-            home: None,
-            include_hidden: false,
-            app_roots: &[],
-        };
-        assert!(search(&[&c], &request, &|| true).is_none());
+        assert!(search(&[&c], &base(&query), &|| true).is_none());
     }
 
     fn with_apps() -> VolumeIndex {
@@ -476,12 +592,9 @@ mod tests {
     fn run_apps(volume: &VolumeIndex, filter: Filter, app_roots: &[&str]) -> SearchOutcome {
         let query = Query::parse("relatorio").unwrap();
         let request = SearchRequest {
-            query: &query,
             filter,
-            limit: 10,
-            home: None,
-            include_hidden: false,
             app_roots,
+            ..base(&query)
         };
         search(&[volume], &request, &|| false).unwrap()
     }

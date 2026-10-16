@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use tex_index::{Attributes, Filter, Query, ROOT, SearchRequest, VolumeIndex, search};
+use tex_index::{Attributes, Categories, Filter, Query, ROOT, SearchRequest, VolumeIndex, search};
 
 const WORDS: [&str; 16] = [
     "report", "invoice", "photo", "backup", "notes", "draft", "final", "budget", "project",
@@ -53,6 +53,9 @@ fn time(volume: &VolumeIndex, text: &str) -> (u32, Duration) {
         limit: 50,
         home: None,
         include_hidden: false,
+        include_system: false,
+        excluded_folders: &[],
+        categories: Categories::ALL,
         app_roots: &[],
     };
     search(&[volume], &request, &|| false).unwrap();
