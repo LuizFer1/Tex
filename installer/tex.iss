@@ -59,8 +59,8 @@ Name: "{userprograms}\Tex"; Filename: "{app}\tex.exe"; Check: JustMe
 Name: "{commonprograms}\Tex"; Filename: "{app}\tex.exe"; Check: Everyone
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Tex"; ValueData: """{app}\tex.exe"""; Flags: uninsdeletevalue; Check: JustMe
-Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Tex"; ValueData: """{app}\tex.exe"""; Flags: uninsdeletevalue; Check: Everyone
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Tex"; ValueData: """{app}\tex.exe"" --autostart"; Flags: uninsdeletevalue; Check: JustMe
+Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Tex"; ValueData: """{app}\tex.exe"" --autostart"; Flags: uninsdeletevalue; Check: Everyone
 
 [Run]
 Filename: "{app}\tex.exe"; Description: "{cm:LaunchTex}"; Flags: nowait postinstall skipifsilent runasoriginaluser
