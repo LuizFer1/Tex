@@ -133,7 +133,20 @@ cargo build --release     # build target/release/tex.exe
 cargo test
 ```
 
-Press **Alt+Space** to open the search popup. **Esc** or clicking outside closes it. The tray icon has Open, About, and Quit.
+Search needs the indexing service, which reads the NTFS file tables and must run as administrator:
+
+```sh
+cargo build --release
+target\release\tex-indexer.exe install     # in an administrator terminal; uninstall removes it
+```
+
+To try the app without administrator rights, serve a single folder instead:
+
+```sh
+cargo run --release -p tex-indexer --example fake_server -- C:\Users\you
+```
+
+Press **Alt+Space** to open the search popup and type. **↑/↓** move the selection, **Enter** opens the item, **Ctrl+Enter** shows it in its folder, **Tab** switches between All, Files and Folders, and **Esc** or clicking outside closes the popup. The tray icon has Open, About, and Quit.
 
 Measured with the release build on Windows 10 at 1920×1080: about 15 MB working set at startup, about 18 MB after opening the popup, and no CPU time while idle.
 

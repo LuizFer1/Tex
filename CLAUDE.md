@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project state
 
-Tex is a personal desktop assistant: universal search (files, folders, installed apps) plus clipboard history. Only the foundation exists so far: tray icon, global hotkey, and an empty search popup. Search, clipboard capture, storage, and retention are not implemented yet.
+Tex is a personal desktop assistant: universal search (files, folders, installed apps) plus clipboard history. Implemented: tray icon, global hotkey, popup, and file/folder search (service + results UI). Not implemented yet: installed apps in search, clipboard capture, storage, retention.
 
 The full functional requirements document (in Portuguese) is `Local/Tex_Documento_Requisitos_Funcionais.md`. `README.md` is the public English summary of it. Design specs live in `Local/specs/`.
 
@@ -30,7 +30,7 @@ Only one Tex can run at a time (named mutex). Quit the running one from the tray
 
 Cargo workspace, crates in `crates/`:
 
-- `tex-app` (binary `tex`): Slint UI and app wiring. `.slint` files are in `ui/` and compiled by `build.rs` with the Fluent style. `ui/app.slint` re-exports the three root components: `Popup` (frameless search window), `AboutWindow`, and `TexTray` (Slint's built-in `SystemTrayIcon`, so there is no `tray-icon` crate).
+- `tex-app` (binary `tex`): Slint UI and app wiring. `.slint` files are in `ui/` and compiled by `build.rs` with the Fluent style. `ui/app.slint` re-exports the three root components: `Popup` (frameless search window), `AboutWindow`, and `TexTray` (Slint's built-in `SystemTrayIcon`, so there is no `tray-icon` crate). search_client.rs owns the pipe on a background thread and coalesces keystrokes (only the newest search is sent); results.rs holds the pure row/selection logic.
 - `tex-platform`: OS-specific code behind a per-OS module with the same public API (`SingleInstance`, `work_area_under_cursor`). Uses `windows-sys` 0.59, the same version `global-hotkey` pulls in.
 - `tex-index`: pure in-memory file name index (no OS calls). One `VolumeIndex` per drive: a `Vec` of 12-byte entries positioned by MFT record number, plus a single UTF-8 name buffer. Renames append names; the buffer is compacted when over 25% is garbage. `search` scans all volumes in parallel (`std::thread::scope`, top-K heap per thread) and can be cancelled. Snapshots are a versioned binary format; bump `VERSION` in `snapshot.rs` on any layout change.
 - `tex-ipc`: messages between the app and the search service (`serde` + `postcard`, u32 length prefix, 4 MB limit).
