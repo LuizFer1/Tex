@@ -4,7 +4,7 @@ use std::io::{self, Read, Write};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-pub const PIPE_NAME: &str = r"\.\pipe\tex-indexer";
+pub const PIPE_NAME: &str = r"\\.\pipe\tex-indexer";
 pub const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
