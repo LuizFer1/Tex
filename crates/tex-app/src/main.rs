@@ -1,12 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod icon;
-#[allow(dead_code)]
 mod icons;
 mod placement;
 mod results;
 mod search_client;
 
+use std::cell::RefCell;
 use std::error::Error;
 
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
@@ -14,14 +14,26 @@ use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use slint::winit_030::winit::event::WindowEvent;
 use slint::winit_030::winit::platform::windows::WindowExtWindows;
 use slint::winit_030::{EventResult, WinitWindowAccessor};
-use slint::{ComponentHandle, Model, ModelRc, PhysicalPosition, VecModel};
+use slint::{
+    ComponentHandle, Image, Model, ModelRc, PhysicalPosition, Rgba8Pixel, SharedPixelBuffer,
+    VecModel,
+};
 use tex_ipc::Filter;
-use tex_platform::{SingleInstance, open_path, reveal_in_folder, work_area_under_cursor};
+use tex_platform::{
+    IconPixels, SingleInstance, open_path, reveal_in_folder, work_area_under_cursor,
+};
 
+use crate::icons::{IconCache, IconLoader, IconState};
 use crate::results::{Row, SERVICE_UNAVAILABLE, build_rows, status_text, step_selection};
 use crate::search_client::{Command, Event, SearchClient};
 
 slint::include_modules!();
+
+const ICON_CACHE_SIZE: usize = 256;
+
+thread_local! {
+    static ICONS: RefCell<IconCache<Image>> = RefCell::new(IconCache::new(ICON_CACHE_SIZE));
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
     let Some(_instance) = SingleInstance::acquire("Local\\Tex.SingleInstance")? else {
@@ -38,10 +50,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     about.set_version(env!("CARGO_PKG_VERSION").into());
     tray.set_icon_image(icon::tray_icon());
 
+    let icons = IconLoader::start({
+        let popup = popup.as_weak();
+        move |path, pixels| {
+            let _ = popup.upgrade_in_event_loop(move |popup| icon_loaded(&popup, path, pixels));
+        }
+    });
+
     let client = SearchClient::start(std::env::var("USERPROFILE").unwrap_or_default(), {
         let popup = popup.as_weak();
+        let icons = icons.clone();
         move |event| {
-            let _ = popup.upgrade_in_event_loop(move |popup| show_event(&popup, event));
+            let icons = icons.clone();
+            let _ = popup.upgrade_in_event_loop(move |popup| show_event(&popup, event, &icons));
         }
     });
 
@@ -204,7 +225,7 @@ fn move_selection(popup: &Popup, step: i32) {
     }
 }
 
-fn show_event(popup: &Popup, event: Event) {
+fn show_event(popup: &Popup, event: Event, icons: &IconLoader) {
     match event {
         Event::Results(results) => {
             if popup.get_query().trim().is_empty() {
@@ -213,7 +234,7 @@ fn show_event(popup: &Popup, event: Event) {
             let rows = build_rows(&results.hits);
             let is_item: Vec<bool> = rows.iter().map(Row::is_item).collect();
             let selected = step_selection(&is_item, None, 1);
-            let model: Vec<ResultRow> = rows.iter().map(to_result_row).collect();
+            let model: Vec<ResultRow> = rows.iter().map(|row| to_result_row(row, icons)).collect();
             popup.set_rows(ModelRc::new(VecModel::from(model)));
             popup.set_selected(selected.map_or(-1, |index| index as i32));
             if popup.get_status_text() == SERVICE_UNAVAILABLE {
@@ -229,7 +250,7 @@ fn show_event(popup: &Popup, event: Event) {
     }
 }
 
-fn to_result_row(row: &Row) -> ResultRow {
+fn to_result_row(row: &Row, icons: &IconLoader) -> ResultRow {
     match row {
         Row::Header(title) => ResultRow {
             header: true,
@@ -242,14 +263,32 @@ fn to_result_row(row: &Row) -> ResultRow {
             path,
             is_dir,
             is_app,
-        } => ResultRow {
-            header: false,
-            title: name.as_str().into(),
-            folder: folder.as_str().into(),
-            path: path.as_str().into(),
-            is_dir: *is_dir,
-            is_app: *is_app,
-        },
+        } => {
+            let mut result = ResultRow {
+                header: false,
+                title: name.as_str().into(),
+                folder: folder.as_str().into(),
+                path: path.as_str().into(),
+                is_dir: *is_dir,
+                is_app: *is_app,
+                ..Default::default()
+            };
+            if *is_app {
+                ICONS.with_borrow_mut(|cache| match cache.get(path) {
+                    Some(IconState::Loaded(icon)) => {
+                        result.icon = icon.clone();
+                        result.has_icon = true;
+                    }
+                    Some(_) => {}
+                    None => {
+                        if cache.mark_requested(path) {
+                            icons.request(path.clone());
+                        }
+                    }
+                });
+            }
+            result
+        }
     }
 }
 
@@ -270,5 +309,31 @@ fn activate(popup: &Popup, index: i32, reveal: bool) {
     };
     if opened.is_ok() {
         let _ = popup.hide();
+    }
+}
+
+/// Stores a freshly loaded icon and puts it on every visible row for that path.
+fn icon_loaded(popup: &Popup, path: String, pixels: Option<IconPixels>) {
+    let image = pixels.map(|pixels| {
+        Image::from_rgba8(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+            &pixels.rgba,
+            pixels.width,
+            pixels.height,
+        ))
+    });
+    ICONS.with_borrow_mut(|cache| cache.store(path.clone(), image.clone()));
+    let Some(image) = image else {
+        return;
+    };
+    let rows = popup.get_rows();
+    for index in 0..rows.row_count() {
+        if let Some(mut row) = rows.row_data(index)
+            && row.is_app
+            && row.path == path.as_str()
+        {
+            row.icon = image.clone();
+            row.has_icon = true;
+            rows.set_row_data(index, row);
+        }
     }
 }

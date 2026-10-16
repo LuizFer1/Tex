@@ -7,6 +7,8 @@ export struct ResultRow {
     path: string,
     is-dir: bool,
     is-app: bool,
+    icon: image,
+    has-icon: bool,
 }
 
 component FilterChip inherits Rectangle {
@@ -60,8 +62,15 @@ component ResultItem inherits Rectangle {
         spacing: 10px;
 
         VerticalLayout {
+            width: 20px;
             alignment: center;
-            Rectangle {
+            if root.item.has-icon: Image {
+                width: 20px;
+                height: 20px;
+                source: root.item.icon;
+                image-fit: contain;
+            }
+            if !root.item.has-icon: Rectangle {
                 width: root.item.is-app ? 12px : 14px;
                 height: root.item.is-app ? 12px : 11px;
                 border-radius: root.item.is-app ? 4px : 2px;

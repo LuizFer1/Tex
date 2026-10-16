@@ -29,6 +29,7 @@ impl<T> IconCache<T> {
         }
     }
 
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.entries.len()
     }
