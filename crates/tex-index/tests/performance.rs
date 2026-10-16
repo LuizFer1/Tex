@@ -53,6 +53,7 @@ fn time(volume: &VolumeIndex, text: &str) -> (u32, Duration) {
         limit: 50,
         home: None,
         include_hidden: false,
+        app_roots: &[],
     };
     search(&[volume], &request, &|| false).unwrap();
     let started = Instant::now();

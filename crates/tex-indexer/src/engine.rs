@@ -116,6 +116,7 @@ impl Engine {
             limit: request.limit as usize,
             home: (!request.home.is_empty()).then_some(request.home.as_str()),
             include_hidden: request.include_hidden,
+            app_roots: &[],
         };
         let Some(outcome) = tex_index::search(&indexes, &search_request, &|| false) else {
             return empty;
