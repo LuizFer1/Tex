@@ -15,6 +15,7 @@ cargo run -p tex-app                     # debug build, keeps a console for epri
 cargo build --release                    # target/release/tex.exe, no console window
 cargo test                               # all tests
 cargo test -p tex-app popup_origin       # tests matching a name
+cargo test --release -p tex-index --test performance -- --ignored --nocapture   # 3M-entry search benchmark
 cargo clippy --all-targets
 cargo fmt
 ```
@@ -27,6 +28,8 @@ Cargo workspace, crates in `crates/`:
 
 - `tex-app` (binary `tex`): Slint UI and app wiring. `.slint` files are in `ui/` and compiled by `build.rs` with the Fluent style. `ui/app.slint` re-exports the three root components: `Popup` (frameless search window), `AboutWindow`, and `TexTray` (Slint's built-in `SystemTrayIcon`, so there is no `tray-icon` crate).
 - `tex-platform`: OS-specific code behind a per-OS module with the same public API (`SingleInstance`, `work_area_under_cursor`). Uses `windows-sys` 0.59, the same version `global-hotkey` pulls in.
+- `tex-index`: pure in-memory file name index (no OS calls). One `VolumeIndex` per drive: a `Vec` of 12-byte entries positioned by MFT record number, plus a single UTF-8 name buffer. Renames append names; the buffer is compacted when over 25% is garbage. `search` scans all volumes in parallel (`std::thread::scope`, top-K heap per thread) and can be cancelled. Snapshots are a versioned binary format; bump `VERSION` in `snapshot.rs` on any layout change.
+- `tex-ipc`: messages between the app and the search service (`serde` + `postcard`, u32 length prefix, 4 MB limit). The service is not built yet (plan 2 in `Local/plans/`).
 
 Event flow: everything runs on the main thread inside Slint's winit event loop (`run_event_loop_until_quit`, so hiding every window does not exit). `global-hotkey` needs a Win32 message loop on the thread that created the manager, and winit's loop provides it. Hotkey callbacks arrive through `set_event_handler` and go back into Slint with `upgrade_in_event_loop`. Nothing polls and there are no timers, so the CPU stays at 0 while idle. Keep it that way.
 
