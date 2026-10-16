@@ -4320,6 +4320,7 @@ dependencies = [
  "global-hotkey",
  "slint",
  "slint-build",
+ "tex-ipc",
  "tex-platform",
 ]
 

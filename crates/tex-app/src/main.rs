@@ -2,6 +2,8 @@
 
 mod icon;
 mod placement;
+#[allow(dead_code)]
+mod results;
 
 use std::error::Error;
 

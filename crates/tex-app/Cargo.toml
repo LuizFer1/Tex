@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 tex-platform.workspace = true
+tex-ipc.workspace = true
 global-hotkey.workspace = true
 slint.workspace = true
 
