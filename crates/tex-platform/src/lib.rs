@@ -2,6 +2,10 @@
 mod windows;
 #[cfg(windows)]
 pub use windows::{SingleInstance, open_path, reveal_in_folder, work_area_under_cursor};
+#[cfg(windows)]
+mod icon;
+#[cfg(windows)]
+pub use icon::{IconPixels, app_icon, init_icon_thread};
 
 #[cfg(not(windows))]
 compile_error!("tex-platform only supports Windows for now");
