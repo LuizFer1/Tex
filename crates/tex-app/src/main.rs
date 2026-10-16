@@ -5,6 +5,7 @@ mod icons;
 mod placement;
 mod results;
 mod search_client;
+mod shortcut;
 
 use std::cell::RefCell;
 use std::error::Error;
