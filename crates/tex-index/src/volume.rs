@@ -35,6 +35,40 @@ impl VolumeIndex {
         }
     }
 
+    pub(crate) fn raw_parts(&self) -> (&[Entry], &[u8]) {
+        (&self.entries, &self.names)
+    }
+
+    /// Rebuilds an index from snapshot data, checking that every name in use is in range and UTF-8.
+    pub(crate) fn from_raw_parts(
+        letter: char,
+        entries: Vec<Entry>,
+        names: Vec<u8>,
+        windows_dir: Option<Record>,
+    ) -> Result<Self, &'static str> {
+        let mut live = 0;
+        let mut used = 0;
+        for entry in entries.iter().filter(|entry| entry.in_use()) {
+            let start = entry.name_offset as usize;
+            let name = names
+                .get(start..start + entry.name_len as usize)
+                .ok_or("name outside the name buffer")?;
+            std::str::from_utf8(name).map_err(|_| "name is not UTF-8")?;
+            live += 1;
+            used += name.len();
+        }
+        let garbage = names.len().checked_sub(used).ok_or("names overlap")?;
+        Ok(Self {
+            letter,
+            entries,
+            names,
+            garbage,
+            live,
+            windows_dir,
+            lookup_cache: Mutex::new(None),
+        })
+    }
+
     pub fn letter(&self) -> char {
         self.letter
     }
