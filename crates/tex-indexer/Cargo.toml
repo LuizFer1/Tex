@@ -1,0 +1,29 @@
+[package]
+name = "tex-indexer"
+description = "Tex search service: indexes NTFS volumes and answers queries over a named pipe"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "tex-indexer"
+path = "src/main.rs"
+
+[dependencies]
+tex-index.workspace = true
+tex-ipc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-service.workspace = true
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+    "Win32_System_Pipes",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+] }
