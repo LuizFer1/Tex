@@ -1,3 +1,5 @@
+use std::sync::Mutex;
+
 use crate::entry::{Attributes, Entry, ROOT, Record};
 
 const MAX_DEPTH: u16 = 512;
@@ -17,6 +19,7 @@ pub struct VolumeIndex {
     garbage: usize,
     live: usize,
     windows_dir: Option<Record>,
+    lookup_cache: Mutex<Option<(String, Record)>>,
 }
 
 impl VolumeIndex {
@@ -28,6 +31,7 @@ impl VolumeIndex {
             garbage: 0,
             live: 0,
             windows_dir: None,
+            lookup_cache: Mutex::new(None),
         }
     }
 
@@ -169,6 +173,20 @@ impl VolumeIndex {
                     .path(record)
                     .is_some_and(|full| same_name(&full, normalized))
         })
+    }
+
+    /// `lookup` with a one-entry cache, for the home folder that every query sends.
+    pub(crate) fn cached_lookup(&self, path: &str) -> Option<Record> {
+        let mut cache = self.lookup_cache.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((cached, record)) = cache.as_ref()
+            && cached == path
+            && self.entry(*record).is_some()
+        {
+            return Some(*record);
+        }
+        let record = self.lookup(path)?;
+        *cache = Some((path.to_owned(), record));
+        Some(record)
     }
 
     /// Walks from `record` up to the root. `visible` is false if the record or an ancestor is hidden,
