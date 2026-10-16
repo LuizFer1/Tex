@@ -1,6 +1,7 @@
 use crate::entry::{Attributes, Entry, ROOT, Record};
 
 const MAX_DEPTH: u16 = 512;
+const MIN_COMPACT_BYTES: usize = 64 * 1024;
 
 pub struct VolumeIndex {
     letter: char,
@@ -81,6 +82,7 @@ impl VolumeIndex {
             name_len,
             flags: attributes.to_flags(),
         };
+        self.maybe_compact();
     }
 
     pub fn remove(&mut self, record: Record) {
@@ -93,6 +95,26 @@ impl VolumeIndex {
         entry.flags = 0;
         self.garbage += entry.name_len as usize;
         self.live -= 1;
+        self.maybe_compact();
+    }
+
+    /// Rewrites the name buffer with only the names still in use.
+    pub fn compact(&mut self) {
+        let mut names = Vec::with_capacity(self.names.len() - self.garbage);
+        for entry in self.entries.iter_mut().filter(|entry| entry.in_use()) {
+            let start = entry.name_offset as usize;
+            let offset = names.len() as u32;
+            names.extend_from_slice(&self.names[start..start + entry.name_len as usize]);
+            entry.name_offset = offset;
+        }
+        self.names = names;
+        self.garbage = 0;
+    }
+
+    fn maybe_compact(&mut self) {
+        if self.names.len() >= MIN_COMPACT_BYTES && self.garbage * 4 > self.names.len() {
+            self.compact();
+        }
     }
 
     pub fn name(&self, record: Record) -> Option<&str> {
@@ -276,5 +298,32 @@ mod tests {
         assert_eq!(volume.lookup(r"C:\"), Some(ROOT));
         assert_eq!(volume.lookup(r"D:\Users"), None);
         assert_eq!(volume.lookup(r"C:\Users\missing"), None);
+    }
+
+    #[test]
+    fn compact_drops_unused_name_bytes() {
+        let mut volume = sample();
+        volume.upsert(22, 21, "renamed.txt", FILE);
+        volume.compact();
+        assert_eq!(volume.garbage(), 0);
+        assert_eq!(
+            volume.name_bytes(),
+            "Users".len() + "Luís".len() + "renamed.txt".len()
+        );
+        assert_eq!(
+            volume.path(22).as_deref(),
+            Some(r"C:\Users\Luís\renamed.txt")
+        );
+    }
+
+    #[test]
+    fn heavy_renaming_triggers_compaction() {
+        let mut volume = VolumeIndex::new('C');
+        let long = "x".repeat(200);
+        for i in 0..2_000 {
+            volume.upsert(20, ROOT, &format!("{long}{i}"), FILE);
+        }
+        assert!(volume.name_bytes() < MIN_COMPACT_BYTES + 1024);
+        assert_eq!(volume.name(20), Some(format!("{long}1999").as_str()));
     }
 }
