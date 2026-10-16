@@ -10,6 +10,7 @@ publish = false
 
 [workspace.dependencies]
 tex-platform = { path = "crates/tex-platform" }
+tex-index = { path = "crates/tex-index" }
 global-hotkey = "0.8.0"
 slint = { version = "1.18.1", default-features = false, features = [
     "std",

@@ -4243,6 +4243,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "tex-index"
+version = "0.1.0"
+
+[[package]]
 name = "tex-platform"
 version = "0.1.0"
 dependencies = [
