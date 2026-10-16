@@ -1,0 +1,39 @@
+import { LineEdit, Palette } from "std-widgets.slint";
+
+export component Popup inherits Window {
+    title: "Tex";
+    no-frame: true;
+    always-on-top: true;
+    width: 640px;
+    height: 56px;
+    background: Palette.background;
+    forward-focus: input;
+
+    in-out property <string> query;
+    callback dismissed();
+
+    public function reset() {
+        root.query = "";
+        input.focus();
+    }
+
+    FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.dismissed();
+                return accept;
+            }
+            reject
+        }
+
+        input := LineEdit {
+            x: 8px;
+            y: 8px;
+            width: parent.width - 16px;
+            height: parent.height - 16px;
+            font-size: 18px;
+            placeholder-text: "Search files, folders and apps";
+            text <=> root.query;
+        }
+    }
+}

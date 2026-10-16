@@ -1,0 +1,29 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license-file = "LICENSE.md"
+publish = false
+
+[workspace.dependencies]
+tex-platform = { path = "crates/tex-platform" }
+global-hotkey = "0.8.0"
+slint = { version = "1.18.1", default-features = false, features = [
+    "std",
+    "compat-1-2",
+    "backend-winit",
+    "renderer-software",
+    "accessibility",
+    "system-tray",
+    "unstable-winit-030",
+] }
+slint-build = "1.18.1"
+windows-sys = "0.59"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

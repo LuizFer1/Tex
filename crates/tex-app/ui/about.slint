@@ -1,0 +1,29 @@
+import { AboutSlint, VerticalBox } from "std-widgets.slint";
+
+export component AboutWindow inherits Window {
+    title: "About Tex";
+    in property <string> version;
+
+    VerticalBox {
+        alignment: start;
+
+        Text {
+            text: "Tex " + root.version;
+            font-size: 20px;
+            font-weight: 600;
+            horizontal-alignment: center;
+        }
+
+        Text {
+            text: "Your desktop, within reach.";
+            horizontal-alignment: center;
+        }
+
+        Text {
+            text: "PolyForm Noncommercial License 1.0.0";
+            horizontal-alignment: center;
+        }
+
+        AboutSlint { }
+    }
+}

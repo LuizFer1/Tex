@@ -102,7 +102,7 @@ What you copy can be anything: notes, addresses, links, private messages. Tex tr
 
 | Layer | Technology |
 | --- | --- |
-| UI | Rust |
+| UI | Rust + [Slint](https://slint.dev) |
 | Features (search, clipboard capture, retention) | Rust |
 | Clipboard history | SQLite |
 
@@ -120,6 +120,22 @@ What you copy can be anything: notes, addresses, links, private messages. Tex tr
 - The data is protected with basic encryption at rest.
 
 **No external services.** No account SDK, no analytics SDK, no backend SDK, no network calls. Every new dependency has to fit an app that works with no network and no telemetry.
+
+---
+
+## Development
+
+Requires stable Rust with the MSVC toolchain. Windows only for now.
+
+```sh
+cargo run -p tex-app      # run a debug build
+cargo build --release     # build target/release/tex.exe
+cargo test
+```
+
+Press **Alt+Space** to open the search popup. **Esc** or clicking outside closes it. The tray icon has Open, About, and Quit.
+
+Measured with the release build on Windows 10 at 1920×1080: about 15 MB working set at startup, about 18 MB after opening the popup, and no CPU time while idle.
 
 ---
 

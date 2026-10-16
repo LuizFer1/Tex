@@ -1,0 +1,38 @@
+export component TexTray inherits SystemTrayIcon {
+    in property <image> icon-image;
+    icon: root.icon-image;
+    tooltip: "Tex";
+
+    callback open();
+    callback about();
+    callback quit();
+
+    clicked => {
+        root.open();
+    }
+
+    Menu {
+        MenuItem {
+            title: "Open Tex";
+            activated => {
+                root.open();
+            }
+        }
+
+        MenuItem {
+            title: "About Tex";
+            activated => {
+                root.about();
+            }
+        }
+
+        MenuSeparator { }
+
+        MenuItem {
+            title: "Quit";
+            activated => {
+                root.quit();
+            }
+        }
+    }
+}

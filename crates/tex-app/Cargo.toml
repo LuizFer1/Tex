@@ -1,0 +1,19 @@
+[package]
+name = "tex-app"
+description = "Tex desktop app: popup, tray and global hotkey"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "tex"
+path = "src/main.rs"
+
+[dependencies]
+tex-platform.workspace = true
+global-hotkey.workspace = true
+slint.workspace = true
+
+[build-dependencies]
+slint-build.workspace = true
