@@ -64,7 +64,7 @@ The history should not grow forever. You choose one policy, and Tex applies it t
 - 1 week
 - 1 month
 
-**By storage.** You set a size limit for the history (for example, 1 GB).
+**By storage.** You pick a size limit for the history: 250 MB, 500 MB, 1 GB, 2 GB, or 5 GB.
 
 - When usage reaches **90% of the limit**, Tex starts removing the **oldest non-favorite** entries.
 - Cleanup frees enough space to take real pressure off the limit, instead of deleting one entry at a time at the edge.
@@ -74,7 +74,7 @@ The history should not grow forever. You choose one policy, and Tex applies it t
 Favorites are the entries you want to keep.
 
 - A favorite **never expires** by time.
-- A favorite is **never removed** by storage cleanup.
+- A favorite is **never removed** by storage cleanup, and favorites **do not count** toward the storage limit.
 - A favorite stays until **you** delete it.
 - Any entry can be favorited or unfavorited at any time.
 
@@ -85,16 +85,13 @@ What you copy can be anything: notes, addresses, links, private messages. Tex tr
 - The history is stored **locally**, on your computer only.
 - Stored data is protected with **basic encryption**.
 - Nothing is sent to the internet. There is no account, no cloud, and no tracking.
-- You stay responsible for what you keep. Search, preview, and delete make it easy to review the history and remove what you do not want stored.
+- You stay responsible for what you keep. Tex does not try to detect passwords on its own. Instead you can pause capture, ignore specific apps, let Tex skip what password managers mark as private, and review and delete entries.
 
 ### Still to be decided
 
 | Topic | Open question |
 | --- | --- |
-| Favorites over the limit | What happens when favorites alone exceed the storage limit. |
 | Editing images | Whether "edit" means only the name, or also the image content. |
-| Sensitive content | How to handle passwords, authentication codes, and other sensitive data. |
-| Storage presets | Whether there are preset limits to pick from, or any allowed value can be typed. |
 
 ---
 
@@ -125,7 +122,7 @@ What you copy can be anything: notes, addresses, links, private messages. Tex tr
 
 ## Install
 
-Download `Tex-Setup-<version>.exe` from [Releases](https://github.com/LuizFer1/Tex/releases) and run it. It asks for administrator rights because the search service reads the NTFS file tables, and it asks whether only your account or everyone who signs in to the computer can search. Tex then starts with Windows.
+Download `Tex-Setup-<version>.exe` from [Releases](https://github.com/LuizFer1/Tex/releases) and run it. It asks for administrator rights because the search service reads the NTFS file tables, and it asks whether only your account or everyone who signs in to the computer can search. Tex then starts with Windows; you can turn that off in Settings (tray menu, or Ctrl+, in the search box), along with the shortcut, theme, language, and what search includes.
 
 ---
 
