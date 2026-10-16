@@ -40,7 +40,9 @@ fn ask(file: &File, request: &Request) -> Response {
 #[test]
 fn serves_several_clients_over_a_named_pipe() {
     let name = format!(r"\\.\pipe\tex-test-{}", std::process::id());
-    let sddl = pipe::service_sddl(&account::current_user_sid().unwrap());
+    let sddl = pipe::service_sddl(&pipe::PipeAccess::User(
+        account::current_user_sid().unwrap(),
+    ));
     let server_name = name.clone();
     thread::spawn(move || pipe::serve(&server_name, &sddl, Arc::new(Fixed)));
 

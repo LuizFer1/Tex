@@ -42,8 +42,12 @@ fn main() {
     }
     let sid = account::current_user_sid().expect("current user SID");
     println!("serving {PIPE_NAME}; stop with Ctrl+C");
-    pipe::serve(PIPE_NAME, &pipe::service_sddl(&sid), engine)
-        .expect("pipe server (is the service running?)");
+    pipe::serve(
+        PIPE_NAME,
+        &pipe::service_sddl(&pipe::PipeAccess::User(sid)),
+        engine,
+    )
+    .expect("pipe server (is the service running?)");
 }
 
 fn walk(root: &Path) -> VolumeIndex {
