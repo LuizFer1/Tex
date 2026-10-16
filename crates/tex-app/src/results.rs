@@ -103,6 +103,7 @@ mod tests {
         Hit {
             path: path.into(),
             is_dir,
+            is_app: false,
         }
     }
 

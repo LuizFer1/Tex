@@ -28,6 +28,7 @@ pub enum Filter {
     All,
     Files,
     Folders,
+    Apps,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,6 +48,7 @@ pub struct Results {
 pub struct Hit {
     pub path: String,
     pub is_dir: bool,
+    pub is_app: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -129,6 +131,7 @@ mod tests {
             hits: vec![Hit {
                 path: r"C:\Projetos\relatorio.pdf".into(),
                 is_dir: false,
+                is_app: true,
             }],
             total: 1,
         }));

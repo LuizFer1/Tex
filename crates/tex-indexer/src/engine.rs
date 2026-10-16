@@ -109,14 +109,18 @@ impl Engine {
             Filter::All => tex_index::Filter::All,
             Filter::Files => tex_index::Filter::Files,
             Filter::Folders => tex_index::Filter::Folders,
+            Filter::Apps => tex_index::Filter::Apps,
         };
+        let program_data = std::env::var("ProgramData").ok();
+        let roots = start_menu_roots(program_data.as_deref(), &request.home);
+        let app_roots: Vec<&str> = roots.iter().map(String::as_str).collect();
         let search_request = SearchRequest {
             query: &query,
             filter,
             limit: request.limit as usize,
             home: (!request.home.is_empty()).then_some(request.home.as_str()),
             include_hidden: request.include_hidden,
-            app_roots: &[],
+            app_roots: &app_roots,
         };
         let Some(outcome) = tex_index::search(&indexes, &search_request, &|| false) else {
             return empty;
@@ -129,11 +133,31 @@ impl Engine {
                 .map(|hit| Hit {
                     path: hit.path,
                     is_dir: hit.is_dir,
+                    is_app: hit.is_app,
                 })
                 .collect(),
             total: outcome.total,
         }
     }
+}
+
+/// Start Menu folders whose shortcuts count as apps: the shared one and the requesting user's.
+pub fn start_menu_roots(program_data: Option<&str>, home: &str) -> Vec<String> {
+    const PROGRAMS: &str = r"Microsoft\Windows\Start Menu\Programs";
+    let mut roots = Vec::new();
+    if let Some(program_data) = program_data.filter(|path| !path.is_empty()) {
+        roots.push(format!(
+            r"{}\{PROGRAMS}",
+            program_data.trim_end_matches('\\')
+        ));
+    }
+    if !home.is_empty() {
+        roots.push(format!(
+            r"{}\AppData\Roaming\{PROGRAMS}",
+            home.trim_end_matches('\\')
+        ));
+    }
+    roots
 }
 
 impl Handler for Engine {
@@ -204,7 +228,8 @@ mod tests {
             results.hits,
             [Hit {
                 path: r"C:\Projetos\relatorio.pdf".into(),
-                is_dir: false
+                is_dir: false,
+                is_app: false,
             }]
         );
     }
@@ -280,5 +305,105 @@ mod tests {
             Response::Status(volumes) => assert_eq!(volumes.len(), 1),
             other => panic!("unexpected {other:?}"),
         }
+    }
+
+    #[test]
+    fn start_menu_roots_cover_shared_and_user_menus() {
+        assert_eq!(
+            start_menu_roots(Some(r"C:\ProgramData"), r"C:\Users\luis"),
+            [
+                r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs",
+                r"C:\Users\luis\AppData\Roaming\Microsoft\Windows\Start Menu\Programs",
+            ]
+        );
+        assert!(start_menu_roots(None, "").is_empty());
+    }
+
+    #[test]
+    fn user_start_menu_shortcuts_are_apps() {
+        let engine = Engine::new();
+        let hidden_dir = Attributes {
+            dir: true,
+            hidden: true,
+            system: false,
+        };
+        let volume = engine.add('C', 1).unwrap();
+        let mut index = VolumeIndex::new('C');
+        index.upsert(
+            20,
+            ROOT,
+            "Users",
+            Attributes {
+                dir: true,
+                ..Attributes::default()
+            },
+        );
+        index.upsert(
+            21,
+            20,
+            "luis",
+            Attributes {
+                dir: true,
+                ..Attributes::default()
+            },
+        );
+        index.upsert(22, 21, "AppData", hidden_dir);
+        index.upsert(
+            23,
+            22,
+            "Roaming",
+            Attributes {
+                dir: true,
+                ..Attributes::default()
+            },
+        );
+        index.upsert(
+            24,
+            23,
+            "Microsoft",
+            Attributes {
+                dir: true,
+                ..Attributes::default()
+            },
+        );
+        index.upsert(
+            25,
+            24,
+            "Windows",
+            Attributes {
+                dir: true,
+                ..Attributes::default()
+            },
+        );
+        index.upsert(
+            26,
+            25,
+            "Start Menu",
+            Attributes {
+                dir: true,
+                ..Attributes::default()
+            },
+        );
+        index.upsert(
+            27,
+            26,
+            "Programs",
+            Attributes {
+                dir: true,
+                ..Attributes::default()
+            },
+        );
+        index.upsert(28, 27, "Visual Studio Code.lnk", Attributes::default());
+        volume.write().index = Some(index);
+        let mut request = query("code", Filter::Apps);
+        request.home = r"C:\Users\luis".into();
+        let results = engine.search(&request);
+        assert_eq!(results.hits.len(), 1);
+        assert!(results.hits[0].is_app);
+        assert!(
+            results.hits[0]
+                .path
+                .ends_with(r"Programs\Visual Studio Code.lnk")
+        );
     }
 }
