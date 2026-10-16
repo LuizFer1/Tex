@@ -146,7 +146,7 @@ To try the app without administrator rights, serve a single folder instead:
 cargo run --release -p tex-indexer --example fake_server -- C:\Users\you
 ```
 
-Press **Alt+Space** to open the search popup and type. **↑/↓** move the selection, **Enter** opens the item, **Ctrl+Enter** shows it in its folder, **Tab** switches between All, Files and Folders, and **Esc** or clicking outside closes the popup. The tray icon has Open, About, and Quit.
+Press **Alt+Space** to open the search popup and type. **↑/↓** move the selection, **Enter** opens the item, **Ctrl+Enter** shows it in its folder, **Tab** switches between All, Apps, Files and Folders, and **Esc** or clicking outside closes the popup. The tray icon has Open, About, and Quit. Apps (Start Menu shortcuts and executables) are listed first.
 
 Measured with the release build on Windows 10 at 1920×1080: about 15 MB working set at startup, about 18 MB after opening the popup, and no CPU time while idle.
 

@@ -183,8 +183,9 @@ fn search(popup: &Popup, client: &SearchClient) {
         return;
     }
     let filter = match popup.get_filter() {
-        1 => Filter::Files,
-        2 => Filter::Folders,
+        1 => Filter::Apps,
+        2 => Filter::Files,
+        3 => Filter::Folders,
         _ => Filter::All,
     };
     client.send(Command::Search {
@@ -238,12 +239,14 @@ fn to_result_row(row: &Row) -> ResultRow {
             folder,
             path,
             is_dir,
+            is_app,
         } => ResultRow {
             header: false,
             title: name.as_str().into(),
             folder: folder.as_str().into(),
             path: path.as_str().into(),
             is_dir: *is_dir,
+            is_app: *is_app,
         },
     }
 }

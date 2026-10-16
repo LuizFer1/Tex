@@ -11,6 +11,7 @@ pub enum Row {
         folder: String,
         path: String,
         is_dir: bool,
+        is_app: bool,
     },
 }
 
@@ -20,16 +21,18 @@ impl Row {
     }
 }
 
-/// Groups hits under "Folders" and "Files", keeping the service's order inside each group.
-/// The group that holds the best (first) hit comes first.
+/// Groups hits under "Apps", "Folders" and "Files", keeping the service's order inside each group.
+/// Apps always come first; of the other two, the group holding the better hit comes first.
 pub fn build_rows(hits: &[Hit]) -> Vec<Row> {
-    let (folders, files): (Vec<&Hit>, Vec<&Hit>) = hits.iter().partition(|hit| hit.is_dir);
+    let (apps, others): (Vec<&Hit>, Vec<&Hit>) = hits.iter().partition(|hit| hit.is_app);
+    let (folders, files): (Vec<&Hit>, Vec<&Hit>) =
+        others.iter().copied().partition(|hit| hit.is_dir);
     let mut groups = [("Folders", folders), ("Files", files)];
-    if !hits.first().is_some_and(|hit| hit.is_dir) {
+    if !others.first().is_some_and(|hit| hit.is_dir) {
         groups.swap(0, 1);
     }
     let mut rows = Vec::new();
-    for (title, group) in groups {
+    for (title, group) in std::iter::once(("Apps", apps)).chain(groups) {
         if group.is_empty() {
             continue;
         }
@@ -45,12 +48,33 @@ fn item(hit: &Hit) -> Row {
         Some((folder, name)) => (folder.to_owned(), name),
         None => (String::new(), hit.path.as_str()),
     };
+    let name = if hit.is_app {
+        strip_app_extension(name)
+    } else {
+        name
+    };
     Row::Item {
         name: name.to_owned(),
         folder,
         path: hit.path.clone(),
         is_dir: hit.is_dir,
+        is_app: hit.is_app,
     }
+}
+
+fn strip_app_extension(name: &str) -> &str {
+    [".lnk", ".url", ".exe"]
+        .iter()
+        .find_map(|extension| {
+            let cut = name
+                .len()
+                .checked_sub(extension.len())
+                .filter(|&cut| cut > 0)?;
+            name.get(cut..)?
+                .eq_ignore_ascii_case(extension)
+                .then(|| &name[..cut])
+        })
+        .unwrap_or(name)
 }
 
 /// Moves the selection by `step` (+1 or -1) to the next item row, skipping headers. Without a
@@ -113,7 +137,47 @@ mod tests {
             folder: folder.into(),
             path: path.into(),
             is_dir,
+            is_app: false,
         }
+    }
+
+    #[test]
+    fn apps_come_first_without_their_extension() {
+        let app = |path: &str| Hit {
+            path: path.into(),
+            is_dir: false,
+            is_app: true,
+        };
+        let rows = build_rows(&[
+            hit(r"C:\Projetos\code", true),
+            app(r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Visual Studio Code.lnk"),
+            hit(r"C:\notes.code", false),
+            app(r"C:\Program Files\Code\Code.exe"),
+        ]);
+        assert_eq!(
+            rows,
+            [
+                Row::Header("Apps"),
+                Row::Item {
+                    name: "Visual Studio Code".into(),
+                    folder: r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs".into(),
+                    path: r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Visual Studio Code.lnk".into(),
+                    is_dir: false,
+                    is_app: true,
+                },
+                Row::Item {
+                    name: "Code".into(),
+                    folder: r"C:\Program Files\Code".into(),
+                    path: r"C:\Program Files\Code\Code.exe".into(),
+                    is_dir: false,
+                    is_app: true,
+                },
+                Row::Header("Folders"),
+                item("code", r"C:\Projetos", r"C:\Projetos\code", true),
+                Row::Header("Files"),
+                item("notes.code", r"C:\", r"C:\notes.code", false),
+            ]
+        );
     }
 
     #[test]
