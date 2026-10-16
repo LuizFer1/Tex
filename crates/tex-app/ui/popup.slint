@@ -1,39 +1,252 @@
-import { LineEdit, Palette } from "std-widgets.slint";
+import { LineEdit, ListView, Palette } from "std-widgets.slint";
+
+export struct ResultRow {
+    header: bool,
+    title: string,
+    folder: string,
+    path: string,
+    is-dir: bool,
+}
+
+component FilterChip inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    callback clicked();
+
+    width: label-text.preferred-width + 20px;
+    height: 24px;
+    border-radius: 12px;
+    background: root.active ? Palette.accent-background : transparent;
+    border-width: root.active ? 0px : 1px;
+    border-color: Palette.border;
+
+    label-text := Text {
+        text: root.label;
+        color: root.active ? Palette.accent-foreground : Palette.foreground;
+        font-size: 12px;
+        vertical-alignment: center;
+        horizontal-alignment: center;
+    }
+
+    TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+component ResultItem inherits Rectangle {
+    in property <ResultRow> item;
+    in property <bool> selected;
+    callback clicked();
+    callback double-clicked();
+
+    background: root.selected ? Palette.selection-background : transparent;
+    border-radius: 4px;
+
+    if root.item.header: Text {
+        x: 12px;
+        text: root.item.title;
+        font-size: 11px;
+        font-weight: 600;
+        opacity: 0.6;
+        vertical-alignment: center;
+    }
+
+    if !root.item.header: HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 10px;
+
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 14px;
+                height: 11px;
+                border-radius: 2px;
+                background: root.item.is-dir ? #e8a33d : transparent;
+                border-width: root.item.is-dir ? 0px : 1px;
+                border-color: Palette.foreground;
+            }
+        }
+
+        Text {
+            text: root.item.title;
+            max-width: root.width * 0.5;
+            overflow: elide;
+            vertical-alignment: center;
+            color: root.selected ? Palette.selection-foreground : Palette.foreground;
+        }
+
+        Text {
+            text: root.item.folder;
+            horizontal-stretch: 1;
+            overflow: elide;
+            font-size: 12px;
+            opacity: 0.6;
+            vertical-alignment: center;
+            color: root.selected ? Palette.selection-foreground : Palette.foreground;
+        }
+    }
+
+    TouchArea {
+        enabled: !root.item.header;
+        clicked => {
+            root.clicked();
+        }
+        double-clicked => {
+            root.double-clicked();
+        }
+    }
+}
 
 export component Popup inherits Window {
     title: "Tex";
     no-frame: true;
     always-on-top: true;
     width: 640px;
-    height: 56px;
+    height: 56px + (root.expanded ? 30px + (root.rows.length > 0 ? 6px + root.list-height : 0px) + (root.status-text != "" ? 28px : 0px) : 0px);
     background: Palette.background;
     forward-focus: input;
 
     in-out property <string> query;
+    in property <[ResultRow]> rows;
+    in property <int> selected: -1;
+    in property <string> status-text;
+    in-out property <int> filter: 0;
+
     callback dismissed();
+    callback query-edited(string);
+    callback filter-changed(int);
+    callback step(int);
+    callback select(int);
+    callback activate(int, bool);
+
+    property <length> row-height: 30px;
+    property <bool> expanded: root.query != "";
+    property <length> list-height: min(root.rows.length, 8) * root.row-height;
 
     public function reset() {
         root.query = "";
+        root.filter = 0;
         input.focus();
     }
 
+    function set-filter(value: int) {
+        root.filter = value;
+        root.filter-changed(value);
+    }
+
     FocusScope {
-        key-pressed(event) => {
+        capture-key-pressed(event) => {
             if event.text == Key.Escape {
                 root.dismissed();
+                return accept;
+            }
+            if event.text == Key.DownArrow {
+                root.step(1);
+                return accept;
+            }
+            if event.text == Key.UpArrow {
+                root.step(-1);
+                return accept;
+            }
+            if event.text == Key.Return {
+                root.activate(root.selected, event.modifiers.control);
+                return accept;
+            }
+            if event.text == Key.Tab && !event.modifiers.shift {
+                root.set-filter(Math.mod(root.filter + 1, 3));
+                return accept;
+            }
+            if event.text == Key.Backtab || (event.text == Key.Tab && event.modifiers.shift) {
+                root.set-filter(Math.mod(root.filter + 2, 3));
                 return accept;
             }
             reject
         }
 
-        input := LineEdit {
-            x: 8px;
-            y: 8px;
-            width: parent.width - 16px;
-            height: parent.height - 16px;
-            font-size: 18px;
-            placeholder-text: "Search files, folders and apps";
-            text <=> root.query;
+        VerticalLayout {
+            padding: 8px;
+            spacing: 6px;
+            alignment: start;
+
+            input := LineEdit {
+                height: 40px;
+                font-size: 18px;
+                placeholder-text: "Search files and folders";
+                text <=> root.query;
+                edited(text) => {
+                    root.query-edited(text);
+                }
+            }
+
+            if root.expanded: HorizontalLayout {
+                spacing: 6px;
+                alignment: start;
+                FilterChip {
+                    label: "All";
+                    active: root.filter == 0;
+                    clicked => {
+                        root.set-filter(0);
+                    }
+                }
+                FilterChip {
+                    label: "Files";
+                    active: root.filter == 1;
+                    clicked => {
+                        root.set-filter(1);
+                    }
+                }
+                FilterChip {
+                    label: "Folders";
+                    active: root.filter == 2;
+                    clicked => {
+                        root.set-filter(2);
+                    }
+                }
+            }
+
+            if root.expanded && root.rows.length > 0: ListView {
+                height: root.list-height;
+                property <[ResultRow]> model: root.rows;
+                property <int> current: root.selected;
+                property <length> current-top: self.current * root.row-height + self.content-y;
+
+                changed model => {
+                    self.content-y = 0;
+                }
+                changed current => {
+                    if self.current <= 1 {
+                        self.content-y = 0;
+                    } else if self.current-top < 0 {
+                        self.content-y -= self.current-top;
+                    } else if self.current-top + root.row-height > self.visible-height {
+                        self.content-y -= self.current-top + root.row-height - self.visible-height;
+                    }
+                }
+
+                for row[index] in root.rows: ResultItem {
+                    height: root.row-height;
+                    item: row;
+                    selected: index == root.selected;
+                    clicked => {
+                        root.select(index);
+                    }
+                    double-clicked => {
+                        root.activate(index, false);
+                    }
+                }
+            }
+
+            if root.expanded && root.status-text != "": Text {
+                height: 22px;
+                text: root.status-text;
+                font-size: 12px;
+                opacity: 0.7;
+                vertical-alignment: center;
+                overflow: elide;
+            }
         }
     }
 }
