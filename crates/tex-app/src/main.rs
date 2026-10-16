@@ -4,6 +4,8 @@ mod icon;
 mod placement;
 #[allow(dead_code)]
 mod results;
+#[allow(dead_code)]
+mod search_client;
 
 use std::error::Error;
 
