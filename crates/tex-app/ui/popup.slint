@@ -7,6 +7,7 @@ export struct ResultRow {
     path: string,
     is-dir: bool,
     is-app: bool,
+    category: int,
     icon: image,
     has-icon: bool,
 }
@@ -49,7 +50,7 @@ component ResultItem inherits Rectangle {
 
     if root.item.header: Text {
         x: 12px;
-        text: root.item.title;
+        text: root.item.category == 0 ? @tr("Apps") : root.item.category == 1 ? @tr("Folders") : @tr("Files");
         font-size: 11px;
         font-weight: 600;
         opacity: 0.6;
@@ -122,8 +123,14 @@ export component Popup inherits Window {
     in-out property <string> query;
     in property <[ResultRow]> rows;
     in property <int> selected: -1;
-    in property <string> status-text;
+    in property <string> status-indexing;
+    in property <string> status-failed;
+    in property <bool> service-unavailable;
     in-out property <int> filter: 0;
+    in property <bool> show-apps: true;
+    in property <bool> show-files: true;
+    in property <bool> show-folders: true;
+    in property <ColorScheme> scheme;
 
     callback dismissed();
     callback query-edited(string);
@@ -131,10 +138,16 @@ export component Popup inherits Window {
     callback step(int);
     callback select(int);
     callback activate(int, bool);
+    callback open-settings();
+
+    changed scheme => {
+        Palette.color-scheme = self.scheme;
+    }
 
     property <length> row-height: 30px;
     property <bool> expanded: root.query != "";
     property <length> list-height: min(root.rows.length, 8) * root.row-height;
+    property <string> status-text: root.service-unavailable ? @tr("Search service is not running. Run tex-indexer install in an administrator terminal.") : (root.status-indexing != "" ? @tr("Indexing {}…", root.status-indexing) : "") + (root.status-indexing != "" && root.status-failed != "" ? " · " : "") + (root.status-failed != "" ? @tr("Unavailable: {}", root.status-failed) : "");
 
     public function reset() {
         root.query = "";
@@ -142,9 +155,32 @@ export component Popup inherits Window {
         input.focus();
     }
 
+    public function restore() {
+        input.focus();
+        input.select-all();
+    }
+
     function set-filter(value: int) {
         root.filter = value;
         root.filter-changed(value);
+    }
+
+    function shown(value: int) -> bool {
+        return value == 0 || (value == 1 && root.show-apps) || (value == 2 && root.show-files) || (value == 3 && root.show-folders);
+    }
+
+    // Next visible filter going forward (step 1) or backward (step 3).
+    function next-filter(step: int) -> int {
+        if root.shown(Math.mod(root.filter + step, 4)) {
+            return Math.mod(root.filter + step, 4);
+        }
+        if root.shown(Math.mod(root.filter + 2 * step, 4)) {
+            return Math.mod(root.filter + 2 * step, 4);
+        }
+        if root.shown(Math.mod(root.filter + 3 * step, 4)) {
+            return Math.mod(root.filter + 3 * step, 4);
+        }
+        return root.filter;
     }
 
     FocusScope {
@@ -166,11 +202,15 @@ export component Popup inherits Window {
                 return accept;
             }
             if event.text == Key.Tab && !event.modifiers.shift {
-                root.set-filter(Math.mod(root.filter + 1, 4));
+                root.set-filter(root.next-filter(1));
                 return accept;
             }
             if event.text == Key.Backtab || (event.text == Key.Tab && event.modifiers.shift) {
-                root.set-filter(Math.mod(root.filter + 3, 4));
+                root.set-filter(root.next-filter(3));
+                return accept;
+            }
+            if event.text == "," && event.modifiers.control {
+                root.open-settings();
                 return accept;
             }
             reject
@@ -184,7 +224,7 @@ export component Popup inherits Window {
             input := LineEdit {
                 height: 40px;
                 font-size: 18px;
-                placeholder-text: "Search files and folders";
+                placeholder-text: @tr("Search apps, files and folders");
                 text <=> root.query;
                 edited(text) => {
                     root.query-edited(text);
@@ -195,28 +235,28 @@ export component Popup inherits Window {
                 spacing: 6px;
                 alignment: start;
                 FilterChip {
-                    label: "All";
+                    label: @tr("All");
                     active: root.filter == 0;
                     clicked => {
                         root.set-filter(0);
                     }
                 }
-                FilterChip {
-                    label: "Apps";
+                if root.show-apps: FilterChip {
+                    label: @tr("Apps");
                     active: root.filter == 1;
                     clicked => {
                         root.set-filter(1);
                     }
                 }
-                FilterChip {
-                    label: "Files";
+                if root.show-files: FilterChip {
+                    label: @tr("Files");
                     active: root.filter == 2;
                     clicked => {
                         root.set-filter(2);
                     }
                 }
-                FilterChip {
-                    label: "Folders";
+                if root.show-folders: FilterChip {
+                    label: @tr("Folders");
                     active: root.filter == 3;
                     clicked => {
                         root.set-filter(3);

@@ -1,0 +1,386 @@
+import { Button, CheckBox, ComboBox, Palette, StandardListView, Switch, TabWidget, VerticalBox } from "std-widgets.slint";
+
+export struct DriveRow {
+    letter: string,
+    // 0 indexing, 1 ready, 2 failed
+    state: int,
+    percent: int,
+    entries: string,
+    reason: string,
+}
+
+component Label inherits Text {
+    vertical-alignment: center;
+    horizontal-stretch: 1;
+    wrap: word-wrap;
+}
+
+component Hint inherits Text {
+    font-size: 11px;
+    opacity: 0.7;
+    wrap: word-wrap;
+}
+
+component Row inherits HorizontalLayout {
+    spacing: 12px;
+    alignment: stretch;
+}
+
+export component SettingsWindow inherits Window {
+    title: @tr("Tex Settings");
+    preferred-width: 560px;
+    preferred-height: 640px;
+    min-width: 460px;
+    background: Palette.background;
+
+    in property <ColorScheme> scheme;
+
+    in-out property <int> language;
+    in-out property <int> theme;
+    in property <string> hotkey-text;
+    in-out property <bool> recording;
+    // 0 none, 1 could not register
+    in property <int> hotkey-error;
+    in-out property <bool> windows-key;
+    in property <string> winkey-error;
+    in-out property <bool> start-with-windows;
+    in-out property <int> popup-monitor;
+
+    in-out property <int> keep-search;
+    in-out property <bool> include-hidden;
+    in-out property <bool> include-system;
+    in property <[StandardListViewItem]> excluded;
+    in-out property <int> selected-excluded: -1;
+    in-out property <bool> show-apps;
+    in-out property <bool> show-files;
+    in-out property <bool> show-folders;
+    in-out property <int> enter-action;
+    in property <[DriveRow]> drives;
+    in property <bool> drives-unavailable;
+
+    in property <string> save-error;
+    out property <string> folder-picker-title: @tr("Choose a folder to ignore in search");
+
+    callback edited();
+    callback change-hotkey();
+    callback reset-hotkey();
+    callback shortcut-captured(string, bool, bool, bool, bool);
+    callback cancel-recording();
+    callback add-folder();
+    callback remove-folder(int);
+    callback refresh-drives();
+
+    changed scheme => {
+        Palette.color-scheme = self.scheme;
+    }
+
+    recorder := FocusScope {
+        enabled: root.recording;
+        key-pressed(event) => {
+            if !root.recording {
+                return reject;
+            }
+            if event.text == Key.Escape {
+                root.cancel-recording();
+                return accept;
+            }
+            root.shortcut-captured(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift, event.modifiers.meta);
+            accept
+        }
+
+        VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+
+            TabWidget {
+                Tab {
+                    title: @tr("General");
+                    VerticalBox {
+                        alignment: start;
+                        spacing: 14px;
+
+                        Row {
+                            Label {
+                                text: @tr("Language");
+                            }
+
+                            ComboBox {
+                                width: 200px;
+                                model: [@tr("Follow system"), "Português", "English"];
+                                current-index <=> root.language;
+                                selected => {
+                                    root.edited();
+                                }
+                            }
+                        }
+
+                        Row {
+                            Label {
+                                text: @tr("Theme");
+                            }
+
+                            ComboBox {
+                                width: 200px;
+                                model: [@tr("Follow system"), @tr("Light"), @tr("Dark")];
+                                current-index <=> root.theme;
+                                selected => {
+                                    root.edited();
+                                }
+                            }
+                        }
+
+                        VerticalLayout {
+                            spacing: 4px;
+                            Row {
+                                Label {
+                                    text: @tr("Shortcut to open Tex");
+                                }
+
+                                Text {
+                                    text: root.recording ? @tr("Press the new shortcut…") : root.hotkey-text;
+                                    vertical-alignment: center;
+                                    font-weight: 600;
+                                }
+
+                                Button {
+                                    text: root.recording ? @tr("Cancel") : @tr("Change");
+                                    clicked => {
+                                        if root.recording {
+                                            root.cancel-recording();
+                                        } else {
+                                            root.change-hotkey();
+                                            recorder.focus();
+                                        }
+                                    }
+                                }
+
+                                Button {
+                                    text: @tr("Reset");
+                                    enabled: !root.recording;
+                                    clicked => {
+                                        root.reset-hotkey();
+                                    }
+                                }
+                            }
+
+                            if root.recording: Hint {
+                                text: @tr("Use at least one of Ctrl, Alt, Shift or Win plus a key. Esc cancels.");
+                            }
+                            if root.hotkey-error == 1: Hint {
+                                text: @tr("That shortcut is already used by another program. The previous one was kept.");
+                                color: #d13438;
+                                opacity: 1;
+                            }
+                        }
+
+                        VerticalLayout {
+                            spacing: 4px;
+                            Switch {
+                                text: @tr("Open Tex with the Windows key");
+                                checked <=> root.windows-key;
+                                toggled => {
+                                    root.edited();
+                                }
+                            }
+
+                            Hint {
+                                text: @tr("Win plus other keys keeps working, and Ctrl+Esc opens the Start menu. Does not work while an administrator window has focus.");
+                            }
+
+                            if root.winkey-error != "": Hint {
+                                text: @tr("Could not watch the Windows key: {}", root.winkey-error);
+                                color: #d13438;
+                                opacity: 1;
+                            }
+                        }
+
+                        Switch {
+                            text: @tr("Start with Windows");
+                            checked <=> root.start-with-windows;
+                            toggled => {
+                                root.edited();
+                            }
+                        }
+
+                        Row {
+                            Label {
+                                text: @tr("Popup monitor");
+                            }
+
+                            ComboBox {
+                                width: 200px;
+                                model: [@tr("Under the cursor"), @tr("Primary monitor")];
+                                current-index <=> root.popup-monitor;
+                                selected => {
+                                    root.edited();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Tab {
+                    title: @tr("Search");
+                    VerticalBox {
+                        alignment: start;
+                        spacing: 12px;
+
+                        Row {
+                            Label {
+                                text: @tr("Keep the last search for");
+                            }
+
+                            ComboBox {
+                                width: 200px;
+                                model: [@tr("Never"), @tr("30 seconds"), @tr("1 minute"), @tr("5 minutes"), @tr("Always")];
+                                current-index <=> root.keep-search;
+                                selected => {
+                                    root.edited();
+                                }
+                            }
+                        }
+
+                        Switch {
+                            text: @tr("Include hidden files and folders");
+                            checked <=> root.include-hidden;
+                            toggled => {
+                                root.edited();
+                            }
+                        }
+
+                        Switch {
+                            text: @tr("Include system files");
+                            checked <=> root.include-system;
+                            toggled => {
+                                root.edited();
+                            }
+                        }
+
+                        VerticalLayout {
+                            spacing: 6px;
+                            Text {
+                                text: @tr("Ignored folders");
+                            }
+
+                            StandardListView {
+                                height: 96px;
+                                model: root.excluded;
+                                current-item <=> root.selected-excluded;
+                            }
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                alignment: start;
+                                Button {
+                                    text: @tr("Add…");
+                                    clicked => {
+                                        root.add-folder();
+                                    }
+                                }
+
+                                Button {
+                                    text: @tr("Remove");
+                                    enabled: root.selected-excluded >= 0 && root.selected-excluded < root.excluded.length;
+                                    clicked => {
+                                        root.remove-folder(root.selected-excluded);
+                                    }
+                                }
+                            }
+                        }
+
+                        VerticalLayout {
+                            spacing: 6px;
+                            Text {
+                                text: @tr("Categories shown");
+                            }
+
+                            HorizontalLayout {
+                                spacing: 16px;
+                                alignment: start;
+                                CheckBox {
+                                    text: @tr("Apps");
+                                    checked <=> root.show-apps;
+                                    enabled: !root.show-apps || root.show-files || root.show-folders;
+                                    toggled => {
+                                        root.edited();
+                                    }
+                                }
+
+                                CheckBox {
+                                    text: @tr("Files");
+                                    checked <=> root.show-files;
+                                    enabled: !root.show-files || root.show-apps || root.show-folders;
+                                    toggled => {
+                                        root.edited();
+                                    }
+                                }
+
+                                CheckBox {
+                                    text: @tr("Folders");
+                                    checked <=> root.show-folders;
+                                    enabled: !root.show-folders || root.show-apps || root.show-files;
+                                    toggled => {
+                                        root.edited();
+                                    }
+                                }
+                            }
+                        }
+
+                        VerticalLayout {
+                            spacing: 4px;
+                            Row {
+                                Label {
+                                    text: @tr("Enter key");
+                                }
+
+                                ComboBox {
+                                    width: 200px;
+                                    model: [@tr("Open"), @tr("Show in folder")];
+                                    current-index <=> root.enter-action;
+                                    selected => {
+                                        root.edited();
+                                    }
+                                }
+                            }
+
+                            Hint {
+                                text: @tr("Ctrl+Enter does the other action.");
+                            }
+                        }
+
+                        VerticalLayout {
+                            spacing: 6px;
+                            Row {
+                                Label {
+                                    text: @tr("Indexed drives");
+                                }
+
+                                Button {
+                                    text: @tr("Refresh");
+                                    clicked => {
+                                        root.refresh-drives();
+                                    }
+                                }
+                            }
+
+                            if root.drives-unavailable: Hint {
+                                text: @tr("Search service is not running.");
+                            }
+                            for drive in root.drives: Text {
+                                text: drive.letter + ":  " + (drive.state == 1 ? @tr("Ready, {} items", drive.entries) : drive.state == 0 ? @tr("Indexing {}%", drive.percent) : @tr("Failed: {}", drive.reason));
+                                font-size: 12px;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if root.save-error != "": Text {
+                text: @tr("Could not save the settings: {}", root.save-error);
+                color: #d13438;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+        }
+    }
+}

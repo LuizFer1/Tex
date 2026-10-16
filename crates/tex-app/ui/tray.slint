@@ -4,6 +4,7 @@ export component TexTray inherits SystemTrayIcon {
     tooltip: "Tex";
 
     callback open();
+    callback settings();
     callback about();
     callback quit();
 
@@ -13,14 +14,21 @@ export component TexTray inherits SystemTrayIcon {
 
     Menu {
         MenuItem {
-            title: "Open Tex";
+            title: @tr("Open Tex");
             activated => {
                 root.open();
             }
         }
 
         MenuItem {
-            title: "About Tex";
+            title: @tr("Settings");
+            activated => {
+                root.settings();
+            }
+        }
+
+        MenuItem {
+            title: @tr("About Tex");
             activated => {
                 root.about();
             }
@@ -29,7 +37,7 @@ export component TexTray inherits SystemTrayIcon {
         MenuSeparator { }
 
         MenuItem {
-            title: "Quit";
+            title: @tr("Quit");
             activated => {
                 root.quit();
             }

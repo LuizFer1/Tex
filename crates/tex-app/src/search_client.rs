@@ -11,9 +11,23 @@ use tex_ipc::{
 
 const LIMIT: u16 = 50;
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SearchOptions {
+    pub include_hidden: bool,
+    pub include_system: bool,
+    pub excluded_folders: Vec<String>,
+    pub show_apps: bool,
+    pub show_files: bool,
+    pub show_folders: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
-    Search { query: String, filter: Filter },
+    Search {
+        query: String,
+        filter: Filter,
+        options: SearchOptions,
+    },
     Status,
 }
 
@@ -48,7 +62,11 @@ fn run(receiver: &Receiver<Command>, home: &str, on_event: &dyn Fn(Event)) {
     while let Ok(first) = receiver.recv() {
         for command in coalesce(iter::once(first).chain(receiver.try_iter())) {
             let request = match command {
-                Command::Search { query, filter } => {
+                Command::Search {
+                    query,
+                    filter,
+                    options,
+                } => {
                     next_id += 1;
                     Request::Search(SearchQuery {
                         id: next_id,
@@ -56,12 +74,12 @@ fn run(receiver: &Receiver<Command>, home: &str, on_event: &dyn Fn(Event)) {
                         filter,
                         limit: LIMIT,
                         home: home.to_owned(),
-                        include_hidden: false,
-                        include_system: false,
-                        excluded_folders: Vec::new(),
-                        show_apps: true,
-                        show_files: true,
-                        show_folders: true,
+                        include_hidden: options.include_hidden,
+                        include_system: options.include_system,
+                        excluded_folders: options.excluded_folders,
+                        show_apps: options.show_apps,
+                        show_files: options.show_files,
+                        show_folders: options.show_folders,
                     })
                 }
                 Command::Status => Request::Status,
@@ -122,6 +140,7 @@ mod tests {
         Command::Search {
             query: text.into(),
             filter: Filter::All,
+            options: SearchOptions::default(),
         }
     }
 

@@ -1,8 +1,14 @@
-import { AboutSlint, VerticalBox } from "std-widgets.slint";
+import { AboutSlint, Palette, VerticalBox } from "std-widgets.slint";
 
 export component AboutWindow inherits Window {
-    title: "About Tex";
+    title: @tr("About Tex");
     in property <string> version;
+    in property <ColorScheme> scheme;
+    background: Palette.background;
+
+    changed scheme => {
+        Palette.color-scheme = self.scheme;
+    }
 
     VerticalBox {
         alignment: start;
@@ -15,7 +21,7 @@ export component AboutWindow inherits Window {
         }
 
         Text {
-            text: "Your desktop, within reach.";
+            text: @tr("Your desktop, within reach.");
             horizontal-alignment: center;
         }
 

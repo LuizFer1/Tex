@@ -1,11 +1,25 @@
 use tex_ipc::{Hit, VolumeState, VolumeStatus};
 
-pub const SERVICE_UNAVAILABLE: &str =
-    "Search service is not running. Run tex-indexer install in an administrator terminal.";
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Category {
+    Apps,
+    Folders,
+    Files,
+}
+
+impl Category {
+    pub fn index(self) -> i32 {
+        match self {
+            Category::Apps => 0,
+            Category::Folders => 1,
+            Category::Files => 2,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Row {
-    Header(&'static str),
+    Header(Category),
     Item {
         name: String,
         folder: String,
@@ -21,22 +35,22 @@ impl Row {
     }
 }
 
-/// Groups hits under "Apps", "Folders" and "Files", keeping the service's order inside each group.
+/// Groups hits under apps, folders and files, keeping the service's order inside each group.
 /// Apps always come first; of the other two, the group holding the better hit comes first.
 pub fn build_rows(hits: &[Hit]) -> Vec<Row> {
     let (apps, others): (Vec<&Hit>, Vec<&Hit>) = hits.iter().partition(|hit| hit.is_app);
     let (folders, files): (Vec<&Hit>, Vec<&Hit>) =
         others.iter().copied().partition(|hit| hit.is_dir);
-    let mut groups = [("Folders", folders), ("Files", files)];
+    let mut groups = [(Category::Folders, folders), (Category::Files, files)];
     if !others.first().is_some_and(|hit| hit.is_dir) {
         groups.swap(0, 1);
     }
     let mut rows = Vec::new();
-    for (title, group) in std::iter::once(("Apps", apps)).chain(groups) {
+    for (category, group) in std::iter::once((Category::Apps, apps)).chain(groups) {
         if group.is_empty() {
             continue;
         }
-        rows.push(Row::Header(title));
+        rows.push(Row::Header(category));
         rows.extend(group.into_iter().map(item));
     }
     rows
@@ -94,8 +108,9 @@ pub fn step_selection(is_item: &[bool], current: Option<usize>, step: isize) -> 
     current
 }
 
-/// One line about volumes that are not ready, e.g. "Indexing C: 45%… · Unavailable: E:". Empty when all are ready.
-pub fn status_text(volumes: &[VolumeStatus]) -> String {
+/// Volumes that are not ready, without words so the UI can translate the sentence:
+/// ("C: 45%, D: 3%", "E: F:"). Both empty when every volume is ready.
+pub fn status_parts(volumes: &[VolumeStatus]) -> (String, String) {
     let indexing: Vec<String> = volumes
         .iter()
         .filter_map(|volume| match volume.state {
@@ -108,14 +123,20 @@ pub fn status_text(volumes: &[VolumeStatus]) -> String {
         .filter(|volume| matches!(volume.state, VolumeState::Failed { .. }))
         .map(|volume| format!("{}:", volume.letter))
         .collect();
-    let mut parts = Vec::new();
-    if !indexing.is_empty() {
-        parts.push(format!("Indexing {}…", indexing.join(", ")));
+    (indexing.join(", "), failed.join(" "))
+}
+
+/// "1234567" with a thousands separator: "1.234.567".
+pub fn group_digits(value: u32, separator: char) -> String {
+    let digits = value.to_string();
+    let mut grouped = String::new();
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            grouped.push(separator);
+        }
+        grouped.push(digit);
     }
-    if !failed.is_empty() {
-        parts.push(format!("Unavailable: {}", failed.join(" ")));
-    }
-    parts.join(" · ")
+    grouped
 }
 
 #[cfg(test)]
@@ -157,7 +178,7 @@ mod tests {
         assert_eq!(
             rows,
             [
-                Row::Header("Apps"),
+                Row::Header(Category::Apps),
                 Row::Item {
                     name: "Visual Studio Code".into(),
                     folder: r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs".into(),
@@ -172,9 +193,9 @@ mod tests {
                     is_dir: false,
                     is_app: true,
                 },
-                Row::Header("Folders"),
+                Row::Header(Category::Folders),
                 item("code", r"C:\Projetos", r"C:\Projetos\code", true),
-                Row::Header("Files"),
+                Row::Header(Category::Files),
                 item("notes.code", r"C:\", r"C:\notes.code", false),
             ]
         );
@@ -190,10 +211,10 @@ mod tests {
         assert_eq!(
             rows,
             [
-                Row::Header("Files"),
+                Row::Header(Category::Files),
                 item("notes.txt", r"C:\Docs", r"C:\Docs\notes.txt", false),
                 item("notes.md", r"D:\", r"D:\notes.md", false),
-                Row::Header("Folders"),
+                Row::Header(Category::Folders),
                 item("notes", r"C:\", r"C:\notes", true),
             ]
         );
@@ -202,8 +223,8 @@ mod tests {
     #[test]
     fn folders_come_first_when_the_best_hit_is_a_folder() {
         let rows = build_rows(&[hit(r"C:\notes", true), hit(r"C:\notes.txt", false)]);
-        assert_eq!(rows[0], Row::Header("Folders"));
-        assert_eq!(rows[2], Row::Header("Files"));
+        assert_eq!(rows[0], Row::Header(Category::Folders));
+        assert_eq!(rows[2], Row::Header(Category::Files));
     }
 
     #[test]
@@ -224,30 +245,38 @@ mod tests {
     }
 
     #[test]
-    fn status_text_lists_volumes_that_are_not_ready() {
+    fn status_parts_list_indexing_and_failed_volumes() {
         let volume = |letter, state| VolumeStatus { letter, state };
         assert_eq!(
-            status_text(&[volume('C', VolumeState::Ready { entries: 1 })]),
-            ""
+            status_parts(&[volume('C', VolumeState::Ready { entries: 1 })]),
+            (String::new(), String::new())
         );
         assert_eq!(
-            status_text(&[
+            status_parts(&[
                 volume('C', VolumeState::Indexing { percent: 45 }),
                 volume('D', VolumeState::Indexing { percent: 3 }),
-            ]),
-            "Indexing C: 45%, D: 3%…"
-        );
-        assert_eq!(
-            status_text(&[
-                volume('C', VolumeState::Indexing { percent: 45 }),
                 volume(
                     'E',
                     VolumeState::Failed {
                         reason: "gone".into()
                     }
                 ),
+                volume(
+                    'F',
+                    VolumeState::Failed {
+                        reason: "gone".into()
+                    }
+                ),
             ]),
-            "Indexing C: 45%… · Unavailable: E:"
+            ("C: 45%, D: 3%".into(), "E: F:".into())
         );
+    }
+
+    #[test]
+    fn group_digits_inserts_separators() {
+        assert_eq!(group_digits(0, '.'), "0");
+        assert_eq!(group_digits(999, '.'), "999");
+        assert_eq!(group_digits(1000, '.'), "1.000");
+        assert_eq!(group_digits(1_234_567, ','), "1,234,567");
     }
 }
