@@ -123,6 +123,12 @@ What you copy can be anything: notes, addresses, links, private messages. Tex tr
 
 ---
 
+## Install
+
+Download `Tex-Setup-<version>.exe` from [Releases](https://github.com/LuizFer1/Tex/releases) and run it. It asks for administrator rights because the search service reads the NTFS file tables, and it asks whether only your account or everyone who signs in to the computer can search. Tex then starts with Windows.
+
+---
+
 ## Development
 
 Requires stable Rust with the MSVC toolchain. Windows only for now.
@@ -137,8 +143,10 @@ Search needs the indexing service, which reads the NTFS file tables and must run
 
 ```sh
 cargo build --release
-target\release\tex-indexer.exe install     # in an administrator terminal; uninstall removes it
+target\release\tex-indexer.exe install     # in an administrator terminal; --all-users lets every account search; uninstall removes it
 ```
+
+To build the installer, install [Inno Setup 6](https://jrsoftware.org/isinfo.php) and, after the release build, run `ISCC.exe /DAppVersion=0.1.0 installer\tex.iss`. The result is `target\installer\Tex-Setup-0.1.0.exe`.
 
 To try the app without administrator rights, serve a single folder instead:
 
