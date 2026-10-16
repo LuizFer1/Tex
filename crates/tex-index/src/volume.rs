@@ -1,5 +1,7 @@
 use crate::entry::{Attributes, Entry, ROOT, Record};
 
+const MAX_DEPTH: u16 = 512;
+
 pub struct VolumeIndex {
     letter: char,
     entries: Vec<Entry>,
@@ -97,6 +99,49 @@ impl VolumeIndex {
         self.entry(record).map(|entry| self.entry_str(entry))
     }
 
+    /// Full path starting at the drive letter. `None` if the record or an ancestor is not indexed,
+    /// or the parent chain is deeper than 512 levels (a cycle).
+    pub fn path(&self, record: Record) -> Option<String> {
+        let mut parts = Vec::new();
+        let mut current = record;
+        while current != ROOT {
+            if parts.len() >= MAX_DEPTH as usize {
+                return None;
+            }
+            let entry = self.entry(current)?;
+            parts.push(self.entry_str(entry));
+            current = entry.parent;
+        }
+        let mut path = format!("{}:\\", self.letter);
+        for (i, part) in parts.iter().rev().enumerate() {
+            if i > 0 {
+                path.push('\\');
+            }
+            path.push_str(part);
+        }
+        Some(path)
+    }
+
+    /// Record of a path on this volume, ignoring case. Scans every entry, so callers should cache it.
+    pub fn lookup(&self, path: &str) -> Option<Record> {
+        let normalized = path.replace('/', "\\");
+        let normalized = normalized.trim_end_matches('\\');
+        let mut chars = normalized.chars();
+        let letter = chars.next()?;
+        if !letter.eq_ignore_ascii_case(&self.letter) || chars.next() != Some(':') {
+            return None;
+        }
+        let Some(last) = normalized[2..].split('\\').rfind(|part| !part.is_empty()) else {
+            return Some(ROOT);
+        };
+        (0..self.entries.len() as Record).find(|&record| {
+            self.name(record).is_some_and(|name| same_name(name, last))
+                && self
+                    .path(record)
+                    .is_some_and(|full| same_name(&full, normalized))
+        })
+    }
+
     pub(crate) fn entry(&self, record: Record) -> Option<&Entry> {
         self.entries
             .get(record as usize)
@@ -115,6 +160,11 @@ impl VolumeIndex {
     fn entry_str(&self, entry: &Entry) -> &str {
         std::str::from_utf8(self.entry_name(entry)).expect("index names are valid UTF-8")
     }
+}
+
+fn same_name(a: &str, b: &str) -> bool {
+    a.eq_ignore_ascii_case(b)
+        || ((!a.is_ascii() || !b.is_ascii()) && a.to_lowercase() == b.to_lowercase())
 }
 
 #[cfg(test)]
@@ -191,5 +241,40 @@ mod tests {
         let mut volume = VolumeIndex::new('C');
         volume.set_windows_dir(Some(30));
         assert_eq!(volume.windows_dir(), Some(30));
+    }
+
+    pub(crate) fn sample() -> VolumeIndex {
+        let mut volume = VolumeIndex::new('C');
+        volume.upsert(20, ROOT, "Users", DIR);
+        volume.upsert(21, 20, "Luís", DIR);
+        volume.upsert(22, 21, "notes.txt", FILE);
+        volume
+    }
+
+    #[test]
+    fn path_walks_up_to_the_root() {
+        let volume = sample();
+        assert_eq!(volume.path(22).as_deref(), Some(r"C:\Users\Luís\notes.txt"));
+        assert_eq!(volume.path(ROOT).as_deref(), Some(r"C:\"));
+    }
+
+    #[test]
+    fn path_is_none_for_orphans_and_cycles() {
+        let mut volume = sample();
+        volume.upsert(30, 99, "orphan.txt", FILE);
+        volume.upsert(31, 32, "a", DIR);
+        volume.upsert(32, 31, "b", DIR);
+        assert_eq!(volume.path(30), None);
+        assert_eq!(volume.path(31), None);
+    }
+
+    #[test]
+    fn lookup_ignores_case_and_trailing_separators() {
+        let volume = sample();
+        assert_eq!(volume.lookup(r"c:\users\LUÍS\"), Some(21));
+        assert_eq!(volume.lookup("C:/Users/Luís/notes.txt"), Some(22));
+        assert_eq!(volume.lookup(r"C:\"), Some(ROOT));
+        assert_eq!(volume.lookup(r"D:\Users"), None);
+        assert_eq!(volume.lookup(r"C:\Users\missing"), None);
     }
 }
