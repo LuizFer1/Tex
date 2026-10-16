@@ -3,6 +3,13 @@ use crate::entry::{Attributes, Entry, ROOT, Record};
 const MAX_DEPTH: u16 = 512;
 const MIN_COMPACT_BYTES: usize = 64 * 1024;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Lineage {
+    pub visible: bool,
+    pub in_home: bool,
+    pub depth: u16,
+}
+
 pub struct VolumeIndex {
     letter: char,
     entries: Vec<Entry>,
@@ -164,6 +171,35 @@ impl VolumeIndex {
         })
     }
 
+    /// Walks from `record` up to the root. `visible` is false if the record or an ancestor is hidden,
+    /// system, the Windows folder, or an NTFS metadata entry at the root. `None` for orphans and cycles.
+    pub(crate) fn lineage(&self, record: Record, home: Option<Record>) -> Option<Lineage> {
+        let mut lineage = Lineage {
+            visible: true,
+            in_home: false,
+            depth: 0,
+        };
+        let mut current = record;
+        while current != ROOT {
+            if lineage.depth >= MAX_DEPTH {
+                return None;
+            }
+            let entry = self.entry(current)?;
+            if Some(current) == home {
+                lineage.in_home = true;
+            }
+            if entry.is_hidden_or_system()
+                || Some(current) == self.windows_dir
+                || (entry.parent == ROOT && is_root_metadata(self.entry_name(entry)))
+            {
+                lineage.visible = false;
+            }
+            lineage.depth += 1;
+            current = entry.parent;
+        }
+        Some(lineage)
+    }
+
     pub(crate) fn entry(&self, record: Record) -> Option<&Entry> {
         self.entries
             .get(record as usize)
@@ -187,6 +223,10 @@ impl VolumeIndex {
 fn same_name(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b)
         || ((!a.is_ascii() || !b.is_ascii()) && a.to_lowercase() == b.to_lowercase())
+}
+
+fn is_root_metadata(name: &[u8]) -> bool {
+    name.starts_with(b"$") || name.eq_ignore_ascii_case(b"System Volume Information")
 }
 
 #[cfg(test)]
@@ -325,5 +365,68 @@ mod tests {
         }
         assert!(volume.name_bytes() < MIN_COMPACT_BYTES + 1024);
         assert_eq!(volume.name(20), Some(format!("{long}1999").as_str()));
+    }
+
+    #[test]
+    fn lineage_reports_depth_and_home() {
+        let volume = sample();
+        let lineage = volume.lineage(22, Some(20)).unwrap();
+        assert_eq!(lineage.depth, 3);
+        assert!(lineage.in_home);
+        assert!(lineage.visible);
+        assert!(!volume.lineage(22, Some(99)).unwrap().in_home);
+    }
+
+    #[test]
+    fn hidden_or_system_ancestor_hides_descendants() {
+        let mut volume = sample();
+        volume.upsert(
+            23,
+            21,
+            "AppData",
+            Attributes {
+                hidden: true,
+                ..DIR
+            },
+        );
+        volume.upsert(24, 23, "config.json", FILE);
+        assert!(!volume.lineage(24, None).unwrap().visible);
+        assert!(volume.lineage(22, None).unwrap().visible);
+    }
+
+    #[test]
+    fn windows_dir_and_root_metadata_are_hidden() {
+        let mut volume = sample();
+        volume.upsert(30, ROOT, "Windows", DIR);
+        volume.upsert(31, 30, "notepad.exe", FILE);
+        volume.set_windows_dir(Some(30));
+        volume.upsert(32, ROOT, "$Extend", DIR);
+        volume.upsert(33, ROOT, "System Volume Information", DIR);
+        assert!(!volume.lineage(31, None).unwrap().visible);
+        assert!(!volume.lineage(32, None).unwrap().visible);
+        assert!(!volume.lineage(33, None).unwrap().visible);
+    }
+
+    #[test]
+    fn root_attributes_do_not_hide_everything() {
+        let mut volume = sample();
+        volume.upsert(
+            ROOT,
+            ROOT,
+            ".",
+            Attributes {
+                dir: true,
+                hidden: true,
+                system: true,
+            },
+        );
+        assert!(volume.lineage(22, None).unwrap().visible);
+    }
+
+    #[test]
+    fn lineage_is_none_for_orphans() {
+        let mut volume = sample();
+        volume.upsert(30, 99, "orphan.txt", FILE);
+        assert!(volume.lineage(30, None).is_none());
     }
 }
