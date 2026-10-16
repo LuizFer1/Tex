@@ -158,7 +158,7 @@ impl<'a> Worker<'a> {
             let Some(kind) = self.request.query.matches(name, &mut self.scratch) else {
                 continue;
             };
-            let Some(lineage) = volume.lineage(record, home) else {
+            let Some(lineage) = volume.lineage(record, home, &[]) else {
                 continue;
             };
             if !lineage.visible && !self.request.include_hidden {

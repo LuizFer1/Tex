@@ -4,11 +4,13 @@ use crate::entry::{Attributes, Entry, ROOT, Record};
 
 const MAX_DEPTH: u16 = 512;
 const MIN_COMPACT_BYTES: usize = 64 * 1024;
+const LOOKUP_CACHE_SIZE: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Lineage {
     pub visible: bool,
     pub in_home: bool,
+    pub in_app_root: bool,
     pub depth: u16,
 }
 
@@ -19,7 +21,7 @@ pub struct VolumeIndex {
     garbage: usize,
     live: usize,
     windows_dir: Option<Record>,
-    lookup_cache: Mutex<Option<(String, Record)>>,
+    lookup_cache: Mutex<Vec<(String, Option<Record>)>>,
 }
 
 impl VolumeIndex {
@@ -31,7 +33,7 @@ impl VolumeIndex {
             garbage: 0,
             live: 0,
             windows_dir: None,
-            lookup_cache: Mutex::new(None),
+            lookup_cache: Mutex::new(Vec::new()),
         }
     }
 
@@ -65,7 +67,7 @@ impl VolumeIndex {
             garbage,
             live,
             windows_dir,
-            lookup_cache: Mutex::new(None),
+            lookup_cache: Mutex::new(Vec::new()),
         })
     }
 
@@ -209,28 +211,42 @@ impl VolumeIndex {
         })
     }
 
-    /// `lookup` with a one-entry cache, for the home folder that every query sends.
+    /// `lookup` with a small cache, for the folders every query sends (home, Start Menu).
+    /// Misses are cached too, so a missing folder does not cost a full scan per query.
     pub(crate) fn cached_lookup(&self, path: &str) -> Option<Record> {
         let mut cache = self.lookup_cache.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((cached, record)) = cache.as_ref()
-            && cached == path
-            && self.entry(*record).is_some()
-        {
-            return Some(*record);
+        if let Some(position) = cache.iter().position(|(cached, _)| cached == path) {
+            match cache[position].1 {
+                Some(record) if self.entry(record).is_none() => {
+                    cache.remove(position);
+                }
+                found => return found,
+            }
         }
-        let record = self.lookup(path)?;
-        *cache = Some((path.to_owned(), record));
-        Some(record)
+        let found = self.lookup(path);
+        if cache.len() >= LOOKUP_CACHE_SIZE {
+            cache.remove(0);
+        }
+        cache.push((path.to_owned(), found));
+        found
     }
 
     /// Walks from `record` up to the root. `visible` is false if the record or an ancestor is hidden,
-    /// system, the Windows folder, or an NTFS metadata entry at the root. `None` for orphans and cycles.
-    pub(crate) fn lineage(&self, record: Record, home: Option<Record>) -> Option<Lineage> {
+    /// system, the Windows folder, or NTFS metadata at the root. Inside an app root (a Start Menu
+    /// folder) only the entries below that root count. `None` for orphans and cycles.
+    pub(crate) fn lineage(
+        &self,
+        record: Record,
+        home: Option<Record>,
+        app_roots: &[Record],
+    ) -> Option<Lineage> {
         let mut lineage = Lineage {
             visible: true,
             in_home: false,
+            in_app_root: false,
             depth: 0,
         };
+        let mut visible_below_root = true;
         let mut current = record;
         while current != ROOT {
             if lineage.depth >= MAX_DEPTH {
@@ -240,6 +256,10 @@ impl VolumeIndex {
             if Some(current) == home {
                 lineage.in_home = true;
             }
+            if !lineage.in_app_root && app_roots.contains(&current) {
+                lineage.in_app_root = true;
+                visible_below_root = lineage.visible;
+            }
             if entry.is_hidden_or_system()
                 || Some(current) == self.windows_dir
                 || (entry.parent == ROOT && is_root_metadata(self.entry_name(entry)))
@@ -248,6 +268,9 @@ impl VolumeIndex {
             }
             lineage.depth += 1;
             current = entry.parent;
+        }
+        if lineage.in_app_root {
+            lineage.visible = visible_below_root;
         }
         Some(lineage)
     }
@@ -422,11 +445,11 @@ mod tests {
     #[test]
     fn lineage_reports_depth_and_home() {
         let volume = sample();
-        let lineage = volume.lineage(22, Some(20)).unwrap();
+        let lineage = volume.lineage(22, Some(20), &[]).unwrap();
         assert_eq!(lineage.depth, 3);
         assert!(lineage.in_home);
         assert!(lineage.visible);
-        assert!(!volume.lineage(22, Some(99)).unwrap().in_home);
+        assert!(!volume.lineage(22, Some(99), &[]).unwrap().in_home);
     }
 
     #[test]
@@ -442,8 +465,8 @@ mod tests {
             },
         );
         volume.upsert(24, 23, "config.json", FILE);
-        assert!(!volume.lineage(24, None).unwrap().visible);
-        assert!(volume.lineage(22, None).unwrap().visible);
+        assert!(!volume.lineage(24, None, &[]).unwrap().visible);
+        assert!(volume.lineage(22, None, &[]).unwrap().visible);
     }
 
     #[test]
@@ -454,9 +477,9 @@ mod tests {
         volume.set_windows_dir(Some(30));
         volume.upsert(32, ROOT, "$Extend", DIR);
         volume.upsert(33, ROOT, "System Volume Information", DIR);
-        assert!(!volume.lineage(31, None).unwrap().visible);
-        assert!(!volume.lineage(32, None).unwrap().visible);
-        assert!(!volume.lineage(33, None).unwrap().visible);
+        assert!(!volume.lineage(31, None, &[]).unwrap().visible);
+        assert!(!volume.lineage(32, None, &[]).unwrap().visible);
+        assert!(!volume.lineage(33, None, &[]).unwrap().visible);
     }
 
     #[test]
@@ -472,13 +495,56 @@ mod tests {
                 system: true,
             },
         );
-        assert!(volume.lineage(22, None).unwrap().visible);
+        assert!(volume.lineage(22, None, &[]).unwrap().visible);
     }
 
     #[test]
     fn lineage_is_none_for_orphans() {
         let mut volume = sample();
         volume.upsert(30, 99, "orphan.txt", FILE);
-        assert!(volume.lineage(30, None).is_none());
+        assert!(volume.lineage(30, None, &[]).is_none());
+    }
+
+    #[test]
+    fn app_roots_ignore_hidden_ancestors() {
+        let mut volume = sample();
+        volume.upsert(
+            40,
+            ROOT,
+            "ProgramData",
+            Attributes {
+                hidden: true,
+                ..DIR
+            },
+        );
+        volume.upsert(41, 40, "Programs", DIR);
+        volume.upsert(42, 41, "Code.lnk", FILE);
+        volume.upsert(
+            43,
+            41,
+            "desktop.ini",
+            Attributes {
+                hidden: true,
+                system: true,
+                ..FILE
+            },
+        );
+        let lineage = volume.lineage(42, None, &[41]).unwrap();
+        assert!(lineage.visible);
+        assert!(lineage.in_app_root);
+        assert!(!volume.lineage(43, None, &[41]).unwrap().visible);
+        assert!(!volume.lineage(42, None, &[]).unwrap().visible);
+        assert!(!volume.lineage(22, None, &[41]).unwrap().in_app_root);
+    }
+
+    #[test]
+    fn cached_lookup_remembers_several_paths_and_misses() {
+        let volume = sample();
+        assert_eq!(volume.cached_lookup(r"C:\Users"), Some(20));
+        assert_eq!(volume.cached_lookup(r"C:\Users\Luís"), Some(21));
+        assert_eq!(volume.cached_lookup(r"C:\Users"), Some(20));
+        assert_eq!(volume.cached_lookup(r"C:\missing"), None);
+        assert_eq!(volume.cached_lookup(r"C:\missing"), None);
+        assert_eq!(volume.lookup_cache.lock().unwrap().len(), 3);
     }
 }
