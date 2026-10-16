@@ -1,4 +1,6 @@
 use std::io;
+use std::os::windows::process::CommandExt;
+use std::process::Command;
 use std::ptr;
 
 use windows_sys::Win32::Foundation::{
@@ -9,7 +11,8 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::System::Threading::CreateMutexW;
 use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
-use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
+use windows_sys::Win32::UI::Shell::ShellExecuteW;
+use windows_sys::Win32::UI::WindowsAndMessaging::{GetCursorPos, SW_SHOWNORMAL};
 
 use crate::WorkArea;
 
@@ -18,7 +21,7 @@ pub struct SingleInstance(HANDLE);
 impl SingleInstance {
     /// Takes a named mutex held until drop. Returns `Ok(None)` when another process already holds it.
     pub fn acquire(name: &str) -> io::Result<Option<Self>> {
-        let wide: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+        let wide = wide(name);
         let handle = unsafe { CreateMutexW(ptr::null(), 0, wide.as_ptr()) };
         if handle.is_null() {
             return Err(io::Error::last_os_error());
@@ -60,4 +63,37 @@ pub fn work_area_under_cursor() -> Option<WorkArea> {
         height: (rect.bottom - rect.top).max(0) as u32,
         scale: dpi_x as f32 / 96.0,
     })
+}
+
+/// Opens a file or folder with its default handler, like a double click in Explorer.
+pub fn open_path(path: &str) -> io::Result<()> {
+    let operation = wide("open");
+    let file = wide(path);
+    let result = unsafe {
+        ShellExecuteW(
+            ptr::null_mut(),
+            operation.as_ptr(),
+            file.as_ptr(),
+            ptr::null(),
+            ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if result as isize > 32 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// Opens Explorer on the folder that contains `path`, with the item selected.
+pub fn reveal_in_folder(path: &str) -> io::Result<()> {
+    Command::new("explorer.exe")
+        .raw_arg(format!("/select,\"{path}\""))
+        .spawn()
+        .map(drop)
+}
+
+fn wide(text: &str) -> Vec<u16> {
+    text.encode_utf16().chain(Some(0)).collect()
 }

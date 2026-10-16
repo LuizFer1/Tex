@@ -1,7 +1,7 @@
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
-pub use windows::{SingleInstance, work_area_under_cursor};
+pub use windows::{SingleInstance, open_path, reveal_in_folder, work_area_under_cursor};
 
 #[cfg(not(windows))]
 compile_error!("tex-platform only supports Windows for now");
