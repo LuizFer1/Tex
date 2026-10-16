@@ -56,6 +56,11 @@ fn serves_several_clients_over_a_named_pipe() {
         limit: 5,
         home: String::new(),
         include_hidden: false,
+        include_system: false,
+        excluded_folders: Vec::new(),
+        show_apps: true,
+        show_files: true,
+        show_folders: true,
     });
     assert_eq!(
         ask(&second, &search),

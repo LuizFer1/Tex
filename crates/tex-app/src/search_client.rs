@@ -57,6 +57,11 @@ fn run(receiver: &Receiver<Command>, home: &str, on_event: &dyn Fn(Event)) {
                         limit: LIMIT,
                         home: home.to_owned(),
                         include_hidden: false,
+                        include_system: false,
+                        excluded_folders: Vec::new(),
+                        show_apps: true,
+                        show_files: true,
+                        show_folders: true,
                     })
                 }
                 Command::Status => Request::Status,

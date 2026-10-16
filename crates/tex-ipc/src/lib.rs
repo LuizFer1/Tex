@@ -21,6 +21,11 @@ pub struct SearchQuery {
     pub limit: u16,
     pub home: String,
     pub include_hidden: bool,
+    pub include_system: bool,
+    pub excluded_folders: Vec<String>,
+    pub show_apps: bool,
+    pub show_files: bool,
+    pub show_folders: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -115,6 +120,11 @@ mod tests {
             limit: 50,
             home: r"C:\Users\luis".into(),
             include_hidden: false,
+            include_system: true,
+            excluded_folders: vec![r"C:\Windows".into()],
+            show_apps: true,
+            show_files: false,
+            show_folders: true,
         })
     }
 

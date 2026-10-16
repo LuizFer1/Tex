@@ -114,15 +114,24 @@ impl Engine {
         let program_data = std::env::var("ProgramData").ok();
         let roots = start_menu_roots(program_data.as_deref(), &request.home);
         let app_roots: Vec<&str> = roots.iter().map(String::as_str).collect();
+        let excluded: Vec<&str> = request
+            .excluded_folders
+            .iter()
+            .map(String::as_str)
+            .collect();
         let search_request = SearchRequest {
             query: &query,
             filter,
             limit: request.limit as usize,
             home: (!request.home.is_empty()).then_some(request.home.as_str()),
             include_hidden: request.include_hidden,
-            include_system: false,
-            excluded_folders: &[],
-            categories: Categories::ALL,
+            include_system: request.include_system,
+            excluded_folders: &excluded,
+            categories: Categories {
+                apps: request.show_apps,
+                files: request.show_files,
+                folders: request.show_folders,
+            },
             app_roots: &app_roots,
         };
         let Some(outcome) = tex_index::search(&indexes, &search_request, &|| false) else {
@@ -209,7 +218,40 @@ mod tests {
             limit: 50,
             home: String::new(),
             include_hidden: false,
+            include_system: false,
+            excluded_folders: Vec::new(),
+            show_apps: true,
+            show_files: true,
+            show_folders: true,
         }
+    }
+
+    #[test]
+    fn passes_search_options_to_the_index() {
+        let engine = Engine::new();
+        ready(
+            &engine,
+            'C',
+            &[
+                (20, ROOT, "Projetos", true),
+                (21, 20, "alpha.txt", false),
+                (22, 20, "alpha", true),
+                (30, ROOT, "Outros", true),
+                (31, 30, "alpha.md", false),
+            ],
+        );
+        let request = SearchQuery {
+            excluded_folders: vec![r"C:\Outros".into()],
+            show_folders: false,
+            ..query("alpha", Filter::All)
+        };
+        let paths: Vec<String> = engine
+            .search(&request)
+            .hits
+            .into_iter()
+            .map(|hit| hit.path)
+            .collect();
+        assert_eq!(paths, [r"C:\Projetos\alpha.txt"]);
     }
 
     #[test]
