@@ -48,7 +48,6 @@ impl Drop for SecurityDescriptor {
 }
 
 /// Creates `path` readable only by SYSTEM and Administrators. An existing folder is left as is.
-#[expect(dead_code)]
 pub(crate) fn create_private_dir(path: &Path) -> io::Result<()> {
     let descriptor = SecurityDescriptor::from_sddl(PRIVATE_DIR_SDDL)?;
     let attributes = descriptor.attributes();
