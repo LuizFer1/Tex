@@ -120,3 +120,15 @@ What you copy can be anything: notes, addresses, links, private messages. Tex tr
 - The data is protected with basic encryption at rest.
 
 **No external services.** No account SDK, no analytics SDK, no backend SDK, no network calls. Every new dependency has to fit an app that works with no network and no telemetry.
+
+---
+
+## License
+
+Tex is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE.md).
+
+- **Free to use** for any noncommercial purpose: personal use, study, hobby projects, and use by charities, schools, and public institutions.
+- **Free to modify** and to share your changes, as long as the license and its `Required Notice:` line go along with every copy.
+- **Commercial use is not allowed** under this license. To use Tex commercially, contact the author for a separate license.
+
+The UI is built with [Slint](https://slint.dev), used under the Slint Royalty-free Desktop, Mobile, and Web Applications License 2.0. As that license requires, Tex shows the `AboutSlint` widget on its About screen.
