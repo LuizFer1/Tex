@@ -1,0 +1,11 @@
+[package]
+name = "tex-ipc"
+description = "Messages between the Tex app and the search service"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+postcard.workspace = true
+serde.workspace = true
