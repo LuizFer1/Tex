@@ -4318,10 +4318,12 @@ name = "tex-app"
 version = "0.1.0"
 dependencies = [
  "global-hotkey",
+ "serde",
  "slint",
  "slint-build",
  "tex-ipc",
  "tex-platform",
+ "toml",
 ]
 
 [[package]]

@@ -191,7 +191,7 @@ fn special_key(c: char) -> Option<&'static str> {
     ];
     SPECIAL
         .iter()
-        .find(|(key, _)| char::from(key.clone()) == c)
+        .find(|(key, _)| char::from(*key) == c)
         .map(|(_, name)| *name)
 }
 
