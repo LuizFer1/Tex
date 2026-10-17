@@ -28,14 +28,16 @@ One search box for everything on your computer.
 
 ### Clipboard history
 
-Tex keeps what you copy, so you can find it and use it again later.
+Tex keeps what you copy, so you can find it and use it again later. Press **Alt+V** (you can change it) to open the history.
 
-- Supported content is **captured automatically** whenever you copy it. There is nothing to turn on per copy.
+- Text and images are **captured automatically** whenever you copy them. There is nothing to turn on per copy.
 - **Every copy is a new entry.** Copying the same content twice creates two separate entries. Duplicates are kept on purpose, because each copy is its own moment in the history.
 - Each entry is **independent**. Editing, renaming, favoriting, deleting, or expiring one entry never affects another, even when their content is identical.
-- You can **search** the history, **preview** an entry, and **copy it back** to the clipboard.
-- You can give an entry a **custom display name**, so it is easy to recognize later.
-- You can **delete** any entry by hand.
+- The history lists entries newest first, with a **preview** on the side. You can **search** names and text, and filter by favorites, text, or images.
+- **Enter** (or a double click) **copies the entry back** to the clipboard and closes the history. If you choose "Copy and paste" in Settings, it also pastes into the window you were using. **Ctrl+Enter** does the other one.
+- **Ctrl+D** favorites an entry, **F2** gives it a **custom name**, **Ctrl+E** edits a text, and **Del** deletes it (a favorite asks first). **Ctrl+,** opens the clipboard settings.
+- Copies Tex makes itself are not captured again, so picking an old entry does not add a new one.
+- Capture can be **paused** from the tray menu or in Settings. Settings also has the size limit per entry, which kinds to capture, the cleanup policy, ignored apps, and a button that clears everything except favorites.
 
 ### Text and images
 
@@ -43,16 +45,16 @@ The first version supports two kinds of content.
 
 | Action | Text | Image |
 | --- | --- | --- |
-| Automatic capture | ✅ | ✅ when the format is supported |
+| Automatic capture | ✅ plain text | ✅ bitmaps (24 and 32 bits) |
 | View / preview | ✅ | ✅ |
-| Search by content | ✅ | — |
-| Copy again | ✅ | ✅ when supported |
+| Search by content | ✅ | — (by name) |
+| Copy again | ✅ | ✅ |
 | Favorite / unfavorite | ✅ | ✅ |
 | Rename | ✅ | ✅ |
-| Edit stored content | ✅ | Still open (name only, or the image itself) |
+| Edit stored content | ✅ | — (rename only) |
 | Delete | ✅ | ✅ |
 
-Large files, folders, and ZIP files are planned for later, not for the first version.
+Formatted text (HTML, RTF) is kept as plain text. Large files, folders, and ZIP files are planned for later, not for the first version.
 
 ### Retention
 
@@ -67,7 +69,10 @@ The history should not grow forever. You choose one policy, and Tex applies it t
 **By storage.** You pick a size limit for the history: 250 MB, 500 MB, 1 GB, 2 GB, or 5 GB.
 
 - When usage reaches **90% of the limit**, Tex starts removing the **oldest non-favorite** entries.
-- Cleanup frees enough space to take real pressure off the limit, instead of deleting one entry at a time at the edge.
+- Cleanup goes on until usage is at **80% or less**, instead of deleting one entry at a time at the edge.
+- Settings shows how much of the limit is in use.
+
+Cleanup runs in the background while Tex sits in the tray, even with the history closed or capture paused. Switching policy applies the new one right away.
 
 ### Favorites
 
@@ -82,16 +87,10 @@ Favorites are the entries you want to keep.
 
 What you copy can be anything: notes, addresses, links, private messages. Tex treats it that way.
 
-- The history is stored **locally**, on your computer only.
-- Stored data is protected with **basic encryption**.
+- The history is stored **locally**, on your computer only, in `%LOCALAPPDATA%\Tex`.
+- Names and content are **encrypted** (XChaCha20-Poly1305). The key is protected by Windows for your account, so another user of the computer cannot read the history. If the key is lost, Tex sets the old history aside and starts an empty one.
 - Nothing is sent to the internet. There is no account, no cloud, and no tracking.
 - You stay responsible for what you keep. Tex does not try to detect passwords on its own. Instead you can pause capture, ignore specific apps, let Tex skip what password managers mark as private, and review and delete entries.
-
-### Still to be decided
-
-| Topic | Open question |
-| --- | --- |
-| Editing images | Whether "edit" means only the name, or also the image content. |
 
 ---
 
@@ -114,7 +113,7 @@ What you copy can be anything: notes, addresses, links, private messages. Tex tr
 - One row per copy, so duplicate content stays as independent entries.
 - Each row carries what retention needs: when it was copied, its size, and whether it is a favorite.
 - Text and images are both stored in the history, so their size is measured to enforce the storage limit.
-- The data is protected with basic encryption at rest.
+- Names and content are encrypted at rest, with a key protected by Windows (DPAPI).
 
 **No external services.** No account SDK, no analytics SDK, no backend SDK, no network calls. Every new dependency has to fit an app that works with no network and no telemetry.
 
@@ -122,7 +121,7 @@ What you copy can be anything: notes, addresses, links, private messages. Tex tr
 
 ## Install
 
-Download `Tex-Setup-<version>.exe` from [Releases](https://github.com/LuizFer1/Tex/releases) and run it. It asks for administrator rights because the search service reads the NTFS file tables, and it asks whether only your account or everyone who signs in to the computer can search. Tex then starts with Windows; you can turn that off in Settings (tray menu, or Ctrl+, in the search box), along with the shortcut, theme, language, and what search includes.
+Download `Tex-Setup-<version>.exe` from [Releases](https://github.com/LuizFer1/Tex/releases) and run it. It asks for administrator rights because the search service reads the NTFS file tables, and it asks whether only your account or everyone who signs in to the computer can search. Tex then starts with Windows; you can turn that off in Settings (tray menu, or Ctrl+, in the search box), along with the shortcuts, theme, language, what search includes, and how the clipboard history works.
 
 ---
 
@@ -151,7 +150,7 @@ To try the app without administrator rights, serve a single folder instead:
 cargo run --release -p tex-indexer --example fake_server -- C:\Users\you
 ```
 
-Press **Alt+Space** to open the search popup and type. **↑/↓** move the selection, **Enter** opens the item, **Ctrl+Enter** shows it in its folder, **Tab** switches between All, Apps, Files and Folders, and **Esc** or clicking outside closes the popup. The tray icon has Open, About, and Quit. Apps (Start Menu shortcuts and executables) are listed first.
+Press **Alt+Space** to open the search popup and type. **↑/↓** move the selection, **Enter** opens the item, **Ctrl+Enter** shows it in its folder, **Tab** switches between All, Apps, Files and Folders, and **Esc** or clicking outside closes the popup. Apps (Start Menu shortcuts and executables) are listed first. Press **Alt+V** for the clipboard history. The tray menu has Open Tex, Clipboard history, Settings, About Tex, Pause capture, and Quit.
 
 Measured with the release build on Windows 10 at 1920×1080: about 15 MB working set at startup, about 18 MB after opening the popup, and no CPU time while idle.
 
