@@ -24,6 +24,7 @@ slint = { version = "1.18.1", default-features = false, features = [
     "unstable-winit-030",
 ] }
 slint-build = "1.18.1"
+embed-resource = "3.0.5"
 windows-sys = "0.59"
 windows-service = "0.8.1"
 unicode-normalization = "0.1.25"

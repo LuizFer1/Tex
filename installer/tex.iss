@@ -21,6 +21,7 @@ SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
+SetupIconFile=..\crates\tex-app\assets\tex.ico
 UninstallDisplayIcon={app}\tex.exe
 UsedUserAreasWarning=no
 ShowLanguageDialog=no

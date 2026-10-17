@@ -1,7 +1,8 @@
+import { Artwork } from "artwork.slint";
+
 export component TexTray inherits SystemTrayIcon {
-    in property <image> icon-image;
     in property <bool> paused;
-    icon: root.icon-image;
+    icon: Artwork.mascot-tray;
     tooltip: "Tex";
 
     callback open();

@@ -1,4 +1,7 @@
 fn main() {
+    embed_resource::compile("assets/tex.rc", embed_resource::NONE)
+        .manifest_optional()
+        .expect("icon resource failed to compile");
     let config = slint_build::CompilerConfiguration::new()
         .with_style("fluent".into())
         .with_bundled_translations("ui/translations")

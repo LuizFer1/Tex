@@ -3,7 +3,6 @@
 mod app;
 mod clipboard_client;
 mod history;
-mod icon;
 mod icons;
 mod placement;
 mod results;
@@ -119,7 +118,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let history = HistoryWindow::new()?;
     let tray = TexTray::new()?;
     about.set_version(env!("CARGO_PKG_VERSION").into());
-    tray.set_icon_image(icon::tray_icon());
     let windows = Windows {
         popup: popup.as_weak(),
         about: about.as_weak(),
