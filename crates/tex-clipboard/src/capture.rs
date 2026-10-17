@@ -12,7 +12,7 @@ pub struct ClipFacts<'a> {
     pub has_image: bool,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CaptureSettings {
     pub paused: bool,
     pub capture_text: bool,

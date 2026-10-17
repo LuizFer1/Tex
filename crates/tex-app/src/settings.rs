@@ -16,10 +16,6 @@ const FALLBACK_HISTORY_HOTKEY: &str = "ctrl+shift+v";
 pub const ITEM_SIZES_MB: [u32; 5] = [1, 5, 10, 25, 50];
 pub const CLEANUP_DAYS: [u32; 3] = [3, 7, 30];
 pub const STORAGE_LIMITS_MB: [u32; 5] = [250, 500, 1024, 2048, 5120];
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "used by the clipboard client in a later task")
-)]
 const MB: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -180,10 +176,6 @@ impl Default for Clipboard {
 }
 
 impl Clipboard {
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "used by the clipboard client in a later task")
-    )]
     pub fn retention(&self) -> Retention {
         match self.cleanup {
             Cleanup::Time => Retention::Time {
@@ -195,10 +187,6 @@ impl Clipboard {
         }
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "used by the clipboard client in a later task")
-    )]
     pub fn capture_settings(&self) -> CaptureSettings {
         CaptureSettings {
             paused: self.paused,

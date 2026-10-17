@@ -85,7 +85,7 @@ impl fmt::Display for OpenError {
 
 impl std::error::Error for OpenError {}
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditError {
     TooLarge,
     NotText,

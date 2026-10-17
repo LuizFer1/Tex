@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod clipboard_client;
 mod icon;
 mod icons;
 mod placement;
@@ -23,11 +24,12 @@ use slint::{
 };
 use tex_ipc::{Filter, VolumeState, VolumeStatus};
 use tex_platform::{
-    IconPixels, SingleInstance, open_path, pick_folder, primary_work_area, reveal_in_folder,
-    work_area_under_cursor,
+    ClipboardWatcher, IconPixels, SingleInstance, open_path, pick_folder, primary_work_area,
+    reveal_in_folder, work_area_under_cursor,
 };
 
 use crate::app::{AppState, HotkeyError, with_app};
+use crate::clipboard_client::{ClipboardClient, history_folder};
 use crate::icons::{IconCache, IconLoader, IconState};
 use crate::results::{Row, build_rows, group_digits, status_parts, step_selection};
 use crate::search_client::{Command, Event, SearchClient};
@@ -83,6 +85,24 @@ fn main() -> Result<(), Box<dyn Error>> {
     app::apply_language(language);
     apply_theme(&windows);
     with_app(|app| apply_categories(&popup, &app.settings));
+
+    let clipboard = ClipboardClient::start(
+        history_folder(),
+        with_app(|app| app::client_settings(&app.settings.clipboard)),
+        |event| {
+            let _ = slint::invoke_from_event_loop(move || clipboard_event(event));
+        },
+    );
+    let _watcher = match ClipboardWatcher::start({
+        let clipboard = clipboard.clone();
+        move |clip| clipboard.send(clipboard_client::Command::Captured(clip))
+    }) {
+        Ok(watcher) => Some(watcher),
+        Err(error) => {
+            with_app(|app| app.capture_error = error.to_string());
+            None
+        }
+    };
 
     let icons = IconLoader::start({
         let popup = popup.as_weak();
@@ -147,6 +167,22 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     slint::run_event_loop_until_quit()?;
     Ok(())
+}
+
+/// The history window handles these in a later task.
+fn clipboard_event(event: clipboard_client::Event) {
+    use clipboard_client::Event;
+    match event {
+        Event::Unavailable(_)
+        | Event::Page { .. }
+        | Event::SearchResults { .. }
+        | Event::Added(_)
+        | Event::Changed(_)
+        | Event::Removed(_)
+        | Event::Content(..)
+        | Event::EditRefused(..)
+        | Event::Usage(_) => {}
+    }
 }
 
 fn open_from_key(windows: &Windows, client: &SearchClient) {

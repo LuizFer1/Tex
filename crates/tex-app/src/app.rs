@@ -7,8 +7,9 @@ use global_hotkey::hotkey::HotKey;
 use slint::language::ColorScheme;
 use tex_platform::{WinKeyHook, system_uses_dark_theme, user_language};
 
+use crate::clipboard_client::ClientSettings;
 use crate::search_client::SearchOptions;
-use crate::settings::{self, Language, Search, Settings, Theme};
+use crate::settings::{self, Clipboard, Language, Search, Settings, Theme};
 use crate::shortcut::Shortcut;
 
 /// Everything the UI thread changes at run time: the settings and what applies them.
@@ -23,6 +24,7 @@ pub struct AppState {
     )]
     pub history_hotkey_failed: bool,
     pub winkey_error: String,
+    pub capture_error: String,
     hotkeys: GlobalHotKeyManager,
     hotkey: Option<HotKey>,
     #[cfg_attr(
@@ -61,6 +63,7 @@ impl AppState {
             hotkey_failed: false,
             history_hotkey_failed: false,
             winkey_error: String::new(),
+            capture_error: String::new(),
             hotkeys,
             hotkey: None,
             history_hotkey: None,
@@ -241,6 +244,13 @@ pub fn search_options(search: &Search) -> SearchOptions {
         show_apps: search.show_apps,
         show_files: search.show_files,
         show_folders: search.show_folders,
+    }
+}
+
+pub fn client_settings(clipboard: &Clipboard) -> ClientSettings {
+    ClientSettings {
+        capture: clipboard.capture_settings(),
+        retention: clipboard.retention(),
     }
 }
 
