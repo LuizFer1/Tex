@@ -296,6 +296,30 @@ mod tests {
     }
 
     #[test]
+    fn searches_by_path() {
+        let engine = Engine::new();
+        ready(
+            &engine,
+            'C',
+            &[
+                (20, ROOT, "Tex", true),
+                (21, 20, "target", true),
+                (22, 21, "tex.exe", false),
+                (23, 21, "tex.exe.config", false),
+                (30, ROOT, "Outros", true),
+                (31, 30, "outro.exe", false),
+            ],
+        );
+        let paths: Vec<String> = engine
+            .search(&query("Tex/.exe", Filter::All))
+            .hits
+            .into_iter()
+            .map(|hit| hit.path)
+            .collect();
+        assert_eq!(paths, [r"C:\Tex\target\tex.exe"]);
+    }
+
+    #[test]
     fn blank_query_returns_no_hits() {
         let engine = Engine::new();
         ready(&engine, 'C', &[(20, ROOT, "a", false)]);

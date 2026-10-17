@@ -79,6 +79,16 @@ fn searches_three_million_entries_under_50ms() {
         "search took {elapsed:?}"
     );
 
+    for text in ["draft_5/.pdf", "draft_5/"] {
+        let (total, elapsed) = time(&volume, text);
+        println!("'{text}': {total} matches in {elapsed:?}");
+        assert!(total > 0);
+        assert!(
+            elapsed < Duration::from_millis(50),
+            "'{text}' took {elapsed:?}"
+        );
+    }
+
     let (total, elapsed) = time(&volume, "e");
     println!("'e' (worst case): {total} matches in {elapsed:?}");
 }

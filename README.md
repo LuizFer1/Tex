@@ -24,6 +24,7 @@ One search box for everything on your computer.
 - Includes **installed apps** in the same results. There is no separate search for each kind.
 - Results are **grouped by category** and can be **filtered** by files, folders, or apps.
 - Files and folders show **where they are**, so two items with the same name can be told apart.
+- Type a **path** to search inside folders: `Tex/.exe` finds `.exe` files anywhere inside folders named like "Tex", and `Projetos/Tex/` lists everything below them.
 - The selected result **opens directly** from the search.
 
 ### Clipboard history
