@@ -10,6 +10,7 @@ mod results;
 mod search_client;
 mod settings;
 mod shortcut;
+mod theme;
 
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -19,6 +20,7 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
+use slint::language::ColorScheme;
 use slint::winit_030::winit::event::WindowEvent;
 use slint::winit_030::winit::platform::windows::WindowExtWindows;
 use slint::winit_030::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -52,6 +54,7 @@ use crate::settings::{
     STORAGE_LIMITS_MB, Settings, Theme, settings_path,
 };
 use crate::shortcut::Shortcut;
+use crate::theme::{Art, Design};
 
 slint::include_modules!();
 
@@ -713,19 +716,128 @@ fn theme_changed(windows: &Windows) {
     let _ = slint::invoke_from_event_loop(move || apply_theme(&windows));
 }
 
+fn rgb(value: u32) -> slint::Color {
+    slint::Color::from_rgb_u8((value >> 16) as u8, (value >> 8) as u8, value as u8)
+}
+
+/// Copies a design into one window's `Tokens` (each window has its own copy of the global).
+fn apply_design(tokens: &Tokens<'_>, artwork: &Artwork<'_>, design: &Design, dark: bool) {
+    let c = theme::colors(design, dark);
+    tokens.set_action(rgb(c.action));
+    tokens.set_action_strong(rgb(c.action_strong));
+    tokens.set_highlight(rgb(c.highlight));
+    tokens.set_paper(rgb(c.paper));
+    tokens.set_paper_2(rgb(c.paper_2));
+    tokens.set_field(rgb(c.field));
+    tokens.set_row_hover(rgb(c.row_hover));
+    tokens.set_ink(rgb(c.ink));
+    tokens.set_ink_2(rgb(c.ink_2));
+    tokens.set_ink_3(rgb(c.ink_3));
+    tokens.set_muted(rgb(c.muted));
+    tokens.set_muted_2(rgb(c.muted_2));
+    tokens.set_border(rgb(c.border));
+    tokens.set_border_2(rgb(c.border_2));
+    tokens.set_control_off(rgb(c.control_off));
+    tokens.set_control_off_2(rgb(c.control_off_2));
+    tokens.set_warn(rgb(c.warn));
+    tokens.set_warn_text(rgb(c.warn_text));
+    tokens.set_danger(rgb(c.danger));
+    tokens.set_danger_hover(rgb(c.danger_hover));
+    tokens.set_danger_bg(rgb(c.danger_bg));
+    tokens.set_on_action(rgb(c.on_action));
+    tokens.set_on_action_muted(rgb(c.on_action_muted));
+    tokens.set_selection(rgb(c.selection));
+    tokens.set_type_file(rgb(c.type_file));
+    tokens.set_type_folder(rgb(c.type_folder));
+    tokens.set_type_image(rgb(c.type_image));
+    tokens.set_type_app(rgb(c.type_app));
+    tokens.set_scrollbar(rgb(c.scrollbar));
+    tokens.set_banner(rgb(c.banner));
+    tokens.set_banner_ink(rgb(c.banner_ink));
+    tokens.set_banner_ink_2(rgb(c.banner_ink_2));
+    tokens.set_banner_kicker(rgb(c.banner_kicker));
+    tokens.set_close_hover(rgb(c.close_hover));
+    tokens.set_close_hover_ink(rgb(c.close_hover_ink));
+
+    let s = &design.shape;
+    tokens.set_radius_control(s.radius_control);
+    tokens.set_radius_card(s.radius_card);
+    tokens.set_radius_tab(s.radius_tab);
+    tokens.set_radius_window(s.radius_window);
+    tokens.set_radius_art(s.radius_art);
+    tokens.set_border_control(s.border_control);
+    tokens.set_border_strong(s.border_strong);
+    tokens.set_focus_width(s.focus_width);
+    tokens.set_scrollbar_width(s.scrollbar_width);
+
+    let t = &design.typography;
+    tokens.set_ui_font(t.ui_font.into());
+    tokens.set_mono_font(t.mono_font.into());
+    tokens.set_size_search(t.size_search);
+    tokens.set_size_history_input(t.size_history_input);
+    tokens.set_size_title(t.size_title);
+    tokens.set_size_banner(t.size_banner);
+    tokens.set_size_result(t.size_result);
+    tokens.set_size_tab(t.size_tab);
+    tokens.set_size_label(t.size_label);
+    tokens.set_size_check(t.size_check);
+    tokens.set_size_body(t.size_body);
+    tokens.set_size_button(t.size_button);
+    tokens.set_size_desc(t.size_desc);
+    tokens.set_size_path(t.size_path);
+    tokens.set_size_meta(t.size_meta);
+    tokens.set_size_kicker(t.size_kicker);
+    tokens.set_size_key(t.size_key);
+
+    match design.art {
+        Art::Mascot => {
+            tokens.set_app_icon(artwork.get_mascot_icon());
+            tokens.set_art_search(artwork.get_mascot_search());
+            tokens.set_art_clipboard(artwork.get_mascot_clipboard());
+            tokens.set_art_banner(artwork.get_mascot_banner());
+        }
+    }
+}
+
 fn apply_theme(windows: &Windows) {
     let scheme = app::color_scheme(with_app(|app| app.settings.general.theme));
+    let dark = scheme == ColorScheme::Dark;
+    let design = theme::design(theme::DEFAULT);
     if let Some(popup) = windows.popup.upgrade() {
         popup.set_scheme(scheme);
+        apply_design(
+            &popup.global::<Tokens>(),
+            &popup.global::<Artwork>(),
+            design,
+            dark,
+        );
     }
     if let Some(about) = windows.about.upgrade() {
         about.set_scheme(scheme);
+        apply_design(
+            &about.global::<Tokens>(),
+            &about.global::<Artwork>(),
+            design,
+            dark,
+        );
     }
     if let Some(settings) = windows.settings.upgrade() {
         settings.set_scheme(scheme);
+        apply_design(
+            &settings.global::<Tokens>(),
+            &settings.global::<Artwork>(),
+            design,
+            dark,
+        );
     }
     if let Some(history) = windows.history.upgrade() {
         history.set_scheme(scheme);
+        apply_design(
+            &history.global::<Tokens>(),
+            &history.global::<Artwork>(),
+            design,
+            dark,
+        );
     }
 }
 
