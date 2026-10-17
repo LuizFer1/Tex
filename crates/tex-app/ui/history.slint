@@ -1,5 +1,31 @@
 import { Button, LineEdit, ListView, Palette, TextEdit } from "std-widgets.slint";
-import { FilterChip } from "popup.slint";
+
+component FilterChip inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    callback clicked();
+
+    width: label-text.preferred-width + 20px;
+    height: 24px;
+    border-radius: 12px;
+    background: root.active ? Palette.accent-background : transparent;
+    border-width: root.active ? 0px : 1px;
+    border-color: Palette.border;
+
+    label-text := Text {
+        text: root.label;
+        color: root.active ? Palette.accent-foreground : Palette.foreground;
+        font-size: 12px;
+        vertical-alignment: center;
+        horizontal-alignment: center;
+    }
+
+    TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
 
 export struct HistoryRow {
     id: string,

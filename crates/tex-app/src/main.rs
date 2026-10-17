@@ -35,8 +35,8 @@ use tex_ipc::{Filter, VolumeState, VolumeStatus};
 use tex_platform::{
     ClipboardWatcher, IconPixels, LocalTime, SingleInstance, catch_windows_key, foreground_window,
     local_time, lock_foreground, open_path, paste_into, pick_file, pick_folder, primary_work_area,
-    restore_foreground, reveal_in_folder, take_foreground, work_area_under_cursor, write_image,
-    write_text,
+    restore_foreground, reveal_in_folder, shape_tabbed_window, take_foreground,
+    work_area_under_cursor, write_image, write_text,
 };
 
 use crate::app::{AppState, HotkeyError, with_app};
@@ -46,7 +46,10 @@ use crate::clipboard_client::{
 };
 use crate::history::{HistoryList, size_parts, when_parts};
 use crate::icons::{IconCache, IconLoader, IconState};
-use crate::results::{Row, build_rows, group_digits, status_parts, step_selection};
+use crate::results::{
+    Row, build_rows, file_icon, group_digits, header_counts, ready_summary, short_path,
+    status_parts, step_selection,
+};
 use crate::search_client::{Command, Event, Latest, SearchClient};
 use crate::settings::{
     CLEANUP_DAYS, Cleanup, EnterAction, ITEM_SIZES_MB, KeepSearch, Language, OnPick, PopupMonitor,
@@ -323,6 +326,15 @@ fn wire_popup(popup: &Popup, windows: &Windows, client: &SearchClient) {
                     let _ = popup.upgrade_in_event_loop(|popup| hide_popup(&popup));
                 }
                 WindowEvent::ThemeChanged(_) => theme_changed(&windows),
+                WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
+                    let _ = popup.upgrade_in_event_loop(|popup| {
+                        shape_window(
+                            popup.window(),
+                            popup.get_tab_width(),
+                            popup.get_tab_height(),
+                        );
+                    });
+                }
                 _ => {}
             }
             EventResult::Propagate
@@ -844,6 +856,7 @@ fn apply_categories(popup: &Popup, settings: &Settings) {
     popup.set_show_apps(search.show_apps);
     popup.set_show_files(search.show_files);
     popup.set_show_folders(search.show_folders);
+    popup.set_enter_reveals(search.enter_action == EnterAction::Reveal);
     let hidden = match popup.get_filter() {
         1 => !search.show_apps,
         2 => !search.show_files,
@@ -1071,9 +1084,8 @@ fn is_foreground(popup: &Popup) -> bool {
     popup_hwnd(popup) == Some(foreground_window())
 }
 
-fn popup_hwnd(popup: &Popup) -> Option<isize> {
-    popup
-        .window()
+fn window_hwnd(window: &slint::Window) -> Option<isize> {
+    window
         .with_winit_window(
             |window| match window.window_handle().map(|handle| handle.as_raw()) {
                 Ok(RawWindowHandle::Win32(handle)) => Some(handle.hwnd.get()),
@@ -1081,6 +1093,28 @@ fn popup_hwnd(popup: &Popup) -> Option<isize> {
             },
         )
         .flatten()
+}
+
+fn popup_hwnd(popup: &Popup) -> Option<isize> {
+    window_hwnd(popup.window())
+}
+
+/// Clips a popup window to its "tex -" tab and body.
+fn shape_window(window: &slint::Window, tab_width: f32, tab_height: f32) {
+    let Some(hwnd) = window_hwnd(window) else {
+        return;
+    };
+    let scale = window.scale_factor();
+    let size = window.size();
+    let radius = theme::design(theme::DEFAULT).shape.radius_tab;
+    shape_tabbed_window(
+        hwnd,
+        size.width as i32,
+        size.height as i32,
+        placement::physical(tab_width, scale),
+        placement::physical(tab_height, scale),
+        placement::physical(radius, scale),
+    );
 }
 
 /// The only way the popup closes, so the time it closed is always known.
@@ -1129,6 +1163,7 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
     }
     popup.set_status_indexing("".into());
     popup.set_status_failed("".into());
+    popup.set_status_ready_letters("".into());
     popup.set_service_unavailable(false);
     client.send(Command::Status);
     let area = match monitor {
@@ -1147,6 +1182,11 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
     popup
         .window()
         .with_winit_window(|window| window.set_skip_taskbar(true));
+    shape_window(
+        popup.window(),
+        popup.get_tab_width(),
+        popup.get_tab_height(),
+    );
     let Some(window) = popup_hwnd(&popup).filter(|window| take_foreground(*window)) else {
         hide_popup(&popup);
         return;
@@ -1187,6 +1227,7 @@ fn search(popup: &Popup, client: &SearchClient) {
         3 => Filter::Folders,
         _ => Filter::All,
     };
+    popup.set_searching(true);
     client.search(
         query.to_string(),
         filter,
@@ -1216,20 +1257,29 @@ fn show_event(windows: &Windows, event: Event, icons: &IconLoader, latest: &Late
             let rows = build_rows(&results.hits);
             let is_item: Vec<bool> = rows.iter().map(Row::is_item).collect();
             let selected = step_selection(&is_item, None, 1);
-            let model: Vec<ResultRow> = rows.iter().map(|row| to_result_row(row, icons)).collect();
+            let counts = header_counts(&rows);
+            let model: Vec<ResultRow> = rows
+                .iter()
+                .zip(counts)
+                .map(|(row, count)| to_result_row(row, count, icons))
+                .collect();
             popup.set_rows(ModelRc::new(VecModel::from(model)));
             popup.set_selected(selected.map_or(-1, |index| index as i32));
             popup.set_service_unavailable(false);
+            popup.set_searching(false);
         }
         Event::Status(volumes) => {
+            let separator = app::digit_separator(with_app(|app| app.settings.general.language));
             if let Some(popup) = popup {
                 let (indexing, failed) = status_parts(&volumes);
                 popup.set_status_indexing(indexing.into());
                 popup.set_status_failed(failed.into());
+                let (letters, total) = ready_summary(&volumes);
+                popup.set_status_ready_letters(letters.into());
+                popup.set_status_ready_total(group_digits(total, separator).into());
                 popup.set_service_unavailable(false);
             }
             if let Some(settings) = settings {
-                let separator = app::digit_separator(with_app(|app| app.settings.general.language));
                 let drives: Vec<DriveRow> = volumes
                     .iter()
                     .map(|volume| drive_row(volume, separator))
@@ -1243,6 +1293,7 @@ fn show_event(windows: &Windows, event: Event, icons: &IconLoader, latest: &Late
                 popup.set_rows(ModelRc::default());
                 popup.set_selected(-1);
                 popup.set_service_unavailable(true);
+                popup.set_searching(false);
             }
             if let Some(settings) = settings {
                 settings.set_drives(ModelRc::default());
@@ -1274,11 +1325,12 @@ fn drive_row(volume: &VolumeStatus, separator: char) -> DriveRow {
     row
 }
 
-fn to_result_row(row: &Row, icons: &IconLoader) -> ResultRow {
+fn to_result_row(row: &Row, count: usize, icons: &IconLoader) -> ResultRow {
     match row {
         Row::Header(category) => ResultRow {
             header: true,
             category: category.index(),
+            count: count as i32,
             ..Default::default()
         },
         Row::Item {
@@ -1292,9 +1344,11 @@ fn to_result_row(row: &Row, icons: &IconLoader) -> ResultRow {
                 header: false,
                 title: name.as_str().into(),
                 folder: folder.as_str().into(),
+                short_folder: short_path(folder).into(),
                 path: path.as_str().into(),
                 is_dir: *is_dir,
                 is_app: *is_app,
+                file_icon: file_icon(name).index(),
                 ..Default::default()
             };
             if *is_app {

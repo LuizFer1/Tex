@@ -140,7 +140,6 @@ pub fn group_digits(value: u64, separator: char) -> String {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum FileIcon {
     File,
     Doc,
@@ -152,7 +151,6 @@ pub enum FileIcon {
     Code,
 }
 
-#[allow(dead_code)]
 impl FileIcon {
     pub fn index(self) -> i32 {
         self as i32
@@ -160,7 +158,6 @@ impl FileIcon {
 }
 
 /// Picks the icon kind from the file extension.
-#[allow(dead_code)]
 pub fn file_icon(name: &str) -> FileIcon {
     let extension = match name.rsplit_once('.') {
         Some((stem, extension)) if !stem.is_empty() => extension.to_ascii_lowercase(),
@@ -182,7 +179,6 @@ pub fn file_icon(name: &str) -> FileIcon {
 }
 
 /// The last three folders after "…\", or the path as is when it has three or fewer.
-#[allow(dead_code)]
 pub fn short_path(folder: &str) -> String {
     let parts: Vec<&str> = folder.split('\\').filter(|part| !part.is_empty()).collect();
     if parts.len() <= 4 {
@@ -192,7 +188,6 @@ pub fn short_path(folder: &str) -> String {
 }
 
 /// For each row, the number of items in its group when it is a header, 0 otherwise.
-#[allow(dead_code)]
 pub fn header_counts(rows: &[Row]) -> Vec<usize> {
     rows.iter()
         .enumerate()
@@ -207,7 +202,6 @@ pub fn header_counts(rows: &[Row]) -> Vec<usize> {
 }
 
 /// Ready volumes as "C: D:" and their entries added up.
-#[allow(dead_code)]
 pub fn ready_summary(volumes: &[VolumeStatus]) -> (String, u64) {
     let ready: Vec<(char, u32)> = volumes
         .iter()

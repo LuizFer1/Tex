@@ -183,9 +183,6 @@ msgstr "Unidades indexadas"
 msgid "Indexing {}%"
 msgstr "Indexando {}%"
 
-msgid "Indexing {}…"
-msgstr "Indexando {}…"
-
 msgid "Keep the last search for"
 msgstr "Manter a última pesquisa por"
 
@@ -264,14 +261,8 @@ msgstr "Retomar captura"
 msgid "Save"
 msgstr "Salvar"
 
-msgid "Search apps, files and folders"
-msgstr "Pesquisar apps, arquivos e pastas"
-
 msgid "Search clipboard history"
 msgstr "Pesquisar no histórico do clipboard"
-
-msgid "Search service is not running. Run tex-indexer install in an administrator terminal."
-msgstr "O serviço de pesquisa não está rodando. Execute tex-indexer install em um terminal de administrador."
 
 msgid "Search service is not running."
 msgstr "O serviço de pesquisa não está rodando."
@@ -317,9 +308,6 @@ msgstr "Hoje {0}"
 
 msgid "Too large to save"
 msgstr "Grande demais para salvar"
-
-msgid "Unavailable: {}"
-msgstr "Indisponível: {}"
 
 msgid "Under the cursor"
 msgstr "Onde está o cursor"
@@ -371,3 +359,36 @@ msgstr "gravando… esc cancela"
 
 msgid "Record"
 msgstr "Gravar"
+
+msgid "tex — search"
+msgstr "tex — pesquisa"
+
+msgid "type to search"
+msgstr "digite para buscar"
+
+msgid "open"
+msgstr "abrir"
+
+msgid "open location"
+msgstr "abrir local"
+
+msgid "↑↓ navigate · ↵ {0} · ctrl ↵ {1} · esc close"
+msgstr "↑↓ navegar · ↵ {0} · ctrl ↵ {1} · esc fechar"
+
+msgid "search service stopped"
+msgstr "serviço de pesquisa parado"
+
+msgid "indexing {0}"
+msgstr "indexando {0}"
+
+msgid "unavailable: {0}"
+msgstr "indisponível: {0}"
+
+msgid "{0} · {1} items"
+msgstr "{0} · {1} itens"
+
+msgid "nothing for “{0}”"
+msgstr "nada para “{0}”"
+
+msgid "Check the categories and ignored folders in Settings › Search."
+msgstr "Confira as categorias e as pastas ignoradas em Configurações › Pesquisa."

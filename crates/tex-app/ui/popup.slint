@@ -1,42 +1,19 @@
-import { LineEdit, ListView, Palette } from "std-widgets.slint";
+import { Tokens } from "theme.slint";
+import { Icon, Icons, TextField, ScrollBar, TabItem, TabBar, TabbedFrame, Footer, EmptyState } from "kit/kit.slint";
 
 export struct ResultRow {
     header: bool,
     title: string,
     folder: string,
+    short-folder: string,
     path: string,
     is-dir: bool,
     is-app: bool,
     category: int,
     icon: image,
     has-icon: bool,
-}
-
-export component FilterChip inherits Rectangle {
-    in property <string> label;
-    in property <bool> active;
-    callback clicked();
-
-    width: label-text.preferred-width + 20px;
-    height: 24px;
-    border-radius: 12px;
-    background: root.active ? Palette.accent-background : transparent;
-    border-width: root.active ? 0px : 1px;
-    border-color: Palette.border;
-
-    label-text := Text {
-        text: root.label;
-        color: root.active ? Palette.accent-foreground : Palette.foreground;
-        font-size: 12px;
-        vertical-alignment: center;
-        horizontal-alignment: center;
-    }
-
-    TouchArea {
-        clicked => {
-            root.clicked();
-        }
-    }
+    file-icon: int,
+    count: int,
 }
 
 component ResultItem inherits Rectangle {
@@ -44,59 +21,83 @@ component ResultItem inherits Rectangle {
     in property <bool> selected;
     callback clicked();
     callback double-clicked();
+    callback hovered();
 
-    background: root.selected ? Palette.selection-background : transparent;
-    border-radius: 4px;
-
-    if root.item.header: Text {
-        x: 12px;
-        text: root.item.category == 0 ? @tr("Apps") : root.item.category == 1 ? @tr("Folders") : @tr("Files");
-        font-size: 11px;
-        font-weight: 600;
-        opacity: 0.6;
-        vertical-alignment: center;
+    if root.item.header: HorizontalLayout {
+        padding-left: 20px;
+        padding-right: 20px;
+        padding-top: 10px;
+        spacing: 10px;
+        Text {
+            text: (root.item.category == 0 ? @tr("Apps") : root.item.category == 1 ? @tr("Folders") : @tr("Files")).to-uppercase() + " — " + (root.item.count < 10 ? "0" : "") + root.item.count;
+            font-family: Tokens.mono-font;
+            font-size: Tokens.size-kicker;
+            font-weight: 500;
+            letter-spacing: Tokens.size-kicker * 0.06;
+            color: Tokens.muted;
+            vertical-alignment: center;
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            Rectangle {
+                height: 1px;
+                background: Tokens.border-2;
+            }
+        }
     }
 
-    if !root.item.header: HorizontalLayout {
-        padding-left: 12px;
-        padding-right: 12px;
-        spacing: 10px;
-
-        VerticalLayout {
-            width: 20px;
-            alignment: center;
-            if root.item.has-icon: Image {
+    if !root.item.header: Rectangle {
+        x: 8px;
+        width: parent.width - 16px;
+        border-radius: 4px;
+        background: root.selected ? Tokens.action : transparent;
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 12px;
+            spacing: 12px;
+            Rectangle {
                 width: 20px;
-                height: 20px;
-                source: root.item.icon;
-                image-fit: contain;
+                if root.item.has-icon: Image {
+                    width: 17px;
+                    height: 17px;
+                    source: root.item.icon;
+                    image-fit: contain;
+                }
+                if !root.item.has-icon: Icon {
+                    width: 17px;
+                    height: 17px;
+                    source: root.item.is-app ? Icons.app : root.item.is-dir ? Icons.folder : Icons.file-kind(root.item.file-icon);
+                    tint: root.selected ? Tokens.on-action : root.item.is-app ? Tokens.type-app : root.item.is-dir ? Tokens.type-folder : Tokens.type-file;
+                }
             }
-            if !root.item.has-icon: Rectangle {
-                width: root.item.is-app ? 12px : 14px;
-                height: root.item.is-app ? 12px : 11px;
-                border-radius: root.item.is-app ? 4px : 2px;
-                background: root.item.is-app ? #3b82f6 : root.item.is-dir ? #e8a33d : transparent;
-                border-width: root.item.is-app || root.item.is-dir ? 0px : 1px;
-                border-color: Palette.foreground;
+            Text {
+                text: root.item.title;
+                horizontal-stretch: 1;
+                font-size: Tokens.size-result;
+                color: root.selected ? Tokens.on-action : Tokens.ink;
+                vertical-alignment: center;
+                overflow: elide;
             }
-        }
-
-        Text {
-            text: root.item.title;
-            max-width: root.width * 0.5;
-            overflow: elide;
-            vertical-alignment: center;
-            color: root.selected ? Palette.selection-foreground : Palette.foreground;
-        }
-
-        Text {
-            text: root.item.folder;
-            horizontal-stretch: 1;
-            overflow: elide;
-            font-size: 12px;
-            opacity: 0.6;
-            vertical-alignment: center;
-            color: root.selected ? Palette.selection-foreground : Palette.foreground;
+            Text {
+                width: 42%;
+                text: root.item.short-folder;
+                font-family: Tokens.mono-font;
+                font-size: Tokens.size-meta;
+                color: root.selected ? Tokens.on-action-muted : Tokens.muted;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            Text {
+                width: 22px;
+                text: "↵";
+                font-family: Tokens.mono-font;
+                font-size: Tokens.size-body;
+                color: root.selected ? Tokens.highlight : transparent;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
         }
     }
 
@@ -108,6 +109,11 @@ component ResultItem inherits Rectangle {
         double-clicked => {
             root.double-clicked();
         }
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.move {
+                root.hovered();
+            }
+        }
     }
 }
 
@@ -115,9 +121,10 @@ export component Popup inherits Window {
     title: "Tex";
     no-frame: true;
     always-on-top: true;
-    width: 640px;
-    height: 56px + (root.expanded ? 30px + (root.rows.length > 0 ? 6px + root.list-height : 0px) + (root.status-text != "" ? 28px : 0px) : 0px);
-    background: Palette.background;
+    width: 700px;
+    height: frame.preferred-height;
+    background: Tokens.paper;
+    default-font-family: Tokens.ui-font;
     forward-focus: input;
 
     in-out property <string> query;
@@ -125,7 +132,11 @@ export component Popup inherits Window {
     in property <int> selected: -1;
     in property <string> status-indexing;
     in property <string> status-failed;
+    in property <string> status-ready-letters;
+    in property <string> status-ready-total;
     in property <bool> service-unavailable;
+    in property <bool> searching;
+    in property <bool> enter-reveals;
     in-out property <int> filter: 0;
     in property <bool> show-apps: true;
     in property <bool> show-files: true;
@@ -133,6 +144,8 @@ export component Popup inherits Window {
     in property <ColorScheme> scheme;
     // Whether the query has more than spaces in it, set by the app on every edit.
     in-out property <bool> expanded;
+    out property <length> tab-width: frame.tab-width;
+    out property <length> tab-height: frame.tab-height;
 
     callback dismissed();
     callback query-edited(string);
@@ -142,13 +155,10 @@ export component Popup inherits Window {
     callback activate(int, bool);
     callback open-settings();
 
-    changed scheme => {
-        Palette.color-scheme = self.scheme;
-    }
-
-    property <length> row-height: 30px;
-    property <length> list-height: min(root.rows.length, 8) * root.row-height;
-    property <string> status-text: root.service-unavailable ? @tr("Search service is not running. Run tex-indexer install in an administrator terminal.") : (root.status-indexing != "" ? @tr("Indexing {}…", root.status-indexing) : "") + (root.status-indexing != "" && root.status-failed != "" ? " · " : "") + (root.status-failed != "" ? @tr("Unavailable: {}", root.status-failed) : "");
+    property <length> row-height: 36px;
+    property <string> open-text: @tr("open");
+    property <string> reveal-text: @tr("open location");
+    property <string> status-text: root.service-unavailable ? @tr("search service stopped") : root.status-indexing != "" ? @tr("indexing {0}", root.status-indexing) : root.status-failed != "" ? @tr("unavailable: {0}", root.status-failed) : root.status-ready-letters != "" ? @tr("{0} · {1} items", root.status-ready-letters, root.status-ready-total) : "";
 
     public function reset() {
         root.query = "";
@@ -218,95 +228,147 @@ export component Popup inherits Window {
             reject
         }
 
-        VerticalLayout {
-            padding: 8px;
-            spacing: 6px;
-            alignment: start;
+        frame := TabbedFrame {
+            title: @tr("tex — search");
 
-            input := LineEdit {
-                height: 40px;
-                font-size: 18px;
-                placeholder-text: @tr("Search apps, files and folders");
-                text <=> root.query;
-                edited(text) => {
-                    root.query-edited(text);
+            HorizontalLayout {
+                padding-left: 20px;
+                padding-right: 20px;
+                padding-top: 18px;
+                padding-bottom: 14px;
+                spacing: 12px;
+                Text {
+                    text: "›";
+                    font-family: Tokens.mono-font;
+                    font-size: Tokens.size-search;
+                    font-weight: 500;
+                    color: Tokens.action;
+                    vertical-alignment: center;
+                }
+                input := TextField {
+                    horizontal-stretch: 1;
+                    height: 34px;
+                    mono: true;
+                    font-size: Tokens.size-search;
+                    placeholder: @tr("type to search");
+                    text <=> root.query;
+                    edited(text) => {
+                        root.query-edited(text);
+                    }
                 }
             }
 
-            if root.expanded: HorizontalLayout {
-                spacing: 6px;
-                alignment: start;
-                FilterChip {
-                    label: @tr("All");
+            TabBar {
+                TabItem {
+                    text: @tr("All");
                     active: root.filter == 0;
                     clicked => {
                         root.set-filter(0);
                     }
                 }
-                if root.show-apps: FilterChip {
-                    label: @tr("Apps");
+                if root.show-apps: TabItem {
+                    text: @tr("Apps");
                     active: root.filter == 1;
                     clicked => {
                         root.set-filter(1);
                     }
                 }
-                if root.show-files: FilterChip {
-                    label: @tr("Files");
+                if root.show-files: TabItem {
+                    text: @tr("Files");
                     active: root.filter == 2;
                     clicked => {
                         root.set-filter(2);
                     }
                 }
-                if root.show-folders: FilterChip {
-                    label: @tr("Folders");
+                if root.show-folders: TabItem {
+                    text: @tr("Folders");
                     active: root.filter == 3;
                     clicked => {
                         root.set-filter(3);
                     }
                 }
-            }
-
-            if root.expanded && root.status-text != "": Text {
-                height: 22px;
-                text: root.status-text;
-                font-size: 12px;
-                opacity: 0.7;
-                vertical-alignment: center;
-                overflow: elide;
-            }
-
-            if root.expanded && root.rows.length > 0: ListView {
-                height: root.list-height;
-                property <[ResultRow]> model: root.rows;
-                property <int> current: root.selected;
-                property <length> current-top: self.current * root.row-height + self.content-y;
-
-                changed model => {
-                    self.content-y = 0;
+                Rectangle {
+                    horizontal-stretch: 1;
                 }
-                changed current => {
-                    if self.current <= 1 {
-                        self.content-y = 0;
-                    } else if self.current-top < 0 {
-                        self.content-y -= self.current-top;
-                    } else if self.current-top + root.row-height > self.visible-height {
-                        self.content-y -= self.current-top + root.row-height - self.visible-height;
-                    }
-                }
-
-                for row[index] in root.rows: ResultItem {
-                    height: root.row-height;
-                    item: row;
-                    selected: index == root.selected;
-                    clicked => {
-                        root.select(index);
-                    }
-                    double-clicked => {
-                        root.activate(index, false);
-                    }
+                Text {
+                    text: "tab ⇥";
+                    font-family: Tokens.mono-font;
+                    font-size: Tokens.size-kicker;
+                    color: Tokens.muted;
+                    vertical-alignment: center;
                 }
             }
 
+            if root.expanded: Rectangle {
+                height: 372px;
+
+                if root.rows.length > 0: Rectangle {
+                    list := Flickable {
+                        property <int> current: root.selected;
+                        property <length> current-top: self.current * root.row-height + self.content-y;
+                        width: parent.width;
+                        height: parent.height;
+                        content-height: rows-layout.preferred-height;
+                        property <[ResultRow]> model: root.rows;
+
+                        changed model => {
+                            self.content-y = 0;
+                        }
+
+                        changed current => {
+                            if self.current <= 1 {
+                                self.content-y = 0;
+                            } else if self.current-top < 0 {
+                                self.content-y -= self.current-top;
+                            } else if self.current-top + root.row-height > self.height {
+                                self.content-y -= self.current-top + root.row-height - self.height;
+                            }
+                        }
+
+                        rows-layout := VerticalLayout {
+                            width: list.width;
+                            padding-top: 4px;
+                            padding-bottom: 10px;
+                            for row[index] in root.rows: ResultItem {
+                                height: root.row-height;
+                                item: row;
+                                selected: index == root.selected;
+                                clicked => {
+                                    root.select(index);
+                                }
+                                double-clicked => {
+                                    root.activate(index, false);
+                                }
+                                hovered => {
+                                    if index != root.selected {
+                                        root.select(index);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    ScrollBar {
+                        x: parent.width - self.width - 2px;
+                        height: parent.height;
+                        viewport-y <=> list.content-y;
+                        viewport-height: list.content-height;
+                        visible-height: list.height;
+                    }
+                }
+
+                if root.rows.length == 0 && !root.searching: EmptyState {
+                    art: Tokens.art-search;
+                    title: @tr("nothing for “{0}”", root.query);
+                    hint: @tr("Check the categories and ignored folders in Settings › Search.");
+                }
+            }
+
+            Footer {
+                hints: @tr("↑↓ navigate · ↵ {0} · ctrl ↵ {1} · esc close", root.enter-reveals ? root.reveal-text : root.open-text, root.enter-reveals ? root.open-text : root.reveal-text);
+                status: root.status-text;
+                status-color: root.service-unavailable || root.status-failed != "" ? Tokens.warn-text : Tokens.muted;
+            }
         }
     }
 }
