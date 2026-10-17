@@ -4,7 +4,7 @@ use std::process::Command;
 use std::ptr;
 
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, POINT,
+    CloseHandle, ERROR_ALREADY_EXISTS, FILETIME, GetLastError, HANDLE, POINT, SYSTEMTIME,
 };
 use windows_sys::Win32::Globalization::GetUserDefaultLocaleName;
 use windows_sys::Win32::Graphics::Gdi::{
@@ -13,6 +13,7 @@ use windows_sys::Win32::Graphics::Gdi::{
 use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
 use windows_sys::Win32::System::SystemServices::LOCALE_NAME_MAX_LENGTH;
 use windows_sys::Win32::System::Threading::CreateMutexW;
+use windows_sys::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime};
 use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{GetCursorPos, SW_SHOWNORMAL};
@@ -135,6 +136,67 @@ pub fn system_uses_dark_theme() -> bool {
     status == 0 && light == 0
 }
 
+/// A wall-clock time in the user's time zone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LocalTime {
+    pub year: u16,
+    pub month: u8,
+    pub day: u8,
+    pub hour: u8,
+    pub minute: u8,
+}
+
+/// Converts a Unix time in milliseconds to the user's local time.
+pub fn local_time(unix_ms: i64) -> LocalTime {
+    let ticks = unix_ms_to_filetime(unix_ms);
+    let file_time = FILETIME {
+        dwLowDateTime: ticks as u32,
+        dwHighDateTime: (ticks >> 32) as u32,
+    };
+    let mut utc: SYSTEMTIME = unsafe { std::mem::zeroed() };
+    let mut local: SYSTEMTIME = unsafe { std::mem::zeroed() };
+    let converted = unsafe { FileTimeToSystemTime(&file_time, &mut utc) } != 0
+        && unsafe { SystemTimeToTzSpecificLocalTime(ptr::null(), &utc, &mut local) } != 0;
+    let time = if converted { local } else { utc };
+    LocalTime {
+        year: time.wYear,
+        month: time.wMonth as u8,
+        day: time.wDay as u8,
+        hour: time.wHour as u8,
+        minute: time.wMinute as u8,
+    }
+}
+
+/// Unix milliseconds as a FILETIME: 100 ns ticks since 1601, clamped to the range Windows accepts.
+fn unix_ms_to_filetime(unix_ms: i64) -> u64 {
+    const EPOCH_GAP_MS: i64 = 11_644_473_600_000;
+    let ms = unix_ms.saturating_add(EPOCH_GAP_MS).max(0) as u64;
+    ms.saturating_mul(10_000).min(i64::MAX as u64)
+}
+
 fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(Some(0)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn filetime_counts_100ns_from_1601() {
+        assert_eq!(unix_ms_to_filetime(0), 116_444_736_000_000_000);
+        assert_eq!(unix_ms_to_filetime(1), 116_444_736_000_010_000);
+        assert_eq!(unix_ms_to_filetime(-11_644_473_600_000), 0);
+        assert_eq!(unix_ms_to_filetime(i64::MIN), 0);
+    }
+
+    #[test]
+    fn local_time_of_the_epoch_is_around_1970() {
+        let time = local_time(0);
+        assert!(time.year == 1969 || time.year == 1970);
+        assert!((1..=12).contains(&time.month));
+        assert!((1..=31).contains(&time.day));
+        assert!(time.hour < 24);
+        assert!(time.minute < 60);
+    }
 }

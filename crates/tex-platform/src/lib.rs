@@ -2,9 +2,23 @@
 mod windows;
 #[cfg(windows)]
 pub use windows::{
-    SingleInstance, open_path, primary_work_area, reveal_in_folder, system_uses_dark_theme,
-    user_language, work_area_under_cursor,
+    LocalTime, SingleInstance, local_time, open_path, primary_work_area, reveal_in_folder,
+    system_uses_dark_theme, user_language, work_area_under_cursor,
 };
+#[cfg(windows)]
+mod clipboard;
+#[cfg(windows)]
+pub use clipboard::{
+    Clip, ClipboardWatcher, foreground_window, paste_into, write_image, write_text,
+};
+#[cfg(windows)]
+mod dpapi;
+#[cfg(windows)]
+pub use dpapi::{protect, unprotect};
+#[cfg(windows)]
+mod file;
+#[cfg(windows)]
+pub use file::pick_file;
 #[cfg(windows)]
 mod icon;
 #[cfg(windows)]
