@@ -12,6 +12,7 @@ publish = false
 tex-platform = { path = "crates/tex-platform" }
 tex-index = { path = "crates/tex-index" }
 tex-ipc = { path = "crates/tex-ipc" }
+tex-clipboard = { path = "crates/tex-clipboard" }
 global-hotkey = "0.8.0"
 slint = { version = "1.18.1", default-features = false, features = [
     "std",
@@ -29,6 +30,9 @@ unicode-normalization = "0.1.25"
 postcard = { version = "1.1.3", features = ["use-std"] }
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.1.8"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+chacha20poly1305 = "0.11.0"
+png = "0.18.1"
 
 [profile.release]
 lto = true
