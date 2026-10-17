@@ -33,6 +33,9 @@ msgstr "Apps"
 msgid "Cancel"
 msgstr "Cancelar"
 
+msgid "Capture is paused"
+msgstr "Captura pausada"
+
 msgid "Categories shown"
 msgstr "Categorias exibidas"
 
@@ -42,11 +45,29 @@ msgstr "Alterar"
 msgid "Choose a folder to ignore in search"
 msgstr "Escolha uma pasta para a pesquisa ignorar"
 
+msgid "Clipboard history is empty"
+msgstr "O histórico do clipboard está vazio"
+
+msgid "Clipboard history unavailable: {0}"
+msgstr "Histórico do clipboard indisponível: {0}"
+
+msgid "Clipboard history"
+msgstr "Histórico do clipboard"
+
+msgid "Copy and paste"
+msgstr "Copiar e colar"
+
+msgid "Copy"
+msgstr "Copiar"
+
 msgid "Could not save the settings: {}"
 msgstr "Não foi possível salvar as configurações: {}"
 
 msgid "Could not watch the Windows key: {}"
 msgstr "Não foi possível monitorar a tecla Windows: {}"
+
+msgid "Could not write to the clipboard"
+msgstr "Não foi possível gravar no clipboard"
 
 msgid "Ctrl+Enter does the other action."
 msgstr "Ctrl+Enter faz a outra ação."
@@ -54,11 +75,29 @@ msgstr "Ctrl+Enter faz a outra ação."
 msgid "Dark"
 msgstr "Escuro"
 
+msgid "Delete this favorite?"
+msgstr "Excluir este favorito?"
+
+msgid "Delete"
+msgstr "Excluir"
+
+msgid "Edit"
+msgstr "Editar"
+
 msgid "Enter key"
 msgstr "Ação do Enter"
 
+msgid "Enter {0}  Ctrl+Enter {1}  Del delete"
+msgstr "Enter {0}  Ctrl+Enter {1}  Del exclui"
+
 msgid "Failed: {}"
 msgstr "Falhou: {}"
+
+msgid "Favorite"
+msgstr "Favoritar"
+
+msgid "Favorites"
+msgstr "Favoritos"
 
 msgid "Files"
 msgstr "Arquivos"
@@ -74,6 +113,12 @@ msgstr "Geral"
 
 msgid "Ignored folders"
 msgstr "Pastas ignoradas"
+
+msgid "Image"
+msgstr "Imagem"
+
+msgid "Images"
+msgstr "Imagens"
 
 msgid "Include hidden files and folders"
 msgstr "Incluir arquivos e pastas ocultos"
@@ -102,6 +147,12 @@ msgstr "Claro"
 msgid "Never"
 msgstr "Nunca"
 
+msgid "No results"
+msgstr "Nenhum resultado"
+
+msgid "No"
+msgstr "Não"
+
 msgid "Open Tex with the Windows key"
 msgstr "Abrir o Tex com a tecla Windows"
 
@@ -129,14 +180,26 @@ msgstr "Pronto, {} itens"
 msgid "Refresh"
 msgstr "Atualizar"
 
+msgid "Remove favorite"
+msgstr "Desfavoritar"
+
 msgid "Remove"
 msgstr "Remover"
+
+msgid "Rename"
+msgstr "Renomear"
 
 msgid "Reset"
 msgstr "Restaurar padrão"
 
+msgid "Save"
+msgstr "Salvar"
+
 msgid "Search apps, files and folders"
 msgstr "Pesquisar apps, arquivos e pastas"
+
+msgid "Search clipboard history"
+msgstr "Pesquisar no histórico do clipboard"
 
 msgid "Search service is not running. Run tex-indexer install in an administrator terminal."
 msgstr "O serviço de pesquisa não está rodando. Execute tex-indexer install em um terminal de administrador."
@@ -162,11 +225,20 @@ msgstr "Iniciar com o Windows"
 msgid "Tex Settings"
 msgstr "Configurações do Tex"
 
+msgid "Text"
+msgstr "Texto"
+
 msgid "That shortcut is already used by another program. The previous one was kept."
 msgstr "Esse atalho já é usado por outro programa. O atalho anterior foi mantido."
 
 msgid "Theme"
 msgstr "Tema"
+
+msgid "Today {0}"
+msgstr "Hoje {0}"
+
+msgid "Too large to save"
+msgstr "Grande demais para salvar"
 
 msgid "Unavailable: {}"
 msgstr "Indisponível: {}"
@@ -174,11 +246,38 @@ msgstr "Indisponível: {}"
 msgid "Under the cursor"
 msgstr "Onde está o cursor"
 
+msgid "Unreadable entry"
+msgstr "Item ilegível"
+
 msgid "Use at least one of Ctrl, Alt, Shift or Win plus a key. Esc cancels."
 msgstr "Use pelo menos um entre Ctrl, Alt, Shift ou Win mais uma tecla. Esc cancela."
 
 msgid "Win plus other keys keeps working, and Ctrl+Esc opens the Start menu. Does not work while an administrator window has focus."
 msgstr "Win com outras teclas continua funcionando, e Ctrl+Esc abre o Menu Iniciar. Não funciona com uma janela de administrador em foco."
 
+msgid "Yes"
+msgstr "Sim"
+
+msgid "Yesterday {0}"
+msgstr "Ontem {0}"
+
 msgid "Your desktop, within reach."
 msgstr "Seu computador, ao alcance."
+
+msgid "{0} B"
+msgstr "{0} B"
+
+msgid "{0} GB"
+msgstr "{0} GB"
+
+msgid "{0} KB"
+msgstr "{0} KB"
+
+msgid "{0} MB"
+msgstr "{0} MB"
+
+msgid "{0} × {1}"
+msgstr "{0} × {1}"
+
+msgid "{1}/{0}/{2} {3}"
+msgstr "{0}/{1}/{2} {3}"

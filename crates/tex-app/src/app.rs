@@ -18,19 +18,12 @@ pub struct AppState {
     pub path: PathBuf,
     pub closed_at: Option<Instant>,
     pub hotkey_failed: bool,
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "wired to the history window in a later task")
-    )]
     pub history_hotkey_failed: bool,
     pub winkey_error: String,
     pub capture_error: String,
+    pub paste_target: isize,
     hotkeys: GlobalHotKeyManager,
     hotkey: Option<HotKey>,
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "wired to the history window in a later task")
-    )]
     history_hotkey: Option<HotKey>,
     winkey: Option<WinKeyHook>,
 }
@@ -64,6 +57,7 @@ impl AppState {
             history_hotkey_failed: false,
             winkey_error: String::new(),
             capture_error: String::new(),
+            paste_target: 0,
             hotkeys,
             hotkey: None,
             history_hotkey: None,
@@ -120,10 +114,6 @@ impl AppState {
             .expect("default history hotkey parses")
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "wired to the history window in a later task")
-    )]
     /// Registers the saved clipboard history shortcut again if it is not registered.
     pub fn resume_history_hotkey(&mut self) {
         if self.history_hotkey.is_some() {
@@ -138,7 +128,10 @@ impl AppState {
 
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "wired to the history window in a later task")
+        expect(
+            dead_code,
+            reason = "wired to the Clipboard settings tab in a later task"
+        )
     )]
     pub fn suspend_history_hotkey(&mut self) {
         if let Some(hotkey) = self.history_hotkey.take() {
@@ -148,7 +141,10 @@ impl AppState {
 
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "wired to the history window in a later task")
+        expect(
+            dead_code,
+            reason = "wired to the Clipboard settings tab in a later task"
+        )
     )]
     /// Swaps the clipboard history shortcut. On failure the previous one is registered again.
     pub fn apply_history_hotkey(&mut self, shortcut: &Shortcut) -> Result<(), HotkeyError> {
@@ -169,10 +165,6 @@ impl AppState {
         }
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "wired to the history window in a later task")
-    )]
     pub fn is_history_hotkey(&self, id: u32) -> bool {
         self.history_hotkey.is_some_and(|hotkey| hotkey.id() == id)
     }
@@ -224,6 +216,14 @@ pub fn digit_separator(language: Language) -> char {
         '.'
     } else {
         ','
+    }
+}
+
+pub fn decimal_separator(language: Language) -> char {
+    if translation(language) == "pt_BR" {
+        ','
+    } else {
+        '.'
     }
 }
 

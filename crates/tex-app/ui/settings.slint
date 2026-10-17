@@ -34,6 +34,7 @@ export component SettingsWindow inherits Window {
     background: Palette.background;
 
     in property <ColorScheme> scheme;
+    in-out property <int> current-tab;
 
     in-out property <int> language;
     in-out property <int> theme;
@@ -93,6 +94,7 @@ export component SettingsWindow inherits Window {
             spacing: 8px;
 
             TabWidget {
+                current-index <=> root.current-tab;
                 Tab {
                     title: @tr("General");
                     VerticalBox {

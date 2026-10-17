@@ -1,0 +1,672 @@
+import { Button, LineEdit, ListView, Palette, TextEdit } from "std-widgets.slint";
+import { FilterChip } from "popup.slint";
+
+export struct HistoryRow {
+    id: string,
+    // 0 text, 1 image
+    kind: int,
+    title: string,
+    named: bool,
+    favorite: bool,
+    unreadable: bool,
+    thumbnail: image,
+    // 0 today, 1 yesterday, -1 another day
+    day: int,
+    time: string,
+    date-day: int,
+    date-month: int,
+    date-year: int,
+    size-value: string,
+    // 0 B, 1 KB, 2 MB, 3 GB
+    size-unit: int,
+    width: int,
+    height: int,
+}
+
+global HistoryText {
+    public pure function title(row: HistoryRow) -> string {
+        if row.unreadable {
+            return @tr("Unreadable entry");
+        }
+        if row.title != "" {
+            return row.title;
+        }
+        return row.kind == 1 ? @tr("Image") : @tr("Text");
+    }
+
+    public pure function when(row: HistoryRow) -> string {
+        if row.day == 0 {
+            return @tr("Today {0}", row.time);
+        }
+        if row.day == 1 {
+            return @tr("Yesterday {0}", row.time);
+        }
+        return @tr("{1}/{0}/{2} {3}", row.date-day, row.date-month, row.date-year, row.time);
+    }
+
+    public pure function size(row: HistoryRow) -> string {
+        if row.size-unit == 0 {
+            return @tr("{0} B", row.size-value);
+        }
+        if row.size-unit == 1 {
+            return @tr("{0} KB", row.size-value);
+        }
+        if row.size-unit == 2 {
+            return @tr("{0} MB", row.size-value);
+        }
+        return @tr("{0} GB", row.size-value);
+    }
+}
+
+component TextIcon inherits Rectangle {
+    width: 16px;
+    height: 20px;
+    border-width: 1px;
+    border-radius: 2px;
+    border-color: Palette.foreground;
+    opacity: 0.7;
+
+    VerticalLayout {
+        padding: 4px;
+        spacing: 3px;
+        alignment: start;
+        for line in [1, 0.7, 1, 0.5]: Rectangle {
+            height: 1px;
+            width: (parent.width - 8px) * line;
+            background: Palette.foreground;
+        }
+    }
+}
+
+component HistoryItem inherits Rectangle {
+    in property <HistoryRow> item;
+    in property <bool> selected;
+    callback clicked();
+    callback double-clicked();
+
+    background: root.selected ? Palette.selection-background : transparent;
+    border-radius: 4px;
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 10px;
+        spacing: 10px;
+
+        Rectangle {
+            width: 36px;
+            if root.item.kind == 1 && !root.item.unreadable: Image {
+                width: 36px;
+                height: 36px;
+                source: root.item.thumbnail;
+                image-fit: contain;
+            }
+            if root.item.kind != 1 || root.item.unreadable: TextIcon { }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+
+            HorizontalLayout {
+                spacing: 6px;
+                Text {
+                    text: HistoryText.title(root.item);
+                    horizontal-stretch: 1;
+                    overflow: elide;
+                    font-italic: root.item.unreadable;
+                    color: root.selected ? Palette.selection-foreground : Palette.foreground;
+                }
+
+                if root.item.favorite: Text {
+                    text: "★";
+                    color: #e8a33d;
+                }
+            }
+
+            Text {
+                text: HistoryText.when(root.item) + " · " + HistoryText.size(root.item);
+                font-size: 11px;
+                opacity: 0.6;
+                overflow: elide;
+                color: root.selected ? Palette.selection-foreground : Palette.foreground;
+            }
+        }
+    }
+
+    TouchArea {
+        clicked => {
+            root.clicked();
+        }
+        double-clicked => {
+            root.double-clicked();
+        }
+    }
+}
+
+export component HistoryWindow inherits Window {
+    title: @tr("Clipboard history");
+    no-frame: true;
+    always-on-top: true;
+    width: 820px;
+    height: 520px;
+    background: Palette.background;
+    forward-focus: input;
+
+    in property <ColorScheme> scheme;
+    in-out property <string> query;
+    // 0 all, 1 favorites, 2 text, 3 images
+    in-out property <int> filter: 0;
+    in property <[HistoryRow]> rows;
+    in-out property <int> selected: -1;
+    in property <bool> paused;
+    in property <string> unavailable;
+    in property <bool> searching;
+    in property <bool> paste-by-default;
+
+    // -1 nothing or loading, 0 text, 1 image, 2 unreadable
+    in property <int> content-kind: -1;
+    in property <string> content-text;
+    in property <string> content-preview;
+    in property <image> content-image;
+    in-out property <bool> renaming;
+    in-out property <bool> editing;
+    in-out property <bool> confirm-delete;
+    // 0 none, 1 too large to save, 2 could not write to the clipboard
+    in-out property <int> action-error;
+
+    callback query-edited(string);
+    callback filter-changed(int);
+    callback step(int);
+    callback select(int);
+    callback pick(int, bool);
+    callback toggle-favorite(int);
+    callback rename(int, string);
+    callback edit(int, string);
+    callback delete(int);
+    callback load-more();
+    callback dismissed();
+    callback open-settings();
+
+    changed scheme => {
+        Palette.color-scheme = self.scheme;
+    }
+    changed renaming => {
+        if !self.renaming {
+            input.focus();
+        }
+    }
+    changed editing => {
+        if !self.editing {
+            input.focus();
+        }
+    }
+
+    property <length> row-height: 48px;
+    property <bool> has-selection: root.selected >= 0 && root.selected < root.rows.length;
+    property <HistoryRow> current: root.rows[root.selected];
+    property <bool> usable: root.has-selection && !root.current.unreadable;
+    property <string> rename-draft;
+    property <string> edit-draft;
+    property <string> primary-action: root.paste-by-default ? @tr("Copy and paste") : @tr("Copy");
+    property <string> other-action: root.paste-by-default ? @tr("Copy") : @tr("Copy and paste");
+
+    public function reset() {
+        root.query = "";
+        root.filter = 0;
+        root.selected = -1;
+        root.renaming = false;
+        root.editing = false;
+        root.confirm-delete = false;
+        root.action-error = 0;
+        list.content-y = 0;
+        input.focus();
+    }
+
+    public function scroll-to-top() {
+        list.content-y = 0;
+    }
+
+    function set-filter(value: int) {
+        root.filter = value;
+        root.filter-changed(value);
+    }
+
+    function start-rename() {
+        if root.usable {
+            root.rename-draft = root.current.named ? root.current.title : "";
+            root.confirm-delete = false;
+            root.editing = false;
+            root.renaming = true;
+        }
+    }
+
+    function start-edit() {
+        if root.usable && root.current.kind == 0 && root.content-kind == 0 {
+            root.edit-draft = root.content-text;
+            root.confirm-delete = false;
+            root.renaming = false;
+            root.action-error = 0;
+            root.editing = true;
+        }
+    }
+
+    function request-delete() {
+        if !root.has-selection {
+            return;
+        }
+        if root.current.favorite {
+            root.renaming = false;
+            root.editing = false;
+            root.confirm-delete = true;
+        } else {
+            root.delete(root.selected);
+        }
+    }
+
+    function toggle-favorite-selected() {
+        if root.usable {
+            root.toggle-favorite(root.selected);
+        }
+    }
+
+    FocusScope {
+        capture-key-pressed(event) => {
+            if event.text == Key.Escape {
+                if root.confirm-delete {
+                    root.confirm-delete = false;
+                } else if root.renaming {
+                    root.renaming = false;
+                } else if root.editing {
+                    root.editing = false;
+                    root.action-error = 0;
+                } else {
+                    root.dismissed();
+                }
+                return accept;
+            }
+            if root.renaming {
+                return reject;
+            }
+            if root.editing {
+                if event.modifiers.control && (event.text == "s" || event.text == "S") {
+                    root.edit(root.selected, root.edit-draft);
+                    return accept;
+                }
+                return reject;
+            }
+            if root.confirm-delete && event.text == Key.Return {
+                root.confirm-delete = false;
+                root.delete(root.selected);
+                return accept;
+            }
+            if event.text == Key.DownArrow {
+                root.step(1);
+                return accept;
+            }
+            if event.text == Key.UpArrow {
+                root.step(-1);
+                return accept;
+            }
+            if event.text == Key.Return {
+                if root.usable {
+                    root.pick(root.selected, event.modifiers.control);
+                }
+                return accept;
+            }
+            if event.text == Key.F2 {
+                root.start-rename();
+                return accept;
+            }
+            if event.text == Key.Delete {
+                root.request-delete();
+                return accept;
+            }
+            if event.text == Key.Tab && !event.modifiers.shift {
+                root.set-filter(Math.mod(root.filter + 1, 4));
+                return accept;
+            }
+            if event.text == Key.Backtab || (event.text == Key.Tab && event.modifiers.shift) {
+                root.set-filter(Math.mod(root.filter + 3, 4));
+                return accept;
+            }
+            if event.modifiers.control && (event.text == "d" || event.text == "D") {
+                root.toggle-favorite-selected();
+                return accept;
+            }
+            if event.modifiers.control && (event.text == "e" || event.text == "E") {
+                root.start-edit();
+                return accept;
+            }
+            if event.modifiers.control && event.text == "," {
+                root.open-settings();
+                return accept;
+            }
+            reject
+        }
+
+        VerticalLayout {
+            padding: 8px;
+            spacing: 6px;
+
+            input := LineEdit {
+                height: 40px;
+                font-size: 16px;
+                placeholder-text: @tr("Search clipboard history");
+                text <=> root.query;
+                edited(text) => {
+                    root.query-edited(text);
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 6px;
+                alignment: start;
+                FilterChip {
+                    label: @tr("All");
+                    active: root.filter == 0;
+                    clicked => {
+                        root.set-filter(0);
+                    }
+                }
+
+                FilterChip {
+                    label: "★ " + @tr("Favorites");
+                    active: root.filter == 1;
+                    clicked => {
+                        root.set-filter(1);
+                    }
+                }
+
+                FilterChip {
+                    label: @tr("Text");
+                    active: root.filter == 2;
+                    clicked => {
+                        root.set-filter(2);
+                    }
+                }
+
+                FilterChip {
+                    label: @tr("Images");
+                    active: root.filter == 3;
+                    clicked => {
+                        root.set-filter(3);
+                    }
+                }
+            }
+
+            if root.paused: Rectangle {
+                height: 24px;
+                border-radius: 4px;
+                background: Palette.alternate-background;
+                Text {
+                    text: @tr("Capture is paused");
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    horizontal-alignment: center;
+                }
+            }
+
+            HorizontalLayout {
+                vertical-stretch: 1;
+                spacing: 8px;
+
+                Rectangle {
+                    width: 330px;
+
+                    list := ListView {
+                        property <int> current: root.selected;
+                        property <length> current-top: self.current * root.row-height + self.content-y;
+
+                        changed current => {
+                            if self.current <= 0 {
+                                self.content-y = 0;
+                            } else if self.current-top < 0 {
+                                self.content-y -= self.current-top;
+                            } else if self.current-top + root.row-height > self.visible-height {
+                                self.content-y -= self.current-top + root.row-height - self.visible-height;
+                            }
+                        }
+                        changed content-y => {
+                            if self.visible-height - self.content-y >= self.content-height - 8 * root.row-height {
+                                root.load-more();
+                            }
+                        }
+
+                        for row[index] in root.rows: HistoryItem {
+                            height: root.row-height;
+                            item: row;
+                            selected: index == root.selected;
+                            clicked => {
+                                root.select(index);
+                            }
+                            double-clicked => {
+                                root.select(index);
+                                if !row.unreadable {
+                                    root.pick(index, false);
+                                }
+                            }
+                        }
+                    }
+
+                    if root.rows.length == 0 && !root.searching: Text {
+                        width: parent.width - 24px;
+                        text: root.unavailable != "" ? @tr("Clipboard history unavailable: {0}", root.unavailable) : root.query == "" && root.filter == 0 ? @tr("Clipboard history is empty") : @tr("No results");
+                        wrap: word-wrap;
+                        opacity: 0.7;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Rectangle {
+                    width: 1px;
+                    background: Palette.border;
+                }
+
+                if root.has-selection: VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 8px;
+                    padding-left: 4px;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: root.current.unreadable ? @tr("Unreadable entry") : root.current.named ? root.current.title : root.current.kind == 1 ? @tr("Image") : @tr("Text");
+                            horizontal-stretch: 1;
+                            font-size: 15px;
+                            font-weight: 600;
+                            overflow: elide;
+                            vertical-alignment: center;
+                        }
+
+                        if root.current.favorite: Text {
+                            text: "★";
+                            font-size: 15px;
+                            color: #e8a33d;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    Text {
+                        text: HistoryText.when(root.current) + " · " + HistoryText.size(root.current) + (root.current.kind == 1 && root.current.width > 0 ? " · " + @tr("{0} × {1}", root.current.width, root.current.height) : "");
+                        font-size: 12px;
+                        opacity: 0.7;
+                        overflow: elide;
+                    }
+
+                    Rectangle {
+                        vertical-stretch: 1;
+                        clip: true;
+
+                        if root.editing: TextEdit {
+                            width: parent.width;
+                            height: parent.height;
+                            font-size: 13px;
+                            wrap: word-wrap;
+                            text <=> root.edit-draft;
+                            init => {
+                                self.focus();
+                            }
+                        }
+
+                        if !root.editing && root.content-kind == 0: TextEdit {
+                            width: parent.width;
+                            height: parent.height;
+                            font-size: 13px;
+                            wrap: word-wrap;
+                            read-only: true;
+                            text: root.content-preview;
+                        }
+
+                        if root.content-kind == 1: Image {
+                            width: parent.width;
+                            height: parent.height;
+                            source: root.content-image;
+                            image-fit: contain;
+                        }
+
+                        if root.content-kind == 2: Text {
+                            text: @tr("Unreadable entry");
+                            opacity: 0.7;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    if root.renaming: HorizontalLayout {
+                        spacing: 6px;
+                        LineEdit {
+                            horizontal-stretch: 1;
+                            text <=> root.rename-draft;
+                            init => {
+                                self.focus();
+                                self.select-all();
+                            }
+                            accepted => {
+                                root.rename(root.selected, root.rename-draft);
+                            }
+                        }
+
+                        Button {
+                            text: @tr("Save");
+                            primary: true;
+                            clicked => {
+                                root.rename(root.selected, root.rename-draft);
+                            }
+                        }
+
+                        Button {
+                            text: @tr("Cancel");
+                            clicked => {
+                                root.renaming = false;
+                            }
+                        }
+                    }
+
+                    if root.editing: HorizontalLayout {
+                        spacing: 6px;
+                        alignment: end;
+                        Button {
+                            text: @tr("Save");
+                            primary: true;
+                            clicked => {
+                                root.edit(root.selected, root.edit-draft);
+                            }
+                        }
+
+                        Button {
+                            text: @tr("Cancel");
+                            clicked => {
+                                root.editing = false;
+                                root.action-error = 0;
+                            }
+                        }
+                    }
+
+                    if root.confirm-delete: HorizontalLayout {
+                        spacing: 6px;
+                        Text {
+                            text: @tr("Delete this favorite?");
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                        }
+
+                        Button {
+                            text: @tr("Yes");
+                            primary: true;
+                            clicked => {
+                                root.confirm-delete = false;
+                                root.delete(root.selected);
+                            }
+                        }
+
+                        Button {
+                            text: @tr("No");
+                            clicked => {
+                                root.confirm-delete = false;
+                            }
+                        }
+                    }
+
+                    if !root.renaming && !root.editing && !root.confirm-delete: HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        Button {
+                            text: root.primary-action;
+                            primary: true;
+                            enabled: root.usable && root.content-kind != 2;
+                            clicked => {
+                                root.pick(root.selected, false);
+                            }
+                        }
+
+                        Button {
+                            text: root.current.favorite ? @tr("Remove favorite") : @tr("Favorite");
+                            enabled: root.usable;
+                            clicked => {
+                                root.toggle-favorite-selected();
+                            }
+                        }
+
+                        Button {
+                            text: @tr("Rename");
+                            enabled: root.usable;
+                            clicked => {
+                                root.start-rename();
+                            }
+                        }
+
+                        if root.current.kind == 0: Button {
+                            text: @tr("Edit");
+                            enabled: root.usable && root.content-kind == 0;
+                            clicked => {
+                                root.start-edit();
+                            }
+                        }
+
+                        Button {
+                            text: @tr("Delete");
+                            clicked => {
+                                root.request-delete();
+                            }
+                        }
+                    }
+                }
+
+                if !root.has-selection: Rectangle {
+                    horizontal-stretch: 1;
+                }
+            }
+
+            Text {
+                height: 18px;
+                text: root.action-error == 1 ? @tr("Too large to save") : root.action-error == 2 ? @tr("Could not write to the clipboard") : @tr("Enter {0}  Ctrl+Enter {1}  Del delete", root.primary-action, root.other-action);
+                font-size: 11px;
+                opacity: root.action-error != 0 ? 1 : 0.6;
+                color: root.action-error != 0 ? #d13438 : Palette.foreground;
+                overflow: elide;
+                vertical-alignment: center;
+            }
+        }
+    }
+}

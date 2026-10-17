@@ -1,6 +1,7 @@
 use tex_platform::WorkArea;
 
 pub const POPUP_WIDTH: f32 = 640.0;
+pub const HISTORY_WIDTH: f32 = 820.0;
 
 /// Top-left corner in physical pixels: centered horizontally, top edge at a quarter of the work area height.
 pub fn popup_origin(area: &WorkArea, logical_width: f32) -> (i32, i32) {

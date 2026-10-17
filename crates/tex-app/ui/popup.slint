@@ -12,7 +12,7 @@ export struct ResultRow {
     has-icon: bool,
 }
 
-component FilterChip inherits Rectangle {
+export component FilterChip inherits Rectangle {
     in property <string> label;
     in property <bool> active;
     callback clicked();

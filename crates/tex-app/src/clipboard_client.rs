@@ -16,7 +16,7 @@ use tex_clipboard::{
 };
 use tex_platform::{Clip, protect, unprotect};
 
-const PAGE_SIZE: usize = 200;
+pub const PAGE_SIZE: usize = 200;
 const SEARCH_LIMIT: usize = 500;
 const THUMBNAIL_SIZE: u32 = 96;
 const DATABASE: &str = "clipboard.db";
@@ -29,12 +29,15 @@ pub struct ClientSettings {
     pub retention: Retention,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "sent by the history window in a later task")
-)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "sent by the Clipboard settings tab in a later task"
+        )
+    )]
     Configure(ClientSettings),
     Captured(Clip),
     Page {
@@ -51,7 +54,21 @@ pub enum Command {
     Rename(i64, Option<String>),
     EditText(i64, String),
     Delete(i64),
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "sent by the Clipboard settings tab in a later task"
+        )
+    )]
     Clear,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "sent by the Clipboard settings tab in a later task"
+        )
+    )]
     Usage,
 }
 
@@ -71,10 +88,6 @@ pub enum Event {
 #[derive(Clone)]
 pub struct ClipboardClient {
     commands: Sender<Command>,
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "sent by the history window in a later task")
-    )]
     generation: Arc<AtomicU64>,
 }
 
@@ -101,10 +114,6 @@ impl ClipboardClient {
         let _ = self.commands.send(command);
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "sent by the history window in a later task")
-    )]
     /// Starts a search and cancels the one running; returns its generation.
     pub fn search(&self, query: String, filter: HistoryFilter) -> u64 {
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
@@ -114,6 +123,11 @@ impl ClipboardClient {
             generation,
         });
         generation
+    }
+
+    /// Cancels the running search, if any.
+    pub fn cancel_search(&self) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
     }
 }
 
@@ -211,7 +225,7 @@ impl Worker {
     }
 }
 
-fn now_ms() -> i64 {
+pub fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |since| {
@@ -864,6 +878,26 @@ mod tests {
         };
         assert_eq!(rows.len(), 1);
         assert!(run(&mut worker, search("acao", 1)).is_empty());
+    }
+
+    #[test]
+    fn cancel_search_drops_the_running_search() {
+        let (commands, receiver) = std::sync::mpsc::channel();
+        let client = ClipboardClient {
+            commands,
+            generation: Arc::default(),
+        };
+        let generation = client.search("acao".into(), HistoryFilter::All);
+        client.cancel_search();
+        let mut worker = worker(settings());
+        worker.generation = Arc::clone(&client.generation);
+        worker
+            .store
+            .insert(&NewEntry::Text("Ação".into()), super::now_ms())
+            .unwrap();
+        let command = receiver.try_recv().unwrap();
+        assert_eq!(command, search("acao", generation));
+        assert!(run(&mut worker, command).is_empty());
     }
 
     #[test]
