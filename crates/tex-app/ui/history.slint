@@ -321,7 +321,7 @@ export component HistoryWindow inherits Window {
                 root.start-rename();
                 return accept;
             }
-            if event.text == Key.Delete {
+            if event.text == Key.Delete && root.query == "" {
                 root.request-delete();
                 return accept;
             }

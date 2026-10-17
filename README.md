@@ -35,7 +35,7 @@ Tex keeps what you copy, so you can find it and use it again later. Press **Alt+
 - Each entry is **independent**. Editing, renaming, favoriting, deleting, or expiring one entry never affects another, even when their content is identical.
 - The history lists entries newest first, with a **preview** on the side. You can **search** names and text, and filter by favorites, text, or images.
 - **Enter** (or a double click) **copies the entry back** to the clipboard and closes the history. If you choose "Copy and paste" in Settings, it also pastes into the window you were using. **Ctrl+Enter** does the other one.
-- **Ctrl+D** favorites an entry, **F2** gives it a **custom name**, **Ctrl+E** edits a text, and **Del** deletes it (a favorite asks first). **Ctrl+,** opens the clipboard settings.
+- **Ctrl+D** favorites an entry, **F2** gives it a **custom name**, **Ctrl+E** edits a text, and **Del** deletes it while the search box is empty (a favorite asks first). **Ctrl+,** opens the clipboard settings.
 - Copies Tex makes itself are not captured again, so picking an old entry does not add a new one.
 - Capture can be **paused** from the tray menu or in Settings. Settings also has the size limit per entry, which kinds to capture, the cleanup policy, ignored apps, and a button that clears everything except favorites.
 
