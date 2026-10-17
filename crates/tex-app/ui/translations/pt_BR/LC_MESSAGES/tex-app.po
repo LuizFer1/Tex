@@ -518,3 +518,48 @@ msgstr "Sistema"
 
 msgid "Restore default ({0})"
 msgstr "Restaurar padrão ({0})"
+
+msgid "Results"
+msgstr "Resultados"
+
+msgid "Indexing"
+msgstr "Indexação"
+
+msgid "ready · {0}"
+msgstr "pronta · {0}"
+
+msgid "indexing {0}%"
+msgstr "indexando {0}%"
+
+msgid "failed: {0}"
+msgstr "falhou: {0}"
+
+msgid "Folders left out of the search"
+msgstr "Pastas que ficam fora da pesquisa"
+
+msgid "+ Add"
+msgstr "+ Adicionar"
+
+msgid "no ignored folders"
+msgstr "nenhuma pasta ignorada"
+
+msgid "remove"
+msgstr "remover"
+
+msgid "Cleanup"
+msgstr "Limpeza"
+
+msgid "Privacy"
+msgstr "Privacidade"
+
+msgid "no ignored apps"
+msgstr "nenhum app ignorado"
+
+msgid "Deletes every entry except favorites."
+msgstr "Apaga todos os itens, exceto favoritos."
+
+msgid "Clear…"
+msgstr "Limpar…"
+
+msgid "Delete now"
+msgstr "Apagar agora"
