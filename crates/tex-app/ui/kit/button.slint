@@ -21,7 +21,7 @@ export component Button inherits Rectangle {
     property <color> label: root.filled ? Tokens.on-action : root.kind == ButtonKind.danger ? Tokens.danger : Tokens.ink;
 
     height: 30px;
-    min-width: 30px;
+    min-width: max(30px, content.min-width);
     border-radius: Tokens.radius-control;
     border-width: root.kind == ButtonKind.primary ? Tokens.border-strong : Tokens.border-control;
     border-color: root.base;
@@ -33,7 +33,7 @@ export component Button inherits Rectangle {
         root.clicked();
     }
 
-    HorizontalLayout {
+    content := HorizontalLayout {
         padding-left: root.text == "" ? 8px : 12px;
         padding-right: root.text == "" ? 8px : 12px;
         spacing: 6px;

@@ -648,7 +648,7 @@ export component HistoryWindow inherits Window {
                                                 if root.renaming: HorizontalLayout {
                                                     spacing: 6px;
                                                     alignment: start;
-                                                    Button { kind: ButtonKind.primary; key: "↵"; text: @tr("Save"); clicked => { root.rename(root.selected, root.rename-draft); } }
+                                                    Button { kind: ButtonKind.primary; key: "enter"; text: @tr("Save"); clicked => { root.rename(root.selected, root.rename-draft); } }
                                                     Button { key: "esc"; text: @tr("Cancel"); clicked => { root.renaming = false; } }
                                                 }
                                                 if root.editing: HorizontalLayout {
@@ -668,7 +668,7 @@ export component HistoryWindow inherits Window {
                                                     }
                                                     Button {
                                                         kind: ButtonKind.danger-filled;
-                                                        key: "↵";
+                                                        key: "enter";
                                                         text: @tr("Yes");
                                                         clicked => {
                                                             root.confirm-delete = false;
@@ -678,45 +678,52 @@ export component HistoryWindow inherits Window {
                                                     }
                                                     Button { key: "esc"; text: @tr("No"); clicked => { root.confirm-delete = false; } }
                                                 }
-                                                if !root.renaming && !root.editing && !root.confirm-delete: HorizontalLayout {
+                                                if !root.renaming && !root.editing && !root.confirm-delete: VerticalLayout {
                                                     spacing: 6px;
-                                                    alignment: start;
-                                                    Button {
-                                                        kind: ButtonKind.primary;
-                                                        key: "↵";
-                                                        text: root.primary-action;
-                                                        enabled: root.usable && root.content-kind != 2;
-                                                        clicked => { root.pick(root.selected, false); }
+                                                    HorizontalLayout {
+                                                        spacing: 6px;
+                                                        alignment: start;
+                                                        Button {
+                                                            kind: ButtonKind.primary;
+                                                            key: "enter";
+                                                            text: root.primary-action;
+                                                            enabled: root.usable && root.content-kind != 2;
+                                                            clicked => { root.pick(root.selected, false); }
+                                                        }
+                                                        Button {
+                                                            key: "ctrl enter";
+                                                            text: root.other-action;
+                                                            enabled: root.usable && root.content-kind != 2;
+                                                            clicked => { root.pick(root.selected, true); }
+                                                        }
+                                                        Button {
+                                                            key: "ctrl D";
+                                                            text: root.current.favorite ? @tr("Unfavorite") : @tr("Favorite");
+                                                            enabled: root.usable;
+                                                            clicked => { root.toggle-favorite-selected(); }
+                                                        }
                                                     }
-                                                    Button {
-                                                        key: "ctrl ↵";
-                                                        text: root.other-action;
-                                                        enabled: root.usable && root.content-kind != 2;
-                                                        clicked => { root.pick(root.selected, true); }
-                                                    }
-                                                    Button {
-                                                        key: "ctrl D";
-                                                        text: root.current.favorite ? @tr("Unfavorite") : @tr("Favorite");
-                                                        enabled: root.usable;
-                                                        clicked => { root.toggle-favorite-selected(); }
-                                                    }
-                                                    Button {
-                                                        key: "F2";
-                                                        text: @tr("Rename");
-                                                        enabled: root.usable;
-                                                        clicked => { root.start-rename(); }
-                                                    }
-                                                    if root.current.kind == 0: Button {
-                                                        key: "ctrl E";
-                                                        text: @tr("Edit");
-                                                        enabled: root.usable && root.content-kind == 0;
-                                                        clicked => { root.start-edit(); }
-                                                    }
-                                                    Button {
-                                                        kind: ButtonKind.danger;
-                                                        key: "del";
-                                                        text: @tr("Delete");
-                                                        clicked => { root.request-delete(); }
+                                                    HorizontalLayout {
+                                                        spacing: 6px;
+                                                        alignment: start;
+                                                        Button {
+                                                            key: "F2";
+                                                            text: @tr("Rename");
+                                                            enabled: root.usable;
+                                                            clicked => { root.start-rename(); }
+                                                        }
+                                                        if root.current.kind == 0: Button {
+                                                            key: "ctrl E";
+                                                            text: @tr("Edit");
+                                                            enabled: root.usable && root.content-kind == 0;
+                                                            clicked => { root.start-edit(); }
+                                                        }
+                                                        Button {
+                                                            kind: ButtonKind.danger;
+                                                            key: "del";
+                                                            text: @tr("Delete");
+                                                            clicked => { root.request-delete(); }
+                                                        }
                                                     }
                                                 }
                                             }
@@ -746,7 +753,7 @@ export component HistoryWindow inherits Window {
             }
 
             footer := Footer {
-                hints: @tr("↵ {0} · ctrl ↵ {1} · del delete", root.primary-action-short, root.other-action-short);
+                hints: @tr("enter {0} · ctrl enter {1} · del delete", root.primary-action-short, root.other-action-short);
                 status: root.action-error == 1 ? @tr("Too large to save") : root.action-error == 2 ? @tr("Could not write to the clipboard") : root.paused ? @tr("new copies are not saved") : @tr("saving new copies");
                 status-color: root.action-error != 0 ? Tokens.danger : root.paused ? Tokens.warn-text : Tokens.muted;
             }

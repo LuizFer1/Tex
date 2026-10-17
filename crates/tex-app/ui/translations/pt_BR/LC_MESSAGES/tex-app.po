@@ -321,8 +321,8 @@ msgstr "abrir"
 msgid "open location"
 msgstr "abrir local"
 
-msgid "↑↓ navigate · ↵ {0} · ctrl ↵ {1} · esc close"
-msgstr "↑↓ navegar · ↵ {0} · ctrl ↵ {1} · esc fechar"
+msgid "↑↓ navigate · enter {0} · ctrl enter {1} · esc close"
+msgstr "↑↓ navegar · enter {0} · ctrl enter {1} · esc fechar"
 
 msgid "search service stopped"
 msgstr "serviço de pesquisa parado"
@@ -426,8 +426,8 @@ msgstr "copiar"
 msgid "copy and paste"
 msgstr "copiar e colar"
 
-msgid "↵ {0} · ctrl ↵ {1} · del delete"
-msgstr "↵ {0} · ctrl ↵ {1} · del excluir"
+msgid "enter {0} · ctrl enter {1} · del delete"
+msgstr "enter {0} · ctrl enter {1} · del excluir"
 
 msgid "saving new copies"
 msgstr "salvando novas cópias"

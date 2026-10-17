@@ -3,7 +3,7 @@ import { Tokens } from "../theme.slint";
 export component Keycap inherits Rectangle {
     in property <string> text;
     height: 28px;
-    min-width: 28px;
+    min-width: max(28px, content.min-width);
     border-radius: Tokens.radius-control;
     background: Tokens.ink;
 
@@ -16,7 +16,7 @@ export component Keycap inherits Rectangle {
         background: Tokens.field;
     }
 
-    HorizontalLayout {
+    content := HorizontalLayout {
         padding-left: 9px;
         padding-right: 9px;
         padding-bottom: 2px;

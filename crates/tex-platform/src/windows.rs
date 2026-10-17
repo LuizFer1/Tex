@@ -24,8 +24,11 @@ use windows_sys::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpeci
 use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetCursorPos, GetForegroundWindow, IsIconic, IsWindow, IsWindowVisible, LSFW_LOCK, LSFW_UNLOCK,
-    LockSetForegroundWindow, SW_SHOWNORMAL, SetForegroundWindow,
+    GWL_STYLE, GetCursorPos, GetForegroundWindow, GetWindowLongW, IsIconic, IsWindow,
+    IsWindowVisible, LSFW_LOCK, LSFW_UNLOCK, LockSetForegroundWindow, SW_SHOWNORMAL,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow,
+    SetWindowLongW, SetWindowPos, WS_CAPTION, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SIZEBOX,
+    WS_SYSMENU,
 };
 
 use crate::WorkArea;
@@ -64,6 +67,10 @@ pub fn work_area_under_cursor() -> Option<WorkArea> {
 
 /// Clips a window to a tab on its top-left above a body whose other three corners are
 /// rounded, so the area beside the tab is not part of the window. Physical pixels.
+///
+/// A window with a region is no longer drawn by DWM, so Windows would paint the classic
+/// caption of a captioned window over its content; the caption styles are removed first.
+/// winit sets them again whenever it shows the window, so call this after every show.
 pub fn shape_tabbed_window(
     window: isize,
     width: i32,
@@ -74,6 +81,22 @@ pub fn shape_tabbed_window(
 ) {
     let diameter = radius * 2;
     unsafe {
+        let style = GetWindowLongW(window as HWND, GWL_STYLE) as u32;
+        let captionless = (style
+            & !(WS_CAPTION | WS_SYSMENU | WS_SIZEBOX | WS_MAXIMIZEBOX | WS_MINIMIZEBOX))
+            | WS_POPUP;
+        if captionless != style {
+            SetWindowLongW(window as HWND, GWL_STYLE, captionless as i32);
+            SetWindowPos(
+                window as HWND,
+                ptr::null_mut(),
+                0,
+                0,
+                0,
+                0,
+                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
         let shape = CreateRoundRectRgn(0, tab_height, width + 1, height + 1, diameter, diameter);
         let corner = CreateRectRgn(0, tab_height, radius + 1, tab_height + radius + 1);
         let tab = CreateRoundRectRgn(

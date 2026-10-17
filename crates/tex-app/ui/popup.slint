@@ -89,14 +89,13 @@ component ResultItem inherits Rectangle {
                 vertical-alignment: center;
                 overflow: elide;
             }
-            Text {
+            Rectangle {
                 width: 22px;
-                text: "↵";
-                font-family: Tokens.mono-font;
-                font-size: Tokens.size-body;
-                color: root.selected ? Tokens.highlight : transparent;
-                horizontal-alignment: center;
-                vertical-alignment: center;
+                Icon {
+                    width: 14px;
+                    source: Icons.enter;
+                    tint: root.selected ? Tokens.highlight : transparent;
+                }
             }
         }
     }
@@ -291,7 +290,7 @@ export component Popup inherits Window {
                     horizontal-stretch: 1;
                 }
                 Text {
-                    text: "tab ⇥";
+                    text: "tab";
                     font-family: Tokens.mono-font;
                     font-size: Tokens.size-kicker;
                     color: Tokens.muted;
@@ -365,7 +364,7 @@ export component Popup inherits Window {
             }
 
             Footer {
-                hints: @tr("↑↓ navigate · ↵ {0} · ctrl ↵ {1} · esc close", root.enter-reveals ? root.reveal-text : root.open-text, root.enter-reveals ? root.open-text : root.reveal-text);
+                hints: @tr("↑↓ navigate · enter {0} · ctrl enter {1} · esc close", root.enter-reveals ? root.reveal-text : root.open-text, root.enter-reveals ? root.open-text : root.reveal-text);
                 status: root.status-text;
                 status-color: root.service-unavailable || root.status-failed != "" ? Tokens.warn-text : Tokens.muted;
             }
