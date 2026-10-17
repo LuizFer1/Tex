@@ -4513,6 +4513,7 @@ dependencies = [
  "serde",
  "slint",
  "slint-build",
+ "tex-clipboard",
  "tex-ipc",
  "tex-platform",
  "toml",

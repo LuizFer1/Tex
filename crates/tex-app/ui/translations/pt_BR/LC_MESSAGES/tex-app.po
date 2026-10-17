@@ -21,6 +21,9 @@ msgstr "Adicionar…"
 msgid "All"
 msgstr "Tudo"
 
+msgid "Already used to open the clipboard history"
+msgstr "Já usado para abrir o histórico do clipboard"
+
 msgid "Always"
 msgstr "Sempre"
 

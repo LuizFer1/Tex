@@ -27,7 +27,7 @@ use tex_platform::{
     work_area_under_cursor,
 };
 
-use crate::app::{AppState, with_app};
+use crate::app::{AppState, HotkeyError, with_app};
 use crate::icons::{IconCache, IconLoader, IconState};
 use crate::results::{Row, build_rows, group_digits, status_parts, step_selection};
 use crate::search_client::{Command, Event, SearchClient};
@@ -336,11 +336,15 @@ fn wire_settings(window: &SettingsWindow, windows: &Windows, client: &SearchClie
 }
 
 fn change_hotkey(window: &SettingsWindow, shortcut: &Shortcut) {
-    let changed = with_app(|app| app.apply_hotkey(shortcut));
+    let result = with_app(|app| app.apply_hotkey(shortcut));
     window.set_recording(false);
-    window.set_hotkey_error(if changed { 0 } else { 1 });
+    window.set_hotkey_error(match result {
+        Ok(()) => 0,
+        Err(HotkeyError::Register) => 1,
+        Err(HotkeyError::Conflict) => 2,
+    });
     window.set_hotkey_text(with_app(|app| app.shortcut().display()).into());
-    if changed {
+    if result.is_ok() {
         save_settings(window);
     }
 }

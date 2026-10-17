@@ -5,16 +5,28 @@ use std::time::{Duration, Instant};
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use tex_clipboard::{CaptureSettings, Retention};
 use toml::{Table, Value};
 
 use crate::shortcut::Shortcut;
 
 pub const DEFAULT_HOTKEY: &str = "alt+space";
+pub const DEFAULT_HISTORY_HOTKEY: &str = "alt+v";
+const FALLBACK_HISTORY_HOTKEY: &str = "ctrl+shift+v";
+pub const ITEM_SIZES_MB: [u32; 5] = [1, 5, 10, 25, 50];
+pub const CLEANUP_DAYS: [u32; 3] = [3, 7, 30];
+pub const STORAGE_LIMITS_MB: [u32; 5] = [250, 500, 1024, 2048, 5120];
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "used by the clipboard client in a later task")
+)]
+const MB: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Settings {
     pub general: General,
     pub search: Search,
+    pub clipboard: Clipboard,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -37,6 +49,21 @@ pub struct Search {
     pub show_files: bool,
     pub show_folders: bool,
     pub enter_action: EnterAction,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Clipboard {
+    pub hotkey: String,
+    pub paused: bool,
+    pub capture_text: bool,
+    pub capture_images: bool,
+    pub max_item_mb: u32,
+    pub on_pick: OnPick,
+    pub cleanup: Cleanup,
+    pub cleanup_days: u32,
+    pub cleanup_limit_mb: u32,
+    pub respect_exclusion: bool,
+    pub ignored_apps: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,6 +145,72 @@ impl Default for Search {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OnPick {
+    #[default]
+    Copy,
+    CopyAndPaste,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Cleanup {
+    #[default]
+    Time,
+    Storage,
+}
+
+impl Default for Clipboard {
+    fn default() -> Self {
+        Self {
+            hotkey: DEFAULT_HISTORY_HOTKEY.into(),
+            paused: false,
+            capture_text: true,
+            capture_images: true,
+            max_item_mb: 10,
+            on_pick: OnPick::Copy,
+            cleanup: Cleanup::Time,
+            cleanup_days: 7,
+            cleanup_limit_mb: 1024,
+            respect_exclusion: true,
+            ignored_apps: Vec::new(),
+        }
+    }
+}
+
+impl Clipboard {
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "used by the clipboard client in a later task")
+    )]
+    pub fn retention(&self) -> Retention {
+        match self.cleanup {
+            Cleanup::Time => Retention::Time {
+                days: self.cleanup_days,
+            },
+            Cleanup::Storage => Retention::Storage {
+                limit_bytes: u64::from(self.cleanup_limit_mb) * MB,
+            },
+        }
+    }
+
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "used by the clipboard client in a later task")
+    )]
+    pub fn capture_settings(&self) -> CaptureSettings {
+        CaptureSettings {
+            paused: self.paused,
+            capture_text: self.capture_text,
+            capture_images: self.capture_images,
+            max_item_bytes: u64::from(self.max_item_mb) * MB,
+            respect_exclusion: self.respect_exclusion,
+            ignored_apps: self.ignored_apps.clone(),
+        }
+    }
+}
+
 impl KeepSearch {
     /// Whether a search closed at `closed_at` should still be on screen at `now`.
     pub fn keeps(self, closed_at: Instant, now: Instant) -> bool {
@@ -139,8 +232,10 @@ impl Settings {
         let table: Table = toml::from_str(text).ok()?;
         let general = table.get("general").and_then(Value::as_table);
         let search = table.get("search").and_then(Value::as_table);
+        let clipboard = table.get("clipboard").and_then(Value::as_table);
         let g = General::default();
         let s = Search::default();
+        let c = Clipboard::default();
         let mut settings = Settings {
             general: General {
                 language: field(general, "language").unwrap_or(g.language),
@@ -161,6 +256,21 @@ impl Settings {
                 show_folders: field(search, "show_folders").unwrap_or(s.show_folders),
                 enter_action: field(search, "enter_action").unwrap_or(s.enter_action),
             },
+            clipboard: Clipboard {
+                hotkey: field(clipboard, "hotkey").unwrap_or(c.hotkey),
+                paused: field(clipboard, "paused").unwrap_or(c.paused),
+                capture_text: field(clipboard, "capture_text").unwrap_or(c.capture_text),
+                capture_images: field(clipboard, "capture_images").unwrap_or(c.capture_images),
+                max_item_mb: field(clipboard, "max_item_mb").unwrap_or(c.max_item_mb),
+                on_pick: field(clipboard, "on_pick").unwrap_or(c.on_pick),
+                cleanup: field(clipboard, "cleanup").unwrap_or(c.cleanup),
+                cleanup_days: field(clipboard, "cleanup_days").unwrap_or(c.cleanup_days),
+                cleanup_limit_mb: field(clipboard, "cleanup_limit_mb")
+                    .unwrap_or(c.cleanup_limit_mb),
+                respect_exclusion: field(clipboard, "respect_exclusion")
+                    .unwrap_or(c.respect_exclusion),
+                ignored_apps: field(clipboard, "ignored_apps").unwrap_or(c.ignored_apps),
+            },
         };
         settings.normalize();
         Some(settings)
@@ -170,12 +280,10 @@ impl Settings {
         toml::to_string(self).expect("settings always serialize")
     }
 
-    /// Canonical hotkey, clean folder list and at least one category shown.
+    /// Canonical hotkeys that differ, clean folder and app lists, values from the fixed lists
+    /// and at least one category shown and captured.
     pub fn normalize(&mut self) {
-        self.general.hotkey = Shortcut::parse(&self.general.hotkey).map_or_else(
-            || DEFAULT_HOTKEY.to_owned(),
-            |shortcut| shortcut.canonical(),
-        );
+        self.general.hotkey = canonical_hotkey(&self.general.hotkey, DEFAULT_HOTKEY);
         self.search.excluded_folders = normalize_folders(&self.search.excluded_folders);
         let search = &mut self.search;
         if !search.show_apps && !search.show_files && !search.show_folders {
@@ -183,11 +291,54 @@ impl Settings {
             search.show_files = true;
             search.show_folders = true;
         }
+        let c = Clipboard::default();
+        let clipboard = &mut self.clipboard;
+        clipboard.hotkey = canonical_hotkey(&clipboard.hotkey, DEFAULT_HISTORY_HOTKEY);
+        if clipboard.hotkey == self.general.hotkey {
+            clipboard.hotkey = if self.general.hotkey == DEFAULT_HISTORY_HOTKEY {
+                FALLBACK_HISTORY_HOTKEY
+            } else {
+                DEFAULT_HISTORY_HOTKEY
+            }
+            .to_owned();
+        }
+        if !ITEM_SIZES_MB.contains(&clipboard.max_item_mb) {
+            clipboard.max_item_mb = c.max_item_mb;
+        }
+        if !CLEANUP_DAYS.contains(&clipboard.cleanup_days) {
+            clipboard.cleanup_days = c.cleanup_days;
+        }
+        if !STORAGE_LIMITS_MB.contains(&clipboard.cleanup_limit_mb) {
+            clipboard.cleanup_limit_mb = c.cleanup_limit_mb;
+        }
+        clipboard.ignored_apps = normalize_apps(&clipboard.ignored_apps);
+        if !clipboard.capture_text && !clipboard.capture_images {
+            clipboard.capture_text = true;
+            clipboard.capture_images = true;
+        }
     }
 }
 
 fn field<T: DeserializeOwned>(table: Option<&Table>, key: &str) -> Option<T> {
     table?.get(key)?.clone().try_into().ok()
+}
+
+fn canonical_hotkey(text: &str, default: &str) -> String {
+    Shortcut::parse(text).map_or_else(|| default.to_owned(), |shortcut| shortcut.canonical())
+}
+
+/// Only the file name of each app, without blanks or case-insensitive duplicates.
+fn normalize_apps(apps: &[String]) -> Vec<String> {
+    let mut clean: Vec<String> = Vec::new();
+    for app in apps {
+        let app = app.trim();
+        let name = app.rsplit(['\\', '/']).next().unwrap_or(app).trim();
+        if name.is_empty() || clean.iter().any(|seen| seen.eq_ignore_ascii_case(name)) {
+            continue;
+        }
+        clean.push(name.to_owned());
+    }
+    clean
 }
 
 fn normalize_folders(folders: &[String]) -> Vec<String> {
@@ -321,6 +472,122 @@ mod tests {
         let text = "[search]\nshow_apps = false\nshow_files = false\nshow_folders = false\n";
         let search = Settings::from_toml(text).unwrap().search;
         assert!(search.show_apps && search.show_files && search.show_folders);
+    }
+
+    #[test]
+    fn clipboard_defaults_match_the_spec() {
+        let clipboard = Settings::default().clipboard;
+        assert_eq!(clipboard.hotkey, "alt+v");
+        assert!(!clipboard.paused);
+        assert!(clipboard.capture_text && clipboard.capture_images);
+        assert_eq!(clipboard.max_item_mb, 10);
+        assert_eq!(clipboard.on_pick, OnPick::Copy);
+        assert_eq!(clipboard.cleanup, Cleanup::Time);
+        assert_eq!(clipboard.cleanup_days, 7);
+        assert_eq!(clipboard.cleanup_limit_mb, 1024);
+        assert!(clipboard.respect_exclusion);
+        assert!(clipboard.ignored_apps.is_empty());
+        assert_eq!(Settings::from_toml("").unwrap().clipboard, clipboard);
+    }
+
+    #[test]
+    fn clipboard_round_trips_through_toml() {
+        let settings = Settings {
+            clipboard: Clipboard {
+                hotkey: "ctrl+alt+h".into(),
+                paused: true,
+                capture_text: false,
+                capture_images: true,
+                max_item_mb: 50,
+                on_pick: OnPick::CopyAndPaste,
+                cleanup: Cleanup::Storage,
+                cleanup_days: 30,
+                cleanup_limit_mb: 5120,
+                respect_exclusion: false,
+                ignored_apps: vec!["KeePass.exe".into()],
+            },
+            ..Settings::default()
+        };
+        let text = settings.to_toml();
+        assert!(text.contains("[clipboard]"), "{text}");
+        assert!(text.contains(r#"on_pick = "copy_and_paste""#), "{text}");
+        assert!(text.contains(r#"cleanup = "storage""#), "{text}");
+        assert_eq!(Settings::from_toml(&text), Some(settings));
+    }
+
+    #[test]
+    fn clipboard_values_outside_the_lists_fall_back() {
+        let text = "[clipboard]\nmax_item_mb = 7\ncleanup_days = 2\ncleanup_limit_mb = 300\n\
+                    on_pick = \"x\"\ncleanup = \"never\"\npaused = true\n";
+        let clipboard = Settings::from_toml(text).unwrap().clipboard;
+        assert_eq!(clipboard.max_item_mb, 10);
+        assert_eq!(clipboard.cleanup_days, 7);
+        assert_eq!(clipboard.cleanup_limit_mb, 1024);
+        assert_eq!(clipboard.on_pick, OnPick::Copy);
+        assert_eq!(clipboard.cleanup, Cleanup::Time);
+        assert!(clipboard.paused);
+    }
+
+    #[test]
+    fn ignored_apps_are_normalized() {
+        let text = r"[clipboard]
+ignored_apps = ['C:\Apps\KeePass.exe', 'keepass.exe', ' ', 'Code.exe', 'D:/Tools/code.EXE']
+";
+        let clipboard = Settings::from_toml(text).unwrap().clipboard;
+        assert_eq!(clipboard.ignored_apps, ["KeePass.exe", "Code.exe"]);
+    }
+
+    #[test]
+    fn history_hotkey_is_canonical_and_differs_from_the_tex_hotkey() {
+        let parse = |text: &str| Settings::from_toml(text).unwrap();
+        let settings = parse("[clipboard]\nhotkey = \"Shift+CTRL+H\"\n");
+        assert_eq!(settings.clipboard.hotkey, "ctrl+shift+h");
+        let settings = parse("[clipboard]\nhotkey = \"nope\"\n");
+        assert_eq!(settings.clipboard.hotkey, "alt+v");
+        let settings =
+            parse("[general]\nhotkey = \"ctrl+shift+k\"\n[clipboard]\nhotkey = \"shift+ctrl+k\"\n");
+        assert_eq!(settings.general.hotkey, "ctrl+shift+k");
+        assert_eq!(settings.clipboard.hotkey, "alt+v");
+        let settings = parse("[general]\nhotkey = \"alt+v\"\n");
+        assert_eq!(settings.general.hotkey, "alt+v");
+        assert_eq!(settings.clipboard.hotkey, "ctrl+shift+v");
+    }
+
+    #[test]
+    fn text_and_images_off_turns_both_back_on() {
+        let text = "[clipboard]\ncapture_text = false\ncapture_images = false\n";
+        let clipboard = Settings::from_toml(text).unwrap().clipboard;
+        assert!(clipboard.capture_text && clipboard.capture_images);
+        let text = "[clipboard]\ncapture_text = false\n";
+        let clipboard = Settings::from_toml(text).unwrap().clipboard;
+        assert!(!clipboard.capture_text && clipboard.capture_images);
+    }
+
+    #[test]
+    fn converts_to_retention_and_capture_settings() {
+        let mut clipboard = Clipboard {
+            cleanup_days: 3,
+            cleanup_limit_mb: 2048,
+            max_item_mb: 25,
+            paused: true,
+            capture_images: false,
+            respect_exclusion: false,
+            ignored_apps: vec!["Code.exe".into()],
+            ..Clipboard::default()
+        };
+        assert_eq!(clipboard.retention(), Retention::Time { days: 3 });
+        clipboard.cleanup = Cleanup::Storage;
+        assert_eq!(
+            clipboard.retention(),
+            Retention::Storage {
+                limit_bytes: 2048 * 1024 * 1024
+            }
+        );
+        let capture = clipboard.capture_settings();
+        assert_eq!(capture.max_item_bytes, 25 * 1024 * 1024);
+        assert!(capture.paused && capture.capture_text && !capture.capture_images);
+        assert!(!capture.respect_exclusion);
+        assert_eq!(capture.ignored_apps, ["Code.exe"]);
     }
 
     #[test]

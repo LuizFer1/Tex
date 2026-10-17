@@ -17,10 +17,26 @@ pub struct AppState {
     pub path: PathBuf,
     pub closed_at: Option<Instant>,
     pub hotkey_failed: bool,
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "wired to the history window in a later task")
+    )]
+    pub history_hotkey_failed: bool,
     pub winkey_error: String,
     hotkeys: GlobalHotKeyManager,
     hotkey: Option<HotKey>,
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "wired to the history window in a later task")
+    )]
+    history_hotkey: Option<HotKey>,
     winkey: Option<WinKeyHook>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HotkeyError {
+    Conflict,
+    Register,
 }
 
 thread_local! {
@@ -43,9 +59,11 @@ impl AppState {
             path,
             closed_at: None,
             hotkey_failed: false,
+            history_hotkey_failed: false,
             winkey_error: String::new(),
             hotkeys,
             hotkey: None,
+            history_hotkey: None,
             winkey: None,
         }
     }
@@ -74,19 +92,86 @@ impl AppState {
         }
     }
 
-    /// Swaps the global shortcut. On failure the previous one is registered again and `false` returned.
-    pub fn apply_hotkey(&mut self, shortcut: &Shortcut) -> bool {
+    /// Swaps the global shortcut. On failure the previous one is registered again.
+    pub fn apply_hotkey(&mut self, shortcut: &Shortcut) -> Result<(), HotkeyError> {
         self.suspend_hotkey();
+        if shortcut.canonical() == self.history_shortcut().canonical() {
+            self.resume_hotkey();
+            return Err(HotkeyError::Conflict);
+        }
         let hotkey = shortcut.hotkey();
         if self.hotkeys.register(hotkey).is_ok() {
             self.hotkey = Some(hotkey);
             self.hotkey_failed = false;
             self.settings.general.hotkey = shortcut.canonical();
-            true
+            Ok(())
         } else {
             self.resume_hotkey();
-            false
+            Err(HotkeyError::Register)
         }
+    }
+
+    pub fn history_shortcut(&self) -> Shortcut {
+        Shortcut::parse(&self.settings.clipboard.hotkey)
+            .or_else(|| Shortcut::parse(settings::DEFAULT_HISTORY_HOTKEY))
+            .expect("default history hotkey parses")
+    }
+
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "wired to the history window in a later task")
+    )]
+    /// Registers the saved clipboard history shortcut again if it is not registered.
+    pub fn resume_history_hotkey(&mut self) {
+        if self.history_hotkey.is_some() {
+            return;
+        }
+        let hotkey = self.history_shortcut().hotkey();
+        self.history_hotkey_failed = self.hotkeys.register(hotkey).is_err();
+        if !self.history_hotkey_failed {
+            self.history_hotkey = Some(hotkey);
+        }
+    }
+
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "wired to the history window in a later task")
+    )]
+    pub fn suspend_history_hotkey(&mut self) {
+        if let Some(hotkey) = self.history_hotkey.take() {
+            let _ = self.hotkeys.unregister(hotkey);
+        }
+    }
+
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "wired to the history window in a later task")
+    )]
+    /// Swaps the clipboard history shortcut. On failure the previous one is registered again.
+    pub fn apply_history_hotkey(&mut self, shortcut: &Shortcut) -> Result<(), HotkeyError> {
+        self.suspend_history_hotkey();
+        if shortcut.canonical() == self.shortcut().canonical() {
+            self.resume_history_hotkey();
+            return Err(HotkeyError::Conflict);
+        }
+        let hotkey = shortcut.hotkey();
+        if self.hotkeys.register(hotkey).is_ok() {
+            self.history_hotkey = Some(hotkey);
+            self.history_hotkey_failed = false;
+            self.settings.clipboard.hotkey = shortcut.canonical();
+            Ok(())
+        } else {
+            self.resume_history_hotkey();
+            Err(HotkeyError::Register)
+        }
+    }
+
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "wired to the history window in a later task")
+    )]
+    pub fn is_history_hotkey(&self, id: u32) -> bool {
+        self.history_hotkey.is_some_and(|hotkey| hotkey.id() == id)
     }
 
     pub fn set_winkey(
@@ -156,5 +241,29 @@ pub fn search_options(search: &Search) -> SearchOptions {
         show_apps: search.show_apps,
         show_files: search.show_files,
         show_folders: search.show_folders,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_two_shortcuts_cannot_be_the_same() {
+        let mut settings = Settings::default();
+        settings.general.hotkey = "ctrl+alt+shift+f23".into();
+        settings.clipboard.hotkey = "ctrl+alt+shift+f24".into();
+        let hotkeys = GlobalHotKeyManager::new().unwrap();
+        let mut app = AppState::new(settings, PathBuf::new(), hotkeys);
+        let history = app.history_shortcut();
+        assert_eq!(app.apply_hotkey(&history), Err(HotkeyError::Conflict));
+        assert_eq!(app.settings.general.hotkey, "ctrl+alt+shift+f23");
+        let tex = app.shortcut();
+        assert_eq!(app.apply_history_hotkey(&tex), Err(HotkeyError::Conflict));
+        assert_eq!(app.settings.clipboard.hotkey, "ctrl+alt+shift+f24");
+        assert!(app.is_history_hotkey(history.hotkey().id()) || app.history_hotkey_failed);
+        assert!(!app.is_history_hotkey(tex.hotkey().id()));
+        app.suspend_hotkey();
+        app.suspend_history_hotkey();
     }
 }
