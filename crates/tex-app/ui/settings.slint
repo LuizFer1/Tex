@@ -432,393 +432,393 @@ export component SettingsWindow inherits Window {
                                 }
                             }
 
-if root.current-tab == 1: VerticalLayout {
-    Section {
-        title: @tr("Results");
-        first: true;
-        SettingRow {
-            label: @tr("Categories shown");
-            HorizontalLayout {
-                spacing: 16px;
-                CheckBox {
-                    text: @tr("Apps");
-                    checked <=> root.show-apps;
-                    enabled: !root.show-apps || root.show-files || root.show-folders;
-                    toggled => {
-                        root.edited();
-                    }
-                }
-                CheckBox {
-                    text: @tr("Files");
-                    checked <=> root.show-files;
-                    enabled: !root.show-files || root.show-apps || root.show-folders;
-                    toggled => {
-                        root.edited();
-                    }
-                }
-                CheckBox {
-                    text: @tr("Folders");
-                    checked <=> root.show-folders;
-                    enabled: !root.show-folders || root.show-apps || root.show-files;
-                    toggled => {
-                        root.edited();
-                    }
-                }
-            }
-        }
-        SettingRow {
-            label: @tr("Enter key");
-            description: @tr("Ctrl+Enter does the other action.");
-            Segmented {
-                label: @tr("Enter key");
-                options: [@tr("Open"), @tr("Show in folder")];
-                current-index <=> root.enter-action;
-                selected => {
-                    root.edited();
-                }
-            }
-        }
-        SettingRow {
-            label: @tr("Keep the last search for");
-            separator: false;
-            Select {
-                label: @tr("Keep the last search for");
-                options: [@tr("Never"), @tr("30 seconds"), @tr("1 minute"), @tr("5 minutes"), @tr("Always")];
-                current-index <=> root.keep-search;
-                selected => {
-                    root.edited();
-                }
-            }
-        }
-    }
+                            if root.current-tab == 1: VerticalLayout {
+                                Section {
+                                    title: @tr("Results");
+                                    first: true;
+                                    SettingRow {
+                                        label: @tr("Categories shown");
+                                        HorizontalLayout {
+                                            spacing: 16px;
+                                            CheckBox {
+                                                text: @tr("Apps");
+                                                checked <=> root.show-apps;
+                                                enabled: !root.show-apps || root.show-files || root.show-folders;
+                                                toggled => {
+                                                    root.edited();
+                                                }
+                                            }
+                                            CheckBox {
+                                                text: @tr("Files");
+                                                checked <=> root.show-files;
+                                                enabled: !root.show-files || root.show-apps || root.show-folders;
+                                                toggled => {
+                                                    root.edited();
+                                                }
+                                            }
+                                            CheckBox {
+                                                text: @tr("Folders");
+                                                checked <=> root.show-folders;
+                                                enabled: !root.show-folders || root.show-apps || root.show-files;
+                                                toggled => {
+                                                    root.edited();
+                                                }
+                                            }
+                                        }
+                                    }
+                                    SettingRow {
+                                        label: @tr("Enter key");
+                                        description: @tr("Ctrl+Enter does the other action.");
+                                        Segmented {
+                                            label: @tr("Enter key");
+                                            options: [@tr("Open"), @tr("Show in folder")];
+                                            current-index <=> root.enter-action;
+                                            selected => {
+                                                root.edited();
+                                            }
+                                        }
+                                    }
+                                    SettingRow {
+                                        label: @tr("Keep the last search for");
+                                        separator: false;
+                                        Select {
+                                            label: @tr("Keep the last search for");
+                                            options: [@tr("Never"), @tr("30 seconds"), @tr("1 minute"), @tr("5 minutes"), @tr("Always")];
+                                            current-index <=> root.keep-search;
+                                            selected => {
+                                                root.edited();
+                                            }
+                                        }
+                                    }
+                                }
 
-    Section {
-        title: @tr("Indexing");
-        SettingRow {
-            label: @tr("Include hidden files and folders");
-            Toggle {
-                label: @tr("Include hidden files and folders");
-                checked <=> root.include-hidden;
-                toggled => {
-                    root.edited();
-                }
-            }
-        }
-        SettingRow {
-            label: @tr("Include system files");
-            Toggle {
-                label: @tr("Include system files");
-                checked <=> root.include-system;
-                toggled => {
-                    root.edited();
-                }
-            }
-        }
-        SettingRow {
-            label: @tr("Indexed drives");
-            separator: false;
-            Button {
-                text: @tr("Refresh");
-                clicked => {
-                    root.refresh-drives();
-                }
-            }
-        }
-        if root.drives-unavailable: Text {
-            text: @tr("Search service is not running.");
-            font-size: Tokens.size-desc;
-            color: Tokens.warn-text;
-        }
-        for drive in root.drives: HorizontalLayout {
-            height: 28px;
-            spacing: 12px;
-            Text {
-                width: 34px;
-                text: drive.letter + ":";
-                font-family: Tokens.mono-font;
-                font-size: Tokens.size-label;
-                font-weight: 600;
-                color: Tokens.ink;
-                vertical-alignment: center;
-            }
-            VerticalLayout {
-                horizontal-stretch: 1;
-                alignment: center;
-                Rectangle {
-                    height: 6px;
-                    border-radius: 3px;
-                    background: Tokens.border-2;
-                    Rectangle {
-                        x: 0px;
-                        width: parent.width * (drive.state == 0 ? drive.percent / 100 : drive.state == 1 ? 1 : 0);
-                        border-radius: 3px;
-                        background: drive.state == 0 ? Tokens.highlight : Tokens.action;
-                    }
-                }
-            }
-            Text {
-                width: 170px;
-                text: drive.state == 1 ? @tr("ready · {0}", drive.entries) : drive.state == 0 ? @tr("indexing {0}%", drive.percent) : @tr("failed: {0}", drive.reason);
-                font-family: Tokens.mono-font;
-                font-size: Tokens.size-path;
-                color: drive.state == 2 ? Tokens.danger : Tokens.muted;
-                vertical-alignment: center;
-                overflow: elide;
-            }
-        }
-    }
+                                Section {
+                                    title: @tr("Indexing");
+                                    SettingRow {
+                                        label: @tr("Include hidden files and folders");
+                                        Toggle {
+                                            label: @tr("Include hidden files and folders");
+                                            checked <=> root.include-hidden;
+                                            toggled => {
+                                                root.edited();
+                                            }
+                                        }
+                                    }
+                                    SettingRow {
+                                        label: @tr("Include system files");
+                                        Toggle {
+                                            label: @tr("Include system files");
+                                            checked <=> root.include-system;
+                                            toggled => {
+                                                root.edited();
+                                            }
+                                        }
+                                    }
+                                    SettingRow {
+                                        label: @tr("Indexed drives");
+                                        separator: false;
+                                        Button {
+                                            text: @tr("Refresh");
+                                            clicked => {
+                                                root.refresh-drives();
+                                            }
+                                        }
+                                    }
+                                    if root.drives-unavailable: Text {
+                                        text: @tr("Search service is not running.");
+                                        font-size: Tokens.size-desc;
+                                        color: Tokens.warn-text;
+                                    }
+                                    for drive in root.drives: HorizontalLayout {
+                                        height: 28px;
+                                        spacing: 12px;
+                                        Text {
+                                            width: 34px;
+                                            text: drive.letter + ":";
+                                            font-family: Tokens.mono-font;
+                                            font-size: Tokens.size-label;
+                                            font-weight: 600;
+                                            color: Tokens.ink;
+                                            vertical-alignment: center;
+                                        }
+                                        VerticalLayout {
+                                            horizontal-stretch: 1;
+                                            alignment: center;
+                                            Rectangle {
+                                                height: 6px;
+                                                border-radius: 3px;
+                                                background: Tokens.border-2;
+                                                Rectangle {
+                                                    x: 0px;
+                                                    width: parent.width * (drive.state == 0 ? drive.percent / 100 : drive.state == 1 ? 1 : 0);
+                                                    border-radius: 3px;
+                                                    background: drive.state == 0 ? Tokens.highlight : Tokens.action;
+                                                }
+                                            }
+                                        }
+                                        Text {
+                                            width: 170px;
+                                            text: drive.state == 1 ? @tr("ready · {0}", drive.entries) : drive.state == 0 ? @tr("indexing {0}%", drive.percent) : @tr("failed: {0}", drive.reason);
+                                            font-family: Tokens.mono-font;
+                                            font-size: Tokens.size-path;
+                                            color: drive.state == 2 ? Tokens.danger : Tokens.muted;
+                                            vertical-alignment: center;
+                                            overflow: elide;
+                                        }
+                                    }
+                                }
 
-    Section {
-        title: @tr("Ignored folders");
-        SettingRow {
-            label: @tr("Folders left out of the search");
-            separator: false;
-            Button {
-                text: @tr("+ Add");
-                clicked => {
-                    root.add-folder();
-                }
-            }
-        }
-        PathList {
-            items: root.excluded;
-            empty-text: @tr("no ignored folders");
-            remove-text: @tr("remove");
-            remove(index) => {
-                root.remove-folder(index);
-            }
-        }
-    }
-}
+                                Section {
+                                    title: @tr("Ignored folders");
+                                    SettingRow {
+                                        label: @tr("Folders left out of the search");
+                                        separator: false;
+                                        Button {
+                                            text: @tr("+ Add");
+                                            clicked => {
+                                                root.add-folder();
+                                            }
+                                        }
+                                    }
+                                    PathList {
+                                        items: root.excluded;
+                                        empty-text: @tr("no ignored folders");
+                                        remove-text: @tr("remove");
+                                        remove(index) => {
+                                            root.remove-folder(index);
+                                        }
+                                    }
+                                }
+                            }
 
-if root.current-tab == 2: VerticalLayout {
-    Section {
-        title: @tr("Capture");
-        first: true;
-        SettingRow {
-            label: @tr("Shortcut to open the clipboard history");
-            description: root.history-recording ? @tr("Use at least one of Ctrl, Alt, Shift or Win plus a key. Esc cancels.") : "";
-            error: root.history-hotkey-error == 1 ? @tr("That shortcut is already used by another program. The previous one was kept.") : root.history-hotkey-error == 3 ? @tr("That shortcut is already used by another program, so it is not active. Choose another one.") : root.history-hotkey-error == 2 ? @tr("Already used to open Tex") : "";
-            ShortcutField {
-                keys: root.history-hotkey-keys;
-                recording: root.history-recording;
-                enabled: !root.recording;
-                reset-tip: @tr("Restore default ({0})", "Alt+V");
-                record => {
-                    root.change-history-hotkey();
-                    recorder.focus();
-                }
-                cancel => {
-                    root.cancel-history-recording();
-                }
-                reset => {
-                    root.reset-history-hotkey();
-                }
-            }
-        }
-        SettingRow {
-            label: @tr("Pause capture");
-            error: root.capture-error != "" ? @tr("Could not watch the clipboard: {0}", root.capture-error) : "";
-            Toggle {
-                label: @tr("Pause capture");
-                checked <=> root.paused;
-                toggled => {
-                    root.edited();
-                }
-            }
-        }
-        SettingRow {
-            label: @tr("Capture");
-            HorizontalLayout {
-                spacing: 16px;
-                CheckBox {
-                    text: @tr("Text");
-                    checked <=> root.capture-text;
-                    enabled: !root.capture-text || root.capture-images;
-                    toggled => {
-                        root.edited();
-                    }
-                }
-                CheckBox {
-                    text: @tr("Images");
-                    checked <=> root.capture-images;
-                    enabled: !root.capture-images || root.capture-text;
-                    toggled => {
-                        root.edited();
-                    }
-                }
-            }
-        }
-        SettingRow {
-            label: @tr("Maximum size per entry");
-            Select {
-                label: @tr("Maximum size per entry");
-                options: [@tr("{0} MB", 1), @tr("{0} MB", 5), @tr("{0} MB", 10), @tr("{0} MB", 25), @tr("{0} MB", 50)];
-                current-index <=> root.item-size;
-                selected => {
-                    root.edited();
-                }
-            }
-        }
-        SettingRow {
-            label: @tr("When choosing an entry");
-            separator: false;
-            Segmented {
-                label: @tr("When choosing an entry");
-                options: [@tr("Copy only"), @tr("Copy and paste")];
-                current-index <=> root.on-pick;
-                selected => {
-                    root.edited();
-                }
-            }
-        }
-    }
+                            if root.current-tab == 2: VerticalLayout {
+                                Section {
+                                    title: @tr("Capture");
+                                    first: true;
+                                    SettingRow {
+                                        label: @tr("Shortcut to open the clipboard history");
+                                        description: root.history-recording ? @tr("Use at least one of Ctrl, Alt, Shift or Win plus a key. Esc cancels.") : "";
+                                        error: root.history-hotkey-error == 1 ? @tr("That shortcut is already used by another program. The previous one was kept.") : root.history-hotkey-error == 3 ? @tr("That shortcut is already used by another program, so it is not active. Choose another one.") : root.history-hotkey-error == 2 ? @tr("Already used to open Tex") : "";
+                                        ShortcutField {
+                                            keys: root.history-hotkey-keys;
+                                            recording: root.history-recording;
+                                            enabled: !root.recording;
+                                            reset-tip: @tr("Restore default ({0})", "Alt+V");
+                                            record => {
+                                                root.change-history-hotkey();
+                                                recorder.focus();
+                                            }
+                                            cancel => {
+                                                root.cancel-history-recording();
+                                            }
+                                            reset => {
+                                                root.reset-history-hotkey();
+                                            }
+                                        }
+                                    }
+                                    SettingRow {
+                                        label: @tr("Pause capture");
+                                        error: root.capture-error != "" ? @tr("Could not watch the clipboard: {0}", root.capture-error) : "";
+                                        Toggle {
+                                            label: @tr("Pause capture");
+                                            checked <=> root.paused;
+                                            toggled => {
+                                                root.edited();
+                                            }
+                                        }
+                                    }
+                                    SettingRow {
+                                        label: @tr("Capture");
+                                        HorizontalLayout {
+                                            spacing: 16px;
+                                            CheckBox {
+                                                text: @tr("Text");
+                                                checked <=> root.capture-text;
+                                                enabled: !root.capture-text || root.capture-images;
+                                                toggled => {
+                                                    root.edited();
+                                                }
+                                            }
+                                            CheckBox {
+                                                text: @tr("Images");
+                                                checked <=> root.capture-images;
+                                                enabled: !root.capture-images || root.capture-text;
+                                                toggled => {
+                                                    root.edited();
+                                                }
+                                            }
+                                        }
+                                    }
+                                    SettingRow {
+                                        label: @tr("Maximum size per entry");
+                                        Select {
+                                            label: @tr("Maximum size per entry");
+                                            options: [@tr("{0} MB", 1), @tr("{0} MB", 5), @tr("{0} MB", 10), @tr("{0} MB", 25), @tr("{0} MB", 50)];
+                                            current-index <=> root.item-size;
+                                            selected => {
+                                                root.edited();
+                                            }
+                                        }
+                                    }
+                                    SettingRow {
+                                        label: @tr("When choosing an entry");
+                                        separator: false;
+                                        Segmented {
+                                            label: @tr("When choosing an entry");
+                                            options: [@tr("Copy only"), @tr("Copy and paste")];
+                                            current-index <=> root.on-pick;
+                                            selected => {
+                                                root.edited();
+                                            }
+                                        }
+                                    }
+                                }
 
-    Section {
-        title: @tr("Cleanup");
-        SettingRow {
-            label: @tr("Automatic cleanup");
-            Segmented {
-                label: @tr("Automatic cleanup");
-                options: [@tr("By time"), @tr("By storage")];
-                current-index <=> root.cleanup;
-                selected => {
-                    root.edited();
-                }
-            }
-        }
-        if root.cleanup == 0: SettingRow {
-            label: @tr("Delete entries older than");
-            description: @tr("Favorites are never deleted by cleanup and do not count toward the limit.");
-            separator: false;
-            Select {
-                label: @tr("Delete entries older than");
-                options: [@tr("3 days"), @tr("1 week"), @tr("1 month")];
-                current-index <=> root.cleanup-days;
-                selected => {
-                    root.edited();
-                }
-            }
-        }
-        if root.cleanup == 1: SettingRow {
-            label: @tr("Storage limit");
-            description: (root.usage-value != "" ? @tr("Using {0} of {1}", HistoryText.size-text(root.usage-value, root.usage-unit), root.limit-labels[root.cleanup-limit]) + " · " : "") + @tr("Favorites are never deleted by cleanup and do not count toward the limit.");
-            separator: false;
-            Select {
-                label: @tr("Storage limit");
-                options: root.limit-labels;
-                current-index <=> root.cleanup-limit;
-                selected => {
-                    root.edited();
-                }
-            }
-        }
-    }
+                                Section {
+                                    title: @tr("Cleanup");
+                                    SettingRow {
+                                        label: @tr("Automatic cleanup");
+                                        Segmented {
+                                            label: @tr("Automatic cleanup");
+                                            options: [@tr("By time"), @tr("By storage")];
+                                            current-index <=> root.cleanup;
+                                            selected => {
+                                                root.edited();
+                                            }
+                                        }
+                                    }
+                                    if root.cleanup == 0: SettingRow {
+                                        label: @tr("Delete entries older than");
+                                        description: @tr("Favorites are never deleted by cleanup and do not count toward the limit.");
+                                        separator: false;
+                                        Select {
+                                            label: @tr("Delete entries older than");
+                                            options: [@tr("3 days"), @tr("1 week"), @tr("1 month")];
+                                            current-index <=> root.cleanup-days;
+                                            selected => {
+                                                root.edited();
+                                            }
+                                        }
+                                    }
+                                    if root.cleanup == 1: SettingRow {
+                                        label: @tr("Storage limit");
+                                        description: (root.usage-value != "" ? @tr("Using {0} of {1}", HistoryText.size-text(root.usage-value, root.usage-unit), root.limit-labels[root.cleanup-limit]) + " · " : "") + @tr("Favorites are never deleted by cleanup and do not count toward the limit.");
+                                        separator: false;
+                                        Select {
+                                            label: @tr("Storage limit");
+                                            options: root.limit-labels;
+                                            current-index <=> root.cleanup-limit;
+                                            selected => {
+                                                root.edited();
+                                            }
+                                        }
+                                    }
+                                }
 
-    Section {
-        title: @tr("Privacy");
-        SettingRow {
-            label: @tr("Respect apps that ask not to be saved");
-            description: @tr("Password managers and other apps can mark what they copy as private. Tex does not detect passwords on its own.");
-            Toggle {
-                label: @tr("Respect apps that ask not to be saved");
-                checked <=> root.respect-exclusion;
-                toggled => {
-                    root.edited();
-                }
-            }
-        }
-        SettingRow {
-            label: @tr("Ignored apps");
-            separator: false;
-            Button {
-                text: @tr("+ Add");
-                clicked => {
-                    root.add-app();
-                }
-            }
-        }
-        PathList {
-            items: root.ignored-apps;
-            empty-text: @tr("no ignored apps");
-            remove-text: @tr("remove");
-            remove(index) => {
-                root.remove-app(index);
-            }
-        }
-    }
+                                Section {
+                                    title: @tr("Privacy");
+                                    SettingRow {
+                                        label: @tr("Respect apps that ask not to be saved");
+                                        description: @tr("Password managers and other apps can mark what they copy as private. Tex does not detect passwords on its own.");
+                                        Toggle {
+                                            label: @tr("Respect apps that ask not to be saved");
+                                            checked <=> root.respect-exclusion;
+                                            toggled => {
+                                                root.edited();
+                                            }
+                                        }
+                                    }
+                                    SettingRow {
+                                        label: @tr("Ignored apps");
+                                        separator: false;
+                                        Button {
+                                            text: @tr("+ Add");
+                                            clicked => {
+                                                root.add-app();
+                                            }
+                                        }
+                                    }
+                                    PathList {
+                                        items: root.ignored-apps;
+                                        empty-text: @tr("no ignored apps");
+                                        remove-text: @tr("remove");
+                                        remove(index) => {
+                                            root.remove-app(index);
+                                        }
+                                    }
+                                }
 
-    Rectangle {
-        height: 26px;
-    }
-    Rectangle {
-        border-width: Tokens.border-strong;
-        border-color: Tokens.danger;
-        border-radius: Tokens.radius-control;
-        HorizontalLayout {
-            padding: 14px;
-            spacing: 12px;
-            VerticalLayout {
-                horizontal-stretch: 1;
-                alignment: center;
-                spacing: 3px;
-                Text {
-                    text: root.confirm-clear ? @tr("Delete all entries except favorites?") : @tr("Clear history");
-                    font-size: Tokens.size-label;
-                    font-weight: 500;
-                    color: Tokens.ink;
-                    wrap: word-wrap;
-                }
-                if !root.confirm-clear: Text {
-                    text: @tr("Deletes every entry except favorites.");
-                    font-size: Tokens.size-desc;
-                    color: Tokens.muted;
-                    wrap: word-wrap;
-                }
-            }
-            if !root.confirm-clear: VerticalLayout {
-                alignment: center;
-                Button {
-                    kind: ButtonKind.danger;
-                    text: @tr("Clear…");
-                    clicked => {
-                        root.confirm-clear = true;
-                    }
-                }
-            }
-            if root.confirm-clear: HorizontalLayout {
-                spacing: 6px;
-                VerticalLayout {
-                    alignment: center;
-                    Button {
-                        text: @tr("Cancel");
-                        clicked => {
-                            root.confirm-clear = false;
-                        }
-                    }
-                }
-                VerticalLayout {
-                    alignment: center;
-                    Button {
-                        kind: ButtonKind.danger-filled;
-                        text: @tr("Delete now");
-                        clicked => {
-                            root.confirm-clear = false;
-                            root.clear-history();
-                        }
-                    }
-                }
-            }
-        }
-    }
+                                Rectangle {
+                                    height: 26px;
+                                }
+                                Rectangle {
+                                    border-width: Tokens.border-strong;
+                                    border-color: Tokens.danger;
+                                    border-radius: Tokens.radius-control;
+                                    HorizontalLayout {
+                                        padding: 14px;
+                                        spacing: 12px;
+                                        VerticalLayout {
+                                            horizontal-stretch: 1;
+                                            alignment: center;
+                                            spacing: 3px;
+                                            Text {
+                                                text: root.confirm-clear ? @tr("Delete all entries except favorites?") : @tr("Clear history");
+                                                font-size: Tokens.size-label;
+                                                font-weight: 500;
+                                                color: Tokens.ink;
+                                                wrap: word-wrap;
+                                            }
+                                            if !root.confirm-clear: Text {
+                                                text: @tr("Deletes every entry except favorites.");
+                                                font-size: Tokens.size-desc;
+                                                color: Tokens.muted;
+                                                wrap: word-wrap;
+                                            }
+                                        }
+                                        if !root.confirm-clear: VerticalLayout {
+                                            alignment: center;
+                                            Button {
+                                                kind: ButtonKind.danger;
+                                                text: @tr("Clear…");
+                                                clicked => {
+                                                    root.confirm-clear = true;
+                                                }
+                                            }
+                                        }
+                                        if root.confirm-clear: HorizontalLayout {
+                                            spacing: 6px;
+                                            VerticalLayout {
+                                                alignment: center;
+                                                Button {
+                                                    text: @tr("Cancel");
+                                                    clicked => {
+                                                        root.confirm-clear = false;
+                                                    }
+                                                }
+                                            }
+                                            VerticalLayout {
+                                                alignment: center;
+                                                Button {
+                                                    kind: ButtonKind.danger-filled;
+                                                    text: @tr("Delete now");
+                                                    clicked => {
+                                                        root.confirm-clear = false;
+                                                        root.clear-history();
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
 
-    if root.history-unavailable != "": Text {
-        text: @tr("Clipboard history unavailable: {0}", root.history-unavailable);
-        font-size: Tokens.size-desc;
-        color: Tokens.danger;
-        wrap: word-wrap;
-    }
-}
+                                if root.history-unavailable != "": Text {
+                                    text: @tr("Clipboard history unavailable: {0}", root.history-unavailable);
+                                    font-size: Tokens.size-desc;
+                                    color: Tokens.danger;
+                                    wrap: word-wrap;
+                                }
+                            }
 
                             if root.save-error != "": Text {
                                 text: @tr("Could not save the settings: {}", root.save-error);

@@ -2067,6 +2067,7 @@ fn sync_selection(window: &HistoryWindow) {
     });
     window.set_selected_headers(headers as i32);
     if changed {
+        window.set_expanded(true);
         window.set_renaming(false);
         window.set_editing(false);
         window.set_confirm_delete(false);

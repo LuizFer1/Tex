@@ -305,7 +305,7 @@ export component Popup inherits Window {
                 if root.rows.length > 0: Rectangle {
                     list := Flickable {
                         property <int> current: root.selected;
-                        property <length> current-top: self.current * root.row-height + self.content-y;
+                        property <length> current-top: 4px + self.current * root.row-height + self.content-y;
                         width: parent.width;
                         height: parent.height;
                         content-height: rows-layout.preferred-height;

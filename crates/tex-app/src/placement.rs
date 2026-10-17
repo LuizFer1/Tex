@@ -4,7 +4,6 @@ pub const POPUP_WIDTH: f32 = 700.0;
 pub const HISTORY_WIDTH: f32 = 640.0;
 
 /// Rounds a logical length to physical pixels at the given scale.
-#[allow(dead_code)]
 pub fn physical(logical: f32, scale: f32) -> i32 {
     (logical * scale).round() as i32
 }

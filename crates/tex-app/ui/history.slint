@@ -175,7 +175,7 @@ export component HistoryWindow inherits Window {
     property <length> card-height: 50px;
     property <length> day-height: 30px;
     property <length> selected-height: root.card-height;
-    property <bool> expanded: true;
+    in-out property <bool> expanded: true;
     property <length> current-top: 4px + root.selected *root.card-height + root.selected-headers * root.day-height + list.content-y;
     property <bool> has-selection: root.selected >= 0 && root.selected < root.rows.length;
     property <HistoryRow> current: root.rows[root.selected];
