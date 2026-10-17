@@ -1,5 +1,5 @@
 ﻿#ifndef AppVersion
-  #define AppVersion "0.0.0"
+  #define AppVersion "0.0.0-dev"
 #endif
 
 [Setup]
@@ -23,6 +23,7 @@ CloseApplications=yes
 RestartApplications=no
 UninstallDisplayIcon={app}\tex.exe
 UsedUserAreasWarning=no
+ShowLanguageDialog=no
 
 [Languages]
 Name: "en"; MessagesFile: "compiler:Default.isl"
