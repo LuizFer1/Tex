@@ -1,35 +1,57 @@
-import { AboutSlint, Palette, VerticalBox } from "std-widgets.slint";
+import { AboutSlint, Palette } from "std-widgets.slint";
+import { Tokens } from "theme.slint";
 
 export component AboutWindow inherits Window {
     title: @tr("About Tex");
+    icon: Tokens.app-icon;
     in property <string> version;
     in property <ColorScheme> scheme;
-    background: Palette.background;
+    background: Tokens.paper;
+    default-font-family: Tokens.ui-font;
 
     changed scheme => {
         Palette.color-scheme = self.scheme;
     }
 
-    VerticalBox {
+    VerticalLayout {
+        padding: 28px;
+        spacing: 10px;
         alignment: start;
 
+        HorizontalLayout {
+            alignment: center;
+            Rectangle {
+                width: 72px;
+                height: 72px;
+                border-radius: Tokens.radius-art;
+                clip: true;
+                Image {
+                    width: 72px;
+                    height: 72px;
+                    source: Tokens.app-icon;
+                }
+            }
+        }
         Text {
             text: "Tex " + root.version;
-            font-size: 20px;
+            font-size: Tokens.size-title;
             font-weight: 600;
+            color: Tokens.ink;
             horizontal-alignment: center;
         }
-
         Text {
             text: @tr("Your desktop, within reach.");
+            font-size: Tokens.size-label;
+            color: Tokens.ink-2;
             horizontal-alignment: center;
         }
-
         Text {
             text: "PolyForm Noncommercial License 1.0.0";
+            font-family: Tokens.mono-font;
+            font-size: Tokens.size-path;
+            color: Tokens.muted;
             horizontal-alignment: center;
         }
-
         AboutSlint { }
     }
 }

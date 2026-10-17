@@ -2,7 +2,6 @@ use std::fs;
 use std::path::Path;
 
 const THEME_FILES: &[&str] = &["theme.slint", "artwork.slint"];
-const LEGACY: &[&str] = &["about.slint"];
 
 fn slint_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
     for entry in fs::read_dir(dir).unwrap() {
@@ -38,7 +37,7 @@ fn screens_take_colors_only_from_tokens() {
     slint_files(&ui, &mut files);
     for file in files {
         let name = file.file_name().unwrap().to_str().unwrap();
-        if THEME_FILES.contains(&name) || LEGACY.contains(&name) {
+        if THEME_FILES.contains(&name) {
             continue;
         }
         let literals = color_literals(&fs::read_to_string(&file).unwrap());
