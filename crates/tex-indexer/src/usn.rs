@@ -15,24 +15,45 @@ pub struct UsnRecord {
     pub name: String,
 }
 
-/// Splits the output of FSCTL_ENUM_USN_DATA or FSCTL_READ_USN_JOURNAL into its leading
-/// continuation value (next file reference or next USN) and the records that follow.
-/// Records with ids above 32 bits are skipped; parsing stops at the first malformed record.
-pub fn parse_batch(buffer: &[u8]) -> Option<(u64, Vec<UsnRecord>)> {
+/// One buffer from FSCTL_ENUM_USN_DATA or FSCTL_READ_USN_JOURNAL.
+#[derive(Debug)]
+pub struct Batch {
+    /// The continuation value: next file reference or next USN.
+    pub next: u64,
+    pub records: Vec<UsnRecord>,
+    /// Records whose ids do not fit in 32 bits, which the index cannot hold.
+    pub too_large: usize,
+}
+
+/// Splits a buffer into its leading continuation value and the records that follow.
+/// Records with ids above 32 bits are counted and skipped; parsing stops at the first
+/// record whose length does not fit.
+pub fn parse_batch(buffer: &[u8]) -> Option<Batch> {
     let next = u64_at(buffer, 0)?;
-    let mut records = Vec::new();
+    let mut batch = Batch {
+        next,
+        records: Vec::new(),
+        too_large: 0,
+    };
     let mut rest = &buffer[8..];
     while let Some(length) = u32_at(rest, 0) {
         let length = length as usize;
         if length < 8 || length > rest.len() {
             break;
         }
-        if let Some(record) = parse_record(&rest[..length]) {
-            records.push(record);
+        match parse_record(&rest[..length]) {
+            Some(Parsed::Record(record)) => batch.records.push(record),
+            Some(Parsed::TooLarge) => batch.too_large += 1,
+            None => {}
         }
         rest = &rest[length..];
     }
-    Some((next, records))
+    Some(batch)
+}
+
+enum Parsed {
+    Record(UsnRecord),
+    TooLarge,
 }
 
 /// Deletes remove the entry; every other change creates or updates it with the record's current name and parent.
@@ -49,12 +70,12 @@ pub fn apply(index: &mut VolumeIndex, record: &UsnRecord) {
     }
 }
 
-fn parse_record(bytes: &[u8]) -> Option<UsnRecord> {
+fn parse_record(bytes: &[u8]) -> Option<Parsed> {
     let (frn, parent, reason_at, attributes_at, name_at) = match u16_at(bytes, 4)? {
         2 => (u64_at(bytes, 8)?, u64_at(bytes, 16)?, 40, 52, 56),
         3 => {
             if u64_at(bytes, 16)? != 0 || u64_at(bytes, 32)? != 0 {
-                return None;
+                return Some(Parsed::TooLarge);
             }
             (u64_at(bytes, 8)?, u64_at(bytes, 24)?, 56, 68, 72)
         }
@@ -68,9 +89,12 @@ fn parse_record(bytes: &[u8]) -> Option<UsnRecord> {
         .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
         .collect();
     let attributes = u32_at(bytes, attributes_at)?;
-    Some(UsnRecord {
-        record: record_from_frn(frn)?,
-        parent: record_from_frn(parent)?,
+    let (Some(record), Some(parent)) = (record_from_frn(frn), record_from_frn(parent)) else {
+        return Some(Parsed::TooLarge);
+    };
+    Some(Parsed::Record(UsnRecord {
+        record,
+        parent,
         reason: u32_at(bytes, reason_at)?,
         attributes: Attributes {
             dir: attributes & ATTRIBUTE_DIRECTORY != 0,
@@ -78,7 +102,7 @@ fn parse_record(bytes: &[u8]) -> Option<UsnRecord> {
             system: attributes & ATTRIBUTE_SYSTEM != 0,
         },
         name: String::from_utf16_lossy(&units),
-    })
+    }))
 }
 
 fn u16_at(bytes: &[u8], at: usize) -> Option<u16> {
@@ -159,10 +183,11 @@ mod tests {
                 v2(33, 32, 0, 0x2 | 0x20, "Relatório.pdf"),
             ],
         );
-        let (next, records) = parse_batch(&bytes).unwrap();
-        assert_eq!(next, 99);
+        let batch = parse_batch(&bytes).unwrap();
+        assert_eq!(batch.next, 99);
+        assert_eq!(batch.too_large, 0);
         assert_eq!(
-            records,
+            batch.records,
             [
                 UsnRecord {
                     record: 32,
@@ -194,20 +219,25 @@ mod tests {
     fn parses_v3_records_with_small_ids_only() {
         let bytes = batch(
             1,
-            &[v3(40, 0, 5, 0, "small.txt"), v3(41, 7, 5, 0, "refs.txt")],
+            &[
+                v3(40, 0, 5, 0, "small.txt"),
+                v3(41, 7, 5, 0, "refs.txt"),
+                v3(0x1_0000_0000, 0, 5, 0, "far.txt"),
+            ],
         );
-        let (_, records) = parse_batch(&bytes).unwrap();
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].record, 40);
-        assert_eq!(records[0].name, "small.txt");
+        let batch = parse_batch(&bytes).unwrap();
+        assert_eq!(batch.records.len(), 1);
+        assert_eq!(batch.records[0].record, 40);
+        assert_eq!(batch.records[0].name, "small.txt");
+        assert_eq!(batch.too_large, 2);
     }
 
     #[test]
     fn stops_at_a_truncated_record() {
         let mut bytes = batch(1, &[v2(40, 5, 0, 0, "ok.txt"), v2(41, 5, 0, 0, "cut.txt")]);
         bytes.truncate(bytes.len() - 10);
-        let (_, records) = parse_batch(&bytes).unwrap();
-        assert_eq!(records.len(), 1);
+        let batch = parse_batch(&bytes).unwrap();
+        assert_eq!(batch.records.len(), 1);
     }
 
     #[test]

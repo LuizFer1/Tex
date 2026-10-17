@@ -122,15 +122,21 @@ impl Runner {
                 Ok(bytes) => bytes,
                 Err(error) => return classify(error),
             };
-            let Some((next, records)) = parse_batch(bytes) else {
+            let Some(batch) = parse_batch(bytes) else {
                 continue;
             };
-            next_usn = next as i64;
+            next_usn = batch.next as i64;
+            if batch.too_large > 0 {
+                log(format!(
+                    "{}: skipped {} changes to records above 32 bits",
+                    volume.letter, batch.too_large
+                ));
+            }
             {
                 let mut guard = volume.write();
                 let data = &mut *guard;
                 if let Some(index) = data.index.as_mut() {
-                    for record in &records {
+                    for record in &batch.records {
                         apply(index, record);
                     }
                     data.state = VolumeState::Ready {
@@ -178,11 +184,13 @@ impl Runner {
         volume.write().state = VolumeState::Indexing { percent: 0 };
         let total = handle.record_count().unwrap_or(0).max(1);
         let mut index = VolumeIndex::new(volume.letter);
+        let mut too_large = 0;
         handle.enumerate(journal.next_usn, |bytes| {
-            let Some((next, records)) = parse_batch(bytes) else {
+            let Some(batch) = parse_batch(bytes) else {
                 return;
             };
-            for record in &records {
+            too_large += batch.too_large;
+            for record in &batch.records {
                 index.upsert(
                     record.record,
                     record.parent,
@@ -190,9 +198,15 @@ impl Runner {
                     record.attributes,
                 );
             }
-            let percent = ((next & RECORD_MASK) * 100 / total).min(99) as u8;
+            let percent = ((batch.next & RECORD_MASK) * 100 / total).min(99) as u8;
             volume.write().state = VolumeState::Indexing { percent };
         })?;
+        if too_large > 0 {
+            log(format!(
+                "{}: skipped {too_large} records above 32 bits",
+                volume.letter
+            ));
+        }
         if let Some(dir) = &self.windows_dir {
             index.set_windows_dir(index.lookup(dir));
         }
