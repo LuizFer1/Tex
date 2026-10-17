@@ -1,4 +1,5 @@
-import { Button, CheckBox, ComboBox, Palette, StandardListView, Switch, TabWidget, VerticalBox } from "std-widgets.slint";
+import { Button, CheckBox, ComboBox, Palette, ScrollView, StandardListView, Switch, TabWidget, VerticalBox } from "std-widgets.slint";
+import { HistoryText } from "history.slint";
 
 export struct DriveRow {
     letter: string,
@@ -59,8 +60,33 @@ export component SettingsWindow inherits Window {
     in property <[DriveRow]> drives;
     in property <bool> drives-unavailable;
 
+    in property <string> history-hotkey-text;
+    in-out property <bool> history-recording;
+    // 0 none, 1 could not register, 2 used to open Tex
+    in property <int> history-hotkey-error;
+    in-out property <bool> paused;
+    in-out property <bool> capture-text;
+    in-out property <bool> capture-images;
+    in-out property <int> item-size;
+    in-out property <int> on-pick;
+    // 0 by time, 1 by storage
+    in-out property <int> cleanup;
+    in-out property <int> cleanup-days;
+    in-out property <int> cleanup-limit;
+    in property <string> usage-value;
+    in property <int> usage-unit;
+    in-out property <bool> respect-exclusion;
+    in property <[StandardListViewItem]> ignored-apps;
+    in-out property <int> selected-ignored: -1;
+    in-out property <bool> confirm-clear;
+    in property <string> capture-error;
+    in property <string> history-unavailable;
+
     in property <string> save-error;
     out property <string> folder-picker-title: @tr("Choose a folder to ignore in search");
+    out property <string> app-picker-title: @tr("Choose an app to ignore");
+    out property <string> app-picker-filter: @tr("Programs");
+    property <[string]> limit-labels: [@tr("{0} MB", 250), @tr("{0} MB", 500), @tr("{0} GB", 1), @tr("{0} GB", 2), @tr("{0} GB", 5)];
 
     callback edited();
     callback change-hotkey();
@@ -70,22 +96,37 @@ export component SettingsWindow inherits Window {
     callback add-folder();
     callback remove-folder(int);
     callback refresh-drives();
+    callback change-history-hotkey();
+    callback reset-history-hotkey();
+    callback history-shortcut-captured(string, bool, bool, bool, bool);
+    callback cancel-history-recording();
+    callback add-app();
+    callback remove-app(int);
+    callback clear-history();
 
     changed scheme => {
         Palette.color-scheme = self.scheme;
     }
 
     recorder := FocusScope {
-        enabled: root.recording;
+        enabled: root.recording || root.history-recording;
         key-pressed(event) => {
-            if !root.recording {
+            if !root.recording && !root.history-recording {
                 return reject;
             }
             if event.text == Key.Escape {
-                root.cancel-recording();
+                if root.recording {
+                    root.cancel-recording();
+                } else {
+                    root.cancel-history-recording();
+                }
                 return accept;
             }
-            root.shortcut-captured(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift, event.modifiers.meta);
+            if root.recording {
+                root.shortcut-captured(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift, event.modifiers.meta);
+            } else {
+                root.history-shortcut-captured(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift, event.modifiers.meta);
+            }
             accept
         }
 
@@ -146,6 +187,7 @@ export component SettingsWindow inherits Window {
 
                                 Button {
                                     text: root.recording ? @tr("Cancel") : @tr("Change");
+                                    enabled: !root.history-recording;
                                     clicked => {
                                         if root.recording {
                                             root.cancel-recording();
@@ -158,7 +200,7 @@ export component SettingsWindow inherits Window {
 
                                 Button {
                                     text: @tr("Reset");
-                                    enabled: !root.recording;
+                                    enabled: !root.recording && !root.history-recording;
                                     clicked => {
                                         root.reset-hotkey();
                                     }
@@ -376,6 +418,274 @@ export component SettingsWindow inherits Window {
                             for drive in root.drives: Text {
                                 text: drive.letter + ":  " + (drive.state == 1 ? @tr("Ready, {} items", drive.entries) : drive.state == 0 ? @tr("Indexing {}%", drive.percent) : @tr("Failed: {}", drive.reason));
                                 font-size: 12px;
+                            }
+                        }
+                    }
+                }
+
+                Tab {
+                    title: @tr("Clipboard");
+                    ScrollView {
+                        VerticalBox {
+                            alignment: start;
+                            spacing: 14px;
+
+                            VerticalLayout {
+                                spacing: 4px;
+                                Row {
+                                    Label {
+                                        text: @tr("Shortcut to open the clipboard history");
+                                    }
+
+                                    Text {
+                                        text: root.history-recording ? @tr("Press the new shortcut…") : root.history-hotkey-text;
+                                        vertical-alignment: center;
+                                        font-weight: 600;
+                                    }
+
+                                    Button {
+                                        text: root.history-recording ? @tr("Cancel") : @tr("Change");
+                                        enabled: !root.recording;
+                                        clicked => {
+                                            if root.history-recording {
+                                                root.cancel-history-recording();
+                                            } else {
+                                                root.change-history-hotkey();
+                                                recorder.focus();
+                                            }
+                                        }
+                                    }
+
+                                    Button {
+                                        text: @tr("Reset");
+                                        enabled: !root.recording && !root.history-recording;
+                                        clicked => {
+                                            root.reset-history-hotkey();
+                                        }
+                                    }
+                                }
+
+                                if root.history-recording: Hint {
+                                    text: @tr("Use at least one of Ctrl, Alt, Shift or Win plus a key. Esc cancels.");
+                                }
+                                if root.history-hotkey-error == 1: Hint {
+                                    text: @tr("That shortcut is already used by another program. The previous one was kept.");
+                                    color: #d13438;
+                                    opacity: 1;
+                                }
+                                if root.history-hotkey-error == 2: Hint {
+                                    text: @tr("Already used to open Tex");
+                                    color: #d13438;
+                                    opacity: 1;
+                                }
+                            }
+
+                            Switch {
+                                text: @tr("Pause capture");
+                                checked <=> root.paused;
+                                toggled => {
+                                    root.edited();
+                                }
+                            }
+
+                            VerticalLayout {
+                                spacing: 6px;
+                                Text {
+                                    text: @tr("Capture");
+                                }
+
+                                HorizontalLayout {
+                                    spacing: 16px;
+                                    alignment: start;
+                                    CheckBox {
+                                        text: @tr("Text");
+                                        checked <=> root.capture-text;
+                                        enabled: !root.capture-text || root.capture-images;
+                                        toggled => {
+                                            root.edited();
+                                        }
+                                    }
+
+                                    CheckBox {
+                                        text: @tr("Images");
+                                        checked <=> root.capture-images;
+                                        enabled: !root.capture-images || root.capture-text;
+                                        toggled => {
+                                            root.edited();
+                                        }
+                                    }
+                                }
+                            }
+
+                            Row {
+                                Label {
+                                    text: @tr("Maximum size per entry");
+                                }
+
+                                ComboBox {
+                                    width: 200px;
+                                    model: [@tr("{0} MB", 1), @tr("{0} MB", 5), @tr("{0} MB", 10), @tr("{0} MB", 25), @tr("{0} MB", 50)];
+                                    current-index <=> root.item-size;
+                                    selected => {
+                                        root.edited();
+                                    }
+                                }
+                            }
+
+                            Row {
+                                Label {
+                                    text: @tr("When choosing an entry");
+                                }
+
+                                ComboBox {
+                                    width: 200px;
+                                    model: [@tr("Copy only"), @tr("Copy and paste")];
+                                    current-index <=> root.on-pick;
+                                    selected => {
+                                        root.edited();
+                                    }
+                                }
+                            }
+
+                            VerticalLayout {
+                                spacing: 6px;
+                                Row {
+                                    Label {
+                                        text: @tr("Automatic cleanup");
+                                    }
+
+                                    ComboBox {
+                                        width: 200px;
+                                        model: [@tr("By time"), @tr("By storage")];
+                                        current-index <=> root.cleanup;
+                                        selected => {
+                                            root.edited();
+                                        }
+                                    }
+                                }
+
+                                if root.cleanup == 0: Row {
+                                    Label {
+                                        text: @tr("Delete entries older than");
+                                    }
+
+                                    ComboBox {
+                                        width: 200px;
+                                        model: [@tr("3 days"), @tr("1 week"), @tr("1 month")];
+                                        current-index <=> root.cleanup-days;
+                                        selected => {
+                                            root.edited();
+                                        }
+                                    }
+                                }
+                                if root.cleanup == 1: Row {
+                                    Label {
+                                        text: @tr("Storage limit");
+                                    }
+
+                                    ComboBox {
+                                        width: 200px;
+                                        model: root.limit-labels;
+                                        current-index <=> root.cleanup-limit;
+                                        selected => {
+                                            root.edited();
+                                        }
+                                    }
+                                }
+                                if root.cleanup == 1 && root.usage-value != "": Hint {
+                                    text: @tr("Using {0} of {1}", HistoryText.size-text(root.usage-value, root.usage-unit), root.limit-labels[root.cleanup-limit]);
+                                }
+                                Hint {
+                                    text: @tr("Favorites are never deleted by cleanup and do not count toward the limit.");
+                                }
+                            }
+
+                            VerticalLayout {
+                                spacing: 4px;
+                                Switch {
+                                    text: @tr("Respect apps that ask not to be saved");
+                                    checked <=> root.respect-exclusion;
+                                    toggled => {
+                                        root.edited();
+                                    }
+                                }
+
+                                Hint {
+                                    text: @tr("Password managers and other apps can mark what they copy as private. Tex does not detect passwords on its own.");
+                                }
+                            }
+
+                            VerticalLayout {
+                                spacing: 6px;
+                                Text {
+                                    text: @tr("Ignored apps");
+                                }
+
+                                StandardListView {
+                                    height: 96px;
+                                    model: root.ignored-apps;
+                                    current-item <=> root.selected-ignored;
+                                }
+
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    alignment: start;
+                                    Button {
+                                        text: @tr("Add…");
+                                        clicked => {
+                                            root.add-app();
+                                        }
+                                    }
+
+                                    Button {
+                                        text: @tr("Remove");
+                                        enabled: root.selected-ignored >= 0 && root.selected-ignored < root.ignored-apps.length;
+                                        clicked => {
+                                            root.remove-app(root.selected-ignored);
+                                        }
+                                    }
+                                }
+                            }
+
+                            if !root.confirm-clear: HorizontalLayout {
+                                alignment: start;
+                                Button {
+                                    text: @tr("Clear history");
+                                    clicked => {
+                                        root.confirm-clear = true;
+                                    }
+                                }
+                            }
+                            if root.confirm-clear: Row {
+                                Label {
+                                    text: @tr("Delete all entries except favorites?");
+                                }
+
+                                Button {
+                                    text: @tr("Delete");
+                                    clicked => {
+                                        root.confirm-clear = false;
+                                        root.clear-history();
+                                    }
+                                }
+
+                                Button {
+                                    text: @tr("Cancel");
+                                    clicked => {
+                                        root.confirm-clear = false;
+                                    }
+                                }
+                            }
+
+                            if root.capture-error != "": Hint {
+                                text: @tr("Could not watch the clipboard: {0}", root.capture-error);
+                                color: #d13438;
+                                opacity: 1;
+                            }
+                            if root.history-unavailable != "": Hint {
+                                text: @tr("Clipboard history unavailable: {0}", root.history-unavailable);
+                                color: #d13438;
+                                opacity: 1;
                             }
                         }
                     }

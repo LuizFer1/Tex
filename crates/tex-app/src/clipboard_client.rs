@@ -31,13 +31,6 @@ pub struct ClientSettings {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "sent by the Clipboard settings tab in a later task"
-        )
-    )]
     Configure(ClientSettings),
     Captured(Clip),
     Page {
@@ -54,21 +47,7 @@ pub enum Command {
     Rename(i64, Option<String>),
     EditText(i64, String),
     Delete(i64),
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "sent by the Clipboard settings tab in a later task"
-        )
-    )]
     Clear,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "sent by the Clipboard settings tab in a later task"
-        )
-    )]
     Usage,
 }
 

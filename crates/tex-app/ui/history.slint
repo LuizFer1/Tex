@@ -23,7 +23,7 @@ export struct HistoryRow {
     height: int,
 }
 
-global HistoryText {
+export global HistoryText {
     public pure function title(row: HistoryRow) -> string {
         if row.unreadable {
             return @tr("Unreadable entry");
@@ -45,16 +45,20 @@ global HistoryText {
     }
 
     public pure function size(row: HistoryRow) -> string {
-        if row.size-unit == 0 {
-            return @tr("{0} B", row.size-value);
+        return self.size-text(row.size-value, row.size-unit);
+    }
+
+    public pure function size-text(value: string, unit: int) -> string {
+        if unit == 0 {
+            return @tr("{0} B", value);
         }
-        if row.size-unit == 1 {
-            return @tr("{0} KB", row.size-value);
+        if unit == 1 {
+            return @tr("{0} KB", value);
         }
-        if row.size-unit == 2 {
-            return @tr("{0} MB", row.size-value);
+        if unit == 2 {
+            return @tr("{0} MB", value);
         }
-        return @tr("{0} GB", row.size-value);
+        return @tr("{0} GB", value);
     }
 }
 

@@ -1,11 +1,14 @@
 export component TexTray inherits SystemTrayIcon {
     in property <image> icon-image;
+    in property <bool> paused;
     icon: root.icon-image;
     tooltip: "Tex";
 
     callback open();
+    callback history();
     callback settings();
     callback about();
+    callback toggle-pause();
     callback quit();
 
     clicked => {
@@ -21,6 +24,13 @@ export component TexTray inherits SystemTrayIcon {
         }
 
         MenuItem {
+            title: @tr("Clipboard history");
+            activated => {
+                root.history();
+            }
+        }
+
+        MenuItem {
             title: @tr("Settings");
             activated => {
                 root.settings();
@@ -31,6 +41,13 @@ export component TexTray inherits SystemTrayIcon {
             title: @tr("About Tex");
             activated => {
                 root.about();
+            }
+        }
+
+        MenuItem {
+            title: root.paused ? @tr("Resume capture") : @tr("Pause capture");
+            activated => {
+                root.toggle-pause();
             }
         }
 

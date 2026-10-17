@@ -6,6 +6,15 @@ msgstr ""
 msgid "1 minute"
 msgstr "1 minuto"
 
+msgid "1 month"
+msgstr "1 mês"
+
+msgid "1 week"
+msgstr "1 semana"
+
+msgid "3 days"
+msgstr "3 dias"
+
 msgid "30 seconds"
 msgstr "30 segundos"
 
@@ -21,6 +30,9 @@ msgstr "Adicionar…"
 msgid "All"
 msgstr "Tudo"
 
+msgid "Already used to open Tex"
+msgstr "Já usado para abrir o Tex"
+
 msgid "Already used to open the clipboard history"
 msgstr "Já usado para abrir o histórico do clipboard"
 
@@ -30,11 +42,23 @@ msgstr "Sempre"
 msgid "Apps"
 msgstr "Apps"
 
+msgid "Automatic cleanup"
+msgstr "Limpeza automática"
+
+msgid "By storage"
+msgstr "Por espaço"
+
+msgid "By time"
+msgstr "Por tempo"
+
 msgid "Cancel"
 msgstr "Cancelar"
 
 msgid "Capture is paused"
 msgstr "Captura pausada"
+
+msgid "Capture"
+msgstr "Capturar"
 
 msgid "Categories shown"
 msgstr "Categorias exibidas"
@@ -45,6 +69,12 @@ msgstr "Alterar"
 msgid "Choose a folder to ignore in search"
 msgstr "Escolha uma pasta para a pesquisa ignorar"
 
+msgid "Choose an app to ignore"
+msgstr "Escolha um app para ignorar"
+
+msgid "Clear history"
+msgstr "Limpar histórico"
+
 msgid "Clipboard history is empty"
 msgstr "O histórico do clipboard está vazio"
 
@@ -54,8 +84,14 @@ msgstr "Histórico do clipboard indisponível: {0}"
 msgid "Clipboard history"
 msgstr "Histórico do clipboard"
 
+msgid "Clipboard"
+msgstr "Clipboard"
+
 msgid "Copy and paste"
 msgstr "Copiar e colar"
+
+msgid "Copy only"
+msgstr "Só copiar"
 
 msgid "Copy"
 msgstr "Copiar"
@@ -66,6 +102,9 @@ msgstr "Não foi possível salvar as configurações: {}"
 msgid "Could not watch the Windows key: {}"
 msgstr "Não foi possível monitorar a tecla Windows: {}"
 
+msgid "Could not watch the clipboard: {0}"
+msgstr "Não foi possível monitorar o clipboard: {0}"
+
 msgid "Could not write to the clipboard"
 msgstr "Não foi possível gravar no clipboard"
 
@@ -74,6 +113,12 @@ msgstr "Ctrl+Enter faz a outra ação."
 
 msgid "Dark"
 msgstr "Escuro"
+
+msgid "Delete all entries except favorites?"
+msgstr "Excluir todos os itens, exceto os favoritos?"
+
+msgid "Delete entries older than"
+msgstr "Excluir itens com mais de"
 
 msgid "Delete this favorite?"
 msgstr "Excluir este favorito?"
@@ -96,6 +141,9 @@ msgstr "Falhou: {}"
 msgid "Favorite"
 msgstr "Favoritar"
 
+msgid "Favorites are never deleted by cleanup and do not count toward the limit."
+msgstr "Favoritos nunca são apagados pela limpeza e não contam no limite."
+
 msgid "Favorites"
 msgstr "Favoritos"
 
@@ -110,6 +158,9 @@ msgstr "Seguir o sistema"
 
 msgid "General"
 msgstr "Geral"
+
+msgid "Ignored apps"
+msgstr "Apps ignorados"
 
 msgid "Ignored folders"
 msgstr "Pastas ignoradas"
@@ -144,6 +195,9 @@ msgstr "Idioma"
 msgid "Light"
 msgstr "Claro"
 
+msgid "Maximum size per entry"
+msgstr "Tamanho máximo por item"
+
 msgid "Never"
 msgstr "Nunca"
 
@@ -162,6 +216,12 @@ msgstr "Abrir o Tex"
 msgid "Open"
 msgstr "Abrir"
 
+msgid "Password managers and other apps can mark what they copy as private. Tex does not detect passwords on its own."
+msgstr "Gerenciadores de senhas e outros apps podem marcar o que copiam como privado. O Tex não detecta senhas sozinho."
+
+msgid "Pause capture"
+msgstr "Pausar captura"
+
 msgid "Popup monitor"
 msgstr "Monitor do popup"
 
@@ -170,6 +230,9 @@ msgstr "Pressione o novo atalho…"
 
 msgid "Primary monitor"
 msgstr "Monitor principal"
+
+msgid "Programs"
+msgstr "Programas"
 
 msgid "Quit"
 msgstr "Sair"
@@ -191,6 +254,12 @@ msgstr "Renomear"
 
 msgid "Reset"
 msgstr "Restaurar padrão"
+
+msgid "Respect apps that ask not to be saved"
+msgstr "Respeitar apps que pedem para não guardar"
+
+msgid "Resume capture"
+msgstr "Retomar captura"
 
 msgid "Save"
 msgstr "Salvar"
@@ -216,11 +285,17 @@ msgstr "Configurações"
 msgid "Shortcut to open Tex"
 msgstr "Atalho para abrir o Tex"
 
+msgid "Shortcut to open the clipboard history"
+msgstr "Atalho para abrir o histórico do clipboard"
+
 msgid "Show in folder"
 msgstr "Mostrar na pasta"
 
 msgid "Start with Windows"
 msgstr "Iniciar com o Windows"
+
+msgid "Storage limit"
+msgstr "Limite de espaço"
 
 msgid "Tex Settings"
 msgstr "Configurações do Tex"
@@ -251,6 +326,12 @@ msgstr "Item ilegível"
 
 msgid "Use at least one of Ctrl, Alt, Shift or Win plus a key. Esc cancels."
 msgstr "Use pelo menos um entre Ctrl, Alt, Shift ou Win mais uma tecla. Esc cancela."
+
+msgid "Using {0} of {1}"
+msgstr "Usando {0} de {1}"
+
+msgid "When choosing an entry"
+msgstr "Ao escolher um item"
 
 msgid "Win plus other keys keeps working, and Ctrl+Esc opens the Start menu. Does not work while an administrator window has focus."
 msgstr "Win com outras teclas continua funcionando, e Ctrl+Esc abre o Menu Iniciar. Não funciona com uma janela de administrador em foco."

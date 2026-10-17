@@ -32,7 +32,7 @@ use tex_clipboard::{
 use tex_ipc::{Filter, VolumeState, VolumeStatus};
 use tex_platform::{
     ClipboardWatcher, IconPixels, LocalTime, SingleInstance, foreground_window, local_time,
-    open_path, paste_into, pick_folder, primary_work_area, reveal_in_folder,
+    open_path, paste_into, pick_file, pick_folder, primary_work_area, reveal_in_folder,
     work_area_under_cursor, write_image, write_text,
 };
 
@@ -46,7 +46,8 @@ use crate::icons::{IconCache, IconLoader, IconState};
 use crate::results::{Row, build_rows, group_digits, status_parts, step_selection};
 use crate::search_client::{Command, Event, SearchClient};
 use crate::settings::{
-    EnterAction, KeepSearch, Language, OnPick, PopupMonitor, Settings, Theme, settings_path,
+    CLEANUP_DAYS, Cleanup, EnterAction, ITEM_SIZES_MB, KeepSearch, Language, OnPick, PopupMonitor,
+    STORAGE_LIMITS_MB, Settings, Theme, settings_path,
 };
 use crate::shortcut::Shortcut;
 
@@ -68,6 +69,7 @@ struct Windows {
     about: Weak<AboutWindow>,
     settings: Weak<SettingsWindow>,
     history: Weak<HistoryWindow>,
+    tray: Weak<TexTray>,
 }
 
 /// The history window's rows and what it waits for from the clipboard worker.
@@ -117,6 +119,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         about: about.as_weak(),
         settings: settings_window.as_weak(),
         history: history.as_weak(),
+        tray: tray.as_weak(),
     };
 
     app::init(AppState::new(settings, path, GlobalHotKeyManager::new()?));
@@ -164,6 +167,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             None
         }
     };
+    tray.set_paused(with_app(|app| app.settings.clipboard.paused));
 
     let icons = IconLoader::start({
         let popup = popup.as_weak();
@@ -220,6 +224,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         let client = client.clone();
         move || show_popup(&windows, &client)
     });
+    tray.on_history({
+        let windows = windows.clone();
+        move || show_history(&windows)
+    });
     tray.on_settings({
         let windows = windows.clone();
         let client = client.clone();
@@ -232,6 +240,16 @@ fn main() -> Result<(), Box<dyn Error>> {
             if let Some(about) = windows.about.upgrade() {
                 let _ = about.show();
             }
+        }
+    });
+    tray.on_toggle_pause({
+        let windows = windows.clone();
+        move || {
+            with_app(|app| app.settings.clipboard.paused = !app.settings.clipboard.paused);
+            if let Some(window) = windows.settings.upgrade() {
+                save_settings(&window);
+            }
+            clipboard_changed(&windows);
         }
     });
     tray.on_quit(|| {
@@ -336,7 +354,7 @@ fn wire_settings(window: &SettingsWindow, windows: &Windows, client: &SearchClie
     window.on_change_hotkey({
         let window = window.as_weak();
         move || {
-            with_app(|app| app.suspend_hotkey());
+            suspend_hotkeys();
             if let Some(window) = window.upgrade() {
                 window.set_hotkey_error(0);
                 window.set_recording(true);
@@ -346,7 +364,7 @@ fn wire_settings(window: &SettingsWindow, windows: &Windows, client: &SearchClie
     window.on_cancel_recording({
         let window = window.as_weak();
         move || {
-            with_app(|app| app.resume_hotkey());
+            resume_hotkeys();
             if let Some(window) = window.upgrade() {
                 window.set_recording(false);
             }
@@ -415,22 +433,173 @@ fn wire_settings(window: &SettingsWindow, windows: &Windows, client: &SearchClie
         let client = client.clone();
         move || client.send(Command::Status)
     });
+    wire_clipboard_tab(window, windows);
     window.window().on_close_requested({
         let window = window.as_weak();
         move || {
             if let Some(window) = window.upgrade()
-                && window.get_recording()
+                && (window.get_recording() || window.get_history_recording())
             {
                 window.set_recording(false);
-                with_app(|app| app.resume_hotkey());
+                window.set_history_recording(false);
+                resume_hotkeys();
             }
             CloseRequestResponse::HideWindow
         }
     });
 }
 
+fn wire_clipboard_tab(window: &SettingsWindow, windows: &Windows) {
+    window.on_change_history_hotkey({
+        let window = window.as_weak();
+        move || {
+            suspend_hotkeys();
+            if let Some(window) = window.upgrade() {
+                window.set_history_hotkey_error(0);
+                window.set_history_recording(true);
+            }
+        }
+    });
+    window.on_cancel_history_recording({
+        let window = window.as_weak();
+        move || {
+            resume_hotkeys();
+            if let Some(window) = window.upgrade() {
+                window.set_history_recording(false);
+            }
+        }
+    });
+    window.on_history_shortcut_captured({
+        let window = window.as_weak();
+        move |text, ctrl, alt, shift, win| {
+            let Some(window) = window.upgrade() else {
+                return;
+            };
+            if let Some(shortcut) = Shortcut::from_slint(&text, ctrl, alt, shift, win) {
+                change_history_hotkey(&window, &shortcut);
+            }
+        }
+    });
+    window.on_reset_history_hotkey({
+        let window = window.as_weak();
+        move || {
+            if let (Some(window), Some(shortcut)) = (
+                window.upgrade(),
+                Shortcut::parse(settings::DEFAULT_HISTORY_HOTKEY),
+            ) {
+                change_history_hotkey(&window, &shortcut);
+            }
+        }
+    });
+    window.on_add_app({
+        let windows = windows.clone();
+        move || {
+            let Some((title, filter)) = windows.settings.upgrade().map(|window| {
+                (
+                    window.get_app_picker_title(),
+                    window.get_app_picker_filter(),
+                )
+            }) else {
+                return;
+            };
+            let windows = windows.clone();
+            pick_file(&title, &filter, move |path| {
+                let Some(path) = path else {
+                    return;
+                };
+                let _ = slint::invoke_from_event_loop(move || {
+                    with_app(|app| {
+                        app.settings.clipboard.ignored_apps.push(path);
+                        app.settings.normalize();
+                    });
+                    ignored_apps_changed(&windows);
+                });
+            });
+        }
+    });
+    window.on_remove_app({
+        let windows = windows.clone();
+        move |index| {
+            with_app(|app| {
+                if let Ok(index) = usize::try_from(index)
+                    && index < app.settings.clipboard.ignored_apps.len()
+                {
+                    app.settings.clipboard.ignored_apps.remove(index);
+                }
+            });
+            ignored_apps_changed(&windows);
+        }
+    });
+    window.on_clear_history(|| send_history(ClipboardCommand::Clear));
+}
+
+/// While a shortcut is recorded neither one is registered, so pressing the other one is
+/// recorded (and refused) instead of opening its window.
+fn suspend_hotkeys() {
+    with_app(|app| {
+        app.suspend_hotkey();
+        app.suspend_history_hotkey();
+    });
+}
+
+fn resume_hotkeys() {
+    with_app(|app| {
+        app.resume_hotkey();
+        app.resume_history_hotkey();
+    });
+}
+
+fn change_history_hotkey(window: &SettingsWindow, shortcut: &Shortcut) {
+    let result = with_app(|app| app.apply_history_hotkey(shortcut));
+    resume_hotkeys();
+    window.set_history_recording(false);
+    window.set_history_hotkey_error(match result {
+        Ok(()) => 0,
+        Err(HotkeyError::Register) => 1,
+        Err(HotkeyError::Conflict) => 2,
+    });
+    window.set_history_hotkey_text(with_app(|app| app.history_shortcut().display()).into());
+    if result.is_ok() {
+        save_settings(window);
+    }
+}
+
+fn ignored_apps_changed(windows: &Windows) {
+    let Some(window) = windows.settings.upgrade() else {
+        return;
+    };
+    window.set_selected_ignored(-1);
+    with_app(|app| fill_ignored_apps(&window, &app.settings));
+    save_settings(&window);
+    clipboard_changed(windows);
+}
+
+/// Sends the [clipboard] settings to the worker and shows the pause state everywhere.
+fn clipboard_changed(windows: &Windows) {
+    let (settings, paused, paste) = with_app(|app| {
+        let clipboard = &app.settings.clipboard;
+        (
+            app::client_settings(clipboard),
+            clipboard.paused,
+            clipboard.on_pick == OnPick::CopyAndPaste,
+        )
+    });
+    send_history(ClipboardCommand::Configure(settings));
+    if let Some(tray) = windows.tray.upgrade() {
+        tray.set_paused(paused);
+    }
+    if let Some(history) = windows.history.upgrade() {
+        history.set_paused(paused);
+        history.set_paste_by_default(paste);
+    }
+    if let Some(window) = windows.settings.upgrade() {
+        window.set_paused(paused);
+    }
+}
+
 fn change_hotkey(window: &SettingsWindow, shortcut: &Shortcut) {
     let result = with_app(|app| app.apply_hotkey(shortcut));
+    resume_hotkeys();
     window.set_recording(false);
     window.set_hotkey_error(match result {
         Ok(()) => 0,
@@ -489,6 +658,12 @@ fn settings_edited(windows: &Windows, client: &SearchClient) {
         apply_categories(&popup, &new);
     }
     save_settings(&window);
+    if new.clipboard != old.clipboard {
+        clipboard_changed(windows);
+    }
+    if new.general.language != old.general.language {
+        send_history(ClipboardCommand::Usage);
+    }
 }
 
 fn apply_theme(windows: &Windows) {
@@ -564,6 +739,53 @@ fn fill_settings(window: &SettingsWindow, app: &AppState) {
     });
     window.set_selected_excluded(-1);
     fill_folders(window, &app.settings);
+    let clipboard = &app.settings.clipboard;
+    window.set_history_hotkey_text(app.history_shortcut().display().into());
+    window.set_history_hotkey_error(if app.history_hotkey_failed { 1 } else { 0 });
+    window.set_history_recording(false);
+    window.set_paused(clipboard.paused);
+    window.set_capture_text(clipboard.capture_text);
+    window.set_capture_images(clipboard.capture_images);
+    window.set_item_size(preset_index(&ITEM_SIZES_MB, clipboard.max_item_mb));
+    window.set_on_pick(match clipboard.on_pick {
+        OnPick::Copy => 0,
+        OnPick::CopyAndPaste => 1,
+    });
+    window.set_cleanup(match clipboard.cleanup {
+        Cleanup::Time => 0,
+        Cleanup::Storage => 1,
+    });
+    window.set_cleanup_days(preset_index(&CLEANUP_DAYS, clipboard.cleanup_days));
+    window.set_cleanup_limit(preset_index(&STORAGE_LIMITS_MB, clipboard.cleanup_limit_mb));
+    window.set_respect_exclusion(clipboard.respect_exclusion);
+    window.set_selected_ignored(-1);
+    fill_ignored_apps(window, &app.settings);
+    window.set_confirm_clear(false);
+    window.set_capture_error(app.capture_error.as_str().into());
+}
+
+fn preset_index(presets: &[u32], value: u32) -> i32 {
+    presets
+        .iter()
+        .position(|preset| *preset == value)
+        .map_or(0, |index| index as i32)
+}
+
+fn preset_at(presets: &[u32], index: i32, current: u32) -> u32 {
+    usize::try_from(index)
+        .ok()
+        .and_then(|index| presets.get(index).copied())
+        .unwrap_or(current)
+}
+
+fn fill_ignored_apps(window: &SettingsWindow, settings: &Settings) {
+    let items: Vec<StandardListViewItem> = settings
+        .clipboard
+        .ignored_apps
+        .iter()
+        .map(|app| StandardListViewItem::from(app.as_str()))
+        .collect();
+    window.set_ignored_apps(ModelRc::new(VecModel::from(items)));
 }
 
 fn fill_folders(window: &SettingsWindow, settings: &Settings) {
@@ -613,6 +835,34 @@ fn read_settings(window: &SettingsWindow, current: &Settings) -> Settings {
         1 => EnterAction::Reveal,
         _ => EnterAction::Open,
     };
+    let clipboard = &mut settings.clipboard;
+    clipboard.paused = window.get_paused();
+    clipboard.capture_text = window.get_capture_text();
+    clipboard.capture_images = window.get_capture_images();
+    clipboard.max_item_mb = preset_at(
+        &ITEM_SIZES_MB,
+        window.get_item_size(),
+        clipboard.max_item_mb,
+    );
+    clipboard.on_pick = match window.get_on_pick() {
+        1 => OnPick::CopyAndPaste,
+        _ => OnPick::Copy,
+    };
+    clipboard.cleanup = match window.get_cleanup() {
+        1 => Cleanup::Storage,
+        _ => Cleanup::Time,
+    };
+    clipboard.cleanup_days = preset_at(
+        &CLEANUP_DAYS,
+        window.get_cleanup_days(),
+        clipboard.cleanup_days,
+    );
+    clipboard.cleanup_limit_mb = preset_at(
+        &STORAGE_LIMITS_MB,
+        window.get_cleanup_limit(),
+        clipboard.cleanup_limit_mb,
+    );
+    clipboard.respect_exclusion = window.get_respect_exclusion();
     settings.normalize();
     settings
 }
@@ -624,10 +874,12 @@ fn show_settings(windows: &Windows, client: &SearchClient, tab: Option<i32>) {
     };
     apply_theme(windows);
     with_app(|app| fill_settings(&window, app));
+    window.set_history_unavailable(with_history(|history| history.unavailable.clone()).into());
     if let Some(tab) = tab {
         window.set_current_tab(tab);
     }
     client.send(Command::Status);
+    send_history(ClipboardCommand::Usage);
     let _ = window.show();
     window
         .window()
@@ -1155,6 +1407,20 @@ fn load_more(window: &HistoryWindow) {
 }
 
 fn clipboard_event(windows: &Windows, event: ClipboardEvent) {
+    if let Some(settings) = windows.settings.upgrade() {
+        match &event {
+            ClipboardEvent::Usage(bytes) => {
+                let decimal = app::decimal_separator(with_app(|app| app.settings.general.language));
+                let size = size_parts(*bytes, decimal);
+                settings.set_usage_value(size.value.into());
+                settings.set_usage_unit(size.unit);
+            }
+            ClipboardEvent::Unavailable(reason) => {
+                settings.set_history_unavailable(reason.as_str().into());
+            }
+            _ => {}
+        }
+    }
     let Some(window) = windows.history.upgrade() else {
         return;
     };

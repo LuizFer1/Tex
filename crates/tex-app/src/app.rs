@@ -126,26 +126,12 @@ impl AppState {
         }
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "wired to the Clipboard settings tab in a later task"
-        )
-    )]
     pub fn suspend_history_hotkey(&mut self) {
         if let Some(hotkey) = self.history_hotkey.take() {
             let _ = self.hotkeys.unregister(hotkey);
         }
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "wired to the Clipboard settings tab in a later task"
-        )
-    )]
     /// Swaps the clipboard history shortcut. On failure the previous one is registered again.
     pub fn apply_history_hotkey(&mut self, shortcut: &Shortcut) -> Result<(), HotkeyError> {
         self.suspend_history_hotkey();
