@@ -22,7 +22,7 @@ cargo run -p tex-indexer -- console        # admin terminal: index and serve in 
 cargo run -p tex-indexer -- install        # admin terminal: register and start the service from this exe
 cargo run -p tex-indexer -- install --all-users   # admin terminal: same, but every signed-in user may search
 cargo run -p tex-indexer -- uninstall      # admin terminal: stop and remove the service
-"%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.4.0 installer\tex.iss   # after cargo build --release; AppVersion = workspace version; output target\installer\Tex-Setup-0.4.0.exe
+"%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.4.1 installer\tex.iss   # after cargo build --release; AppVersion = workspace version; output target\installer\Tex-Setup-0.4.1.exe
 cargo run --release -p tex-indexer --example fake_server -- C:\some\folder   # no admin: serve one folder for app testing
 ```
 
