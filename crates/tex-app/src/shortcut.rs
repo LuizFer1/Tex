@@ -129,6 +129,11 @@ impl Shortcut {
     }
 
     pub fn display(&self) -> String {
+        self.display_keys().join("+")
+    }
+
+    /// Modifier names and the key label, one entry per keycap.
+    pub fn display_keys(&self) -> Vec<&'static str> {
         self.modifier_names()
             .map(|name| match name {
                 "ctrl" => "Ctrl",
@@ -137,8 +142,7 @@ impl Shortcut {
                 _ => "Win",
             })
             .chain([self.key.label])
-            .collect::<Vec<_>>()
-            .join("+")
+            .collect()
     }
 
     pub fn hotkey(&self) -> HotKey {
@@ -209,6 +213,12 @@ mod tests {
         assert_eq!(shortcut.canonical(), "alt+space");
         assert_eq!(shortcut.display(), "Alt+Space");
         assert_eq!(parse("ctrl+comma").display(), "Ctrl+,");
+    }
+
+    #[test]
+    fn display_keys_split_modifiers_and_key() {
+        assert_eq!(parse("alt+space").display_keys(), ["Alt", "Space"]);
+        assert_eq!(parse("ctrl+comma").display_keys(), ["Ctrl", ","]);
     }
 
     #[test]

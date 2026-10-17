@@ -3,8 +3,8 @@ mod windows;
 #[cfg(windows)]
 pub use windows::{
     LocalTime, SingleInstance, local_time, lock_foreground, open_path, primary_work_area,
-    restore_foreground, reveal_in_folder, system_uses_dark_theme, take_foreground, user_language,
-    work_area_under_cursor,
+    restore_foreground, reveal_in_folder, round_corners, shape_tabbed_window,
+    system_uses_dark_theme, take_foreground, user_language, work_area_under_cursor,
 };
 #[cfg(windows)]
 mod clipboard;

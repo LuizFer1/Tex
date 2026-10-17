@@ -127,7 +127,7 @@ pub fn status_parts(volumes: &[VolumeStatus]) -> (String, String) {
 }
 
 /// "1234567" with a thousands separator: "1.234.567".
-pub fn group_digits(value: u32, separator: char) -> String {
+pub fn group_digits(value: u64, separator: char) -> String {
     let digits = value.to_string();
     let mut grouped = String::new();
     for (index, digit) in digits.chars().enumerate() {
@@ -137,6 +137,93 @@ pub fn group_digits(value: u32, separator: char) -> String {
         grouped.push(digit);
     }
     grouped
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum FileIcon {
+    File,
+    Doc,
+    Sheet,
+    Pdf,
+    Text,
+    Image,
+    Archive,
+    Code,
+}
+
+#[allow(dead_code)]
+impl FileIcon {
+    pub fn index(self) -> i32 {
+        self as i32
+    }
+}
+
+/// Picks the icon kind from the file extension.
+#[allow(dead_code)]
+pub fn file_icon(name: &str) -> FileIcon {
+    let extension = match name.rsplit_once('.') {
+        Some((stem, extension)) if !stem.is_empty() => extension.to_ascii_lowercase(),
+        _ => return FileIcon::File,
+    };
+    match extension.as_str() {
+        "doc" | "docx" | "odt" | "rtf" => FileIcon::Doc,
+        "xls" | "xlsx" | "xlsm" | "csv" | "ods" => FileIcon::Sheet,
+        "pdf" => FileIcon::Pdf,
+        "txt" | "md" | "log" | "ini" | "cfg" => FileIcon::Text,
+        "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "svg" | "ico" | "tif" | "tiff"
+        | "heic" => FileIcon::Image,
+        "zip" | "7z" | "rar" | "tar" | "gz" | "xz" | "bz2" => FileIcon::Archive,
+        "rs" | "py" | "js" | "ts" | "tsx" | "jsx" | "c" | "h" | "cpp" | "hpp" | "cs" | "java"
+        | "go" | "json" | "toml" | "yaml" | "yml" | "xml" | "html" | "css" | "sh" | "ps1"
+        | "bat" | "slint" => FileIcon::Code,
+        _ => FileIcon::File,
+    }
+}
+
+/// The last three folders after "…\", or the path as is when it has three or fewer.
+#[allow(dead_code)]
+pub fn short_path(folder: &str) -> String {
+    let parts: Vec<&str> = folder.split('\\').filter(|part| !part.is_empty()).collect();
+    if parts.len() <= 4 {
+        return folder.to_string();
+    }
+    format!("…\\{}", parts[parts.len() - 3..].join("\\"))
+}
+
+/// For each row, the number of items in its group when it is a header, 0 otherwise.
+#[allow(dead_code)]
+pub fn header_counts(rows: &[Row]) -> Vec<usize> {
+    rows.iter()
+        .enumerate()
+        .map(|(index, row)| match row {
+            Row::Header(_) => rows[index + 1..]
+                .iter()
+                .take_while(|row| row.is_item())
+                .count(),
+            Row::Item { .. } => 0,
+        })
+        .collect()
+}
+
+/// Ready volumes as "C: D:" and their entries added up.
+#[allow(dead_code)]
+pub fn ready_summary(volumes: &[VolumeStatus]) -> (String, u64) {
+    let ready: Vec<(char, u32)> = volumes
+        .iter()
+        .filter_map(|volume| match volume.state {
+            VolumeState::Ready { entries } => Some((volume.letter, entries)),
+            _ => None,
+        })
+        .collect();
+    let letters: Vec<String> = ready
+        .iter()
+        .map(|(letter, _)| format!("{letter}:"))
+        .collect();
+    (
+        letters.join(" "),
+        ready.iter().map(|(_, entries)| u64::from(*entries)).sum(),
+    )
 }
 
 #[cfg(test)]
@@ -278,5 +365,83 @@ mod tests {
         assert_eq!(group_digits(999, '.'), "999");
         assert_eq!(group_digits(1000, '.'), "1.000");
         assert_eq!(group_digits(1_234_567, ','), "1,234,567");
+    }
+
+    #[test]
+    fn short_path_keeps_the_last_three_folders() {
+        assert_eq!(
+            short_path(r"C:\Users\ana\Documents\Work\2026"),
+            r"…\Documents\Work\2026"
+        );
+        assert_eq!(
+            short_path(r"C:\Program Files\Steam"),
+            r"C:\Program Files\Steam"
+        );
+        assert_eq!(short_path(r"D:\"), r"D:\");
+        assert_eq!(short_path(r"C:\a\b\c\"), r"C:\a\b\c\");
+    }
+
+    #[test]
+    fn file_icon_by_extension() {
+        assert_eq!(file_icon("Relatório.DOCX"), FileIcon::Doc);
+        assert_eq!(file_icon("dados.csv"), FileIcon::Sheet);
+        assert_eq!(file_icon("nota.pdf"), FileIcon::Pdf);
+        assert_eq!(file_icon("leia.md"), FileIcon::Text);
+        assert_eq!(file_icon("foto.JPEG"), FileIcon::Image);
+        assert_eq!(file_icon("backup.7z"), FileIcon::Archive);
+        assert_eq!(file_icon("main.rs"), FileIcon::Code);
+        assert_eq!(file_icon("Makefile"), FileIcon::File);
+        assert_eq!(file_icon(".gitignore"), FileIcon::File);
+    }
+
+    #[test]
+    fn header_counts_count_items_of_each_group() {
+        let item = || Row::Item {
+            name: String::new(),
+            folder: String::new(),
+            path: String::new(),
+            is_dir: false,
+            is_app: false,
+        };
+        let rows = vec![
+            Row::Header(Category::Apps),
+            item(),
+            item(),
+            Row::Header(Category::Files),
+            item(),
+        ];
+        assert_eq!(header_counts(&rows), [2, 0, 0, 1, 0]);
+    }
+
+    #[test]
+    fn ready_summary_lists_ready_letters_and_adds_entries() {
+        let volumes = [
+            VolumeStatus {
+                letter: 'C',
+                state: VolumeState::Ready {
+                    entries: 4_000_000_000,
+                },
+            },
+            VolumeStatus {
+                letter: 'D',
+                state: VolumeState::Indexing { percent: 3 },
+            },
+            VolumeStatus {
+                letter: 'E',
+                state: VolumeState::Ready {
+                    entries: 500_000_000,
+                },
+            },
+        ];
+        assert_eq!(
+            ready_summary(&volumes),
+            ("C: E:".to_string(), 4_500_000_000)
+        );
+        assert_eq!(ready_summary(&[]), (String::new(), 0));
+    }
+
+    #[test]
+    fn group_digits_handles_totals_above_u32() {
+        assert_eq!(group_digits(4_500_000_000, '.'), "4.500.000.000");
     }
 }

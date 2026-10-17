@@ -9,9 +9,13 @@ use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_ALREADY_EXISTS, FILETIME, GetLastError, HANDLE, HWND, POINT, SYSTEMTIME,
 };
 use windows_sys::Win32::Globalization::GetUserDefaultLocaleName;
-use windows_sys::Win32::Graphics::Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute};
+use windows_sys::Win32::Graphics::Dwm::{
+    DWMWA_CLOAKED, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmGetWindowAttribute,
+    DwmSetWindowAttribute,
+};
 use windows_sys::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, HMONITOR, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint,
+    CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, GetMonitorInfoW, HMONITOR,
+    MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint, RGN_OR, SetWindowRgn,
 };
 use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
 use windows_sys::Win32::System::SystemServices::LOCALE_NAME_MAX_LENGTH;
@@ -56,6 +60,51 @@ pub fn work_area_under_cursor() -> Option<WorkArea> {
     let mut cursor = POINT { x: 0, y: 0 };
     unsafe { GetCursorPos(&mut cursor) };
     monitor_work_area(unsafe { MonitorFromPoint(cursor, MONITOR_DEFAULTTOPRIMARY) })
+}
+
+/// Clips a window to a tab on its top-left above a body whose other three corners are
+/// rounded, so the area beside the tab is not part of the window. Physical pixels.
+pub fn shape_tabbed_window(
+    window: isize,
+    width: i32,
+    height: i32,
+    tab_width: i32,
+    tab_height: i32,
+    radius: i32,
+) {
+    let diameter = radius * 2;
+    unsafe {
+        let shape = CreateRoundRectRgn(0, tab_height, width + 1, height + 1, diameter, diameter);
+        let corner = CreateRectRgn(0, tab_height, radius + 1, tab_height + radius + 1);
+        let tab = CreateRoundRectRgn(
+            0,
+            0,
+            tab_width + 1,
+            tab_height + diameter,
+            diameter,
+            diameter,
+        );
+        CombineRgn(shape, shape, corner, RGN_OR);
+        CombineRgn(shape, shape, tab, RGN_OR);
+        DeleteObject(corner);
+        DeleteObject(tab);
+        if SetWindowRgn(window as HWND, shape, 1) == 0 {
+            DeleteObject(shape);
+        }
+    }
+}
+
+/// Asks Windows 11 to round a frameless window's corners; older versions ignore it.
+pub fn round_corners(window: isize) {
+    let preference = DWMWCP_ROUND;
+    unsafe {
+        DwmSetWindowAttribute(
+            window as HWND,
+            DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+            (&preference as *const i32).cast(),
+            size_of::<i32>() as u32,
+        );
+    }
 }
 
 /// While locked, other processes cannot take the foreground from this one; clicking another

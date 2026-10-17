@@ -1264,7 +1264,7 @@ fn drive_row(volume: &VolumeStatus, separator: char) -> DriveRow {
         }
         VolumeState::Ready { entries } => {
             row.state = 1;
-            row.entries = group_digits(*entries, separator).into();
+            row.entries = group_digits(u64::from(*entries), separator).into();
         }
         VolumeState::Failed { reason } => {
             row.state = 2;
