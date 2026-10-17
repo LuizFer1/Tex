@@ -1,12 +1,13 @@
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 
 use crate::entry::{ROOT, Record};
 use crate::matcher::{MatchKind, Query};
 use crate::normalize::fold_into;
-use crate::volume::VolumeIndex;
+use crate::volume::{FolderMask, VolumeIndex};
 
 const CHUNK: usize = 64 * 1024;
 const START_MENU_APP: u8 = 0;
@@ -62,7 +63,15 @@ pub struct SearchOutcome {
     pub total: u32,
 }
 
-type Key = (u8, Reverse<MatchKind>, bool, u16, u16);
+type Key = (u8, Reverse<MatchKind>, Reverse<MatchKind>, bool, u16, u16);
+
+struct Prepared<'a> {
+    volume: &'a VolumeIndex,
+    home: Option<Record>,
+    app_roots: Vec<Record>,
+    excluded: Vec<Record>,
+    folders: Vec<u8>,
+}
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct Candidate {
@@ -81,43 +90,45 @@ pub fn search(
     request: &SearchRequest,
     cancelled: &(dyn Fn() -> bool + Sync),
 ) -> Option<SearchOutcome> {
-    let homes: Vec<Option<Record>> = volumes
+    let query = request.query;
+    let volumes: Vec<&VolumeIndex> = volumes
         .iter()
-        .map(|volume| request.home.and_then(|home| volume.cached_lookup(home)))
+        .copied()
+        .filter(|volume| query.drive().is_none_or(|drive| drive == volume.letter()))
         .collect();
-    let roots: Vec<Vec<Record>> = volumes
-        .iter()
-        .map(|volume| {
-            request
+    let parallelism = thread::available_parallelism().map_or(1, |n| n.get());
+    let masks = folder_masks(&volumes, query, parallelism, cancelled)?;
+    let prepared: Vec<Prepared> = volumes
+        .into_iter()
+        .zip(masks)
+        .filter(|(_, folders)| covers(folders, query.folder_count()))
+        .map(|(volume, folders)| Prepared {
+            volume,
+            home: request.home.and_then(|home| volume.cached_lookup(home)),
+            app_roots: request
                 .app_roots
                 .iter()
                 .filter_map(|root| volume.cached_lookup(root))
-                .collect()
-        })
-        .collect();
-    let excluded: Vec<Vec<Record>> = volumes
-        .iter()
-        .map(|volume| {
-            request
+                .collect(),
+            excluded: request
                 .excluded_folders
                 .iter()
                 .filter_map(|folder| volume.cached_lookup(folder))
-                .collect()
+                .collect(),
+            folders,
         })
         .collect();
-    let chunks: Vec<(usize, usize)> = volumes
+    let chunks: Vec<(usize, usize)> = prepared
         .iter()
         .enumerate()
-        .flat_map(|(v, volume)| {
-            (0..volume.entries().len())
+        .flat_map(|(v, target)| {
+            (0..target.volume.entries().len())
                 .step_by(CHUNK)
                 .map(move |start| (v, start))
         })
         .collect();
     let next = AtomicUsize::new(0);
-    let threads = thread::available_parallelism()
-        .map_or(1, |n| n.get())
-        .min(chunks.len().max(1));
+    let threads = parallelism.min(chunks.len().max(1));
 
     let results: Vec<Option<Worker>> = thread::scope(|scope| {
         let workers: Vec<_> = (0..threads)
@@ -132,7 +143,7 @@ pub fn search(
                         else {
                             return Some(worker);
                         };
-                        worker.scan(volumes[v], v, start, homes[v], &roots[v], &excluded[v]);
+                        worker.scan(&prepared[v], v, start);
                     }
                 })
             })
@@ -156,13 +167,88 @@ pub fn search(
         .into_iter()
         .filter_map(|c| {
             Some(Hit {
-                path: volumes[c.volume].path(c.record)?,
+                path: prepared[c.volume].volume.path(c.record)?,
                 is_dir: c.is_dir,
                 is_app: c.is_app,
             })
         })
         .collect();
     Some(SearchOutcome { hits, total })
+}
+
+/// For each volume, one byte per entry with bit `i` set on directories matching folder `i` of
+/// the query, filled in parallel. Empty vectors when the query has no folders. `None` if
+/// cancelled.
+fn folder_masks(
+    volumes: &[&VolumeIndex],
+    query: &Query,
+    parallelism: usize,
+    cancelled: &(dyn Fn() -> bool + Sync),
+) -> Option<Vec<Vec<u8>>> {
+    let mut masks: Vec<Vec<u8>> = vec![Vec::new(); volumes.len()];
+    if query.folder_count() == 0 {
+        return Some(masks);
+    }
+    for (mask, volume) in masks.iter_mut().zip(volumes) {
+        mask.resize(volume.entries().len(), 0);
+    }
+    let jobs: Vec<(usize, usize, &mut [u8])> = masks
+        .iter_mut()
+        .enumerate()
+        .flat_map(|(v, mask)| {
+            mask.chunks_mut(CHUNK)
+                .enumerate()
+                .map(move |(i, bits)| (v, i * CHUNK, bits))
+        })
+        .collect();
+    let threads = parallelism.min(jobs.len().max(1));
+    let jobs = Mutex::new(jobs);
+    let stopped = AtomicBool::new(false);
+    thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| {
+                let mut scratch = String::new();
+                loop {
+                    if cancelled() {
+                        stopped.store(true, Ordering::Relaxed);
+                        return;
+                    }
+                    let job = jobs.lock().unwrap_or_else(|e| e.into_inner()).pop();
+                    let Some((v, start, bits)) = job else {
+                        return;
+                    };
+                    mark_folders(volumes[v], query, start, bits, &mut scratch);
+                }
+            });
+        }
+    });
+    drop(jobs);
+    (!stopped.into_inner()).then_some(masks)
+}
+
+fn mark_folders(
+    volume: &VolumeIndex,
+    query: &Query,
+    start: usize,
+    mask: &mut [u8],
+    scratch: &mut String,
+) {
+    let entries = &volume.entries()[start..start + mask.len()];
+    for (bits, entry) in mask.iter_mut().zip(entries) {
+        if !entry.in_use() || !entry.is_dir() {
+            continue;
+        }
+        let name = volume.entry_name(entry);
+        for folder in 0..query.folder_count() {
+            if query.folder_kind(folder, name, scratch).is_some() {
+                *bits |= 1 << folder;
+            }
+        }
+    }
+}
+
+fn covers(mask: &[u8], count: usize) -> bool {
+    count == 0 || mask.iter().fold(0, |all, bits| all | bits) == u8::MAX >> (8 - count)
 }
 
 struct Worker<'a> {
@@ -182,15 +268,14 @@ impl<'a> Worker<'a> {
         }
     }
 
-    fn scan(
-        &mut self,
-        volume: &VolumeIndex,
-        volume_index: usize,
-        start: usize,
-        home: Option<Record>,
-        app_roots: &[Record],
-        excluded: &[Record],
-    ) {
+    fn scan(&mut self, target: &Prepared, volume_index: usize, start: usize) {
+        let volume = target.volume;
+        let query = self.request.query;
+        let count = query.folder_count();
+        let folders = (count > 0).then(|| FolderMask {
+            bits: &target.folders,
+            count: count as u8,
+        });
         let entries = volume.entries();
         let end = (start + CHUNK).min(entries.len());
         for (offset, entry) in entries[start..end].iter().enumerate() {
@@ -203,15 +288,22 @@ impl<'a> Worker<'a> {
                 continue;
             }
             let name = volume.entry_name(entry);
-            let Some(kind) = self.request.query.matches(name, &mut self.scratch) else {
+            let Some(kind) = query.matches(name, &mut self.scratch) else {
                 continue;
             };
-            let Some(lineage) = volume.lineage(record, home, app_roots, excluded) else {
+            let Some(lineage) = volume.lineage(
+                record,
+                target.home,
+                &target.app_roots,
+                &target.excluded,
+                folders,
+            ) else {
                 continue;
             };
             if (lineage.hidden && !self.request.include_hidden)
                 || (lineage.system && !self.request.include_system)
                 || lineage.excluded
+                || !lineage.in_folders
             {
                 continue;
             }
@@ -234,9 +326,17 @@ impl<'a> Worker<'a> {
                 continue;
             }
             self.total += 1;
+            let folder = lineage
+                .nearest
+                .and_then(|nearest| volume.entry(nearest))
+                .and_then(|nearest| {
+                    query.folder_kind(count - 1, volume.entry_name(nearest), &mut self.scratch)
+                })
+                .unwrap_or(MatchKind::Exact);
             let key = (
                 app,
                 Reverse(kind),
+                Reverse(folder),
                 !lineage.in_home,
                 name.len() as u16,
                 lineage.depth,
@@ -648,5 +748,106 @@ mod tests {
         let outcome = run_apps(&c, Filter::All, &[]);
         assert_eq!(outcome.total, 4);
         assert!(!paths(&outcome).contains(&r"C:\ProgramData\Programs\Relatorio Studio.lnk"));
+    }
+
+    #[test]
+    fn folder_finds_items_at_any_depth() {
+        let c = drive_c();
+        let query = Query::parse("users/.pdf").unwrap();
+        assert_eq!(
+            found(&c, &base(&query)),
+            [r"C:\Users\luis\Documents\Relatório final.pdf"]
+        );
+    }
+
+    #[test]
+    fn folders_must_appear_in_order() {
+        let c = drive_c();
+        let query = Query::parse(r"users\documents\notes").unwrap();
+        assert_eq!(
+            found(&c, &base(&query)),
+            [r"C:\Users\luis\Documents\notes.txt"]
+        );
+        let reversed = Query::parse("documents/users/notes").unwrap();
+        assert!(found(&c, &base(&reversed)).is_empty());
+    }
+
+    #[test]
+    fn empty_name_lists_the_folder_contents() {
+        let c = drive_c();
+        let query = Query::parse("projetos/").unwrap();
+        let mut paths = found(&c, &base(&query));
+        paths.sort();
+        assert_eq!(
+            paths,
+            [
+                r"C:\Projetos\notes.txt",
+                r"C:\Projetos\old_relatorio.pdf",
+                r"C:\Projetos\relatorio",
+            ]
+        );
+    }
+
+    #[test]
+    fn exact_folder_name_ranks_first() {
+        let mut c = VolumeIndex::new('C');
+        c.upsert(20, ROOT, "TexLive", DIR);
+        c.upsert(21, 20, "a.exe", FILE);
+        c.upsert(22, ROOT, "Tex", DIR);
+        c.upsert(23, 22, "b.exe", FILE);
+        c.upsert(24, 22, "b.exe.config", FILE);
+        let query = Query::parse("tex/.exe").unwrap();
+        assert_eq!(
+            found(&c, &base(&query)),
+            [r"C:\Tex\b.exe", r"C:\TexLive\a.exe"]
+        );
+    }
+
+    #[test]
+    fn folders_keep_hidden_and_excluded_rules() {
+        let c = drive_c();
+        let query = Query::parse("luis/.tmp").unwrap();
+        assert!(found(&c, &base(&query)).is_empty());
+        let hidden = SearchRequest {
+            include_hidden: true,
+            ..base(&query)
+        };
+        assert_eq!(found(&c, &hidden), [r"C:\Users\luis\AppData\relatorio.tmp"]);
+        let projetos = Query::parse("projetos/").unwrap();
+        let excluded = SearchRequest {
+            excluded_folders: &[r"C:\Projetos"],
+            ..base(&projetos)
+        };
+        assert!(found(&c, &excluded).is_empty());
+    }
+
+    #[test]
+    fn drive_and_folders_pick_the_volumes() {
+        let c = drive_c();
+        let mut d = VolumeIndex::new('D');
+        d.upsert(20, ROOT, "relatorio.txt", FILE);
+        d.upsert(21, ROOT, "notes.txt", FILE);
+        let on = |text: &str| -> Vec<String> {
+            let query = Query::parse(text).unwrap();
+            search(&[&c, &d], &base(&query), &|| false)
+                .unwrap()
+                .hits
+                .into_iter()
+                .map(|hit| hit.path)
+                .collect()
+        };
+        assert_eq!(on("d:/relatorio"), [r"D:\relatorio.txt"]);
+        assert_eq!(on(r"C:\relatorio").len(), 3);
+        assert_eq!(
+            on("documents/notes"),
+            [r"C:\Users\luis\Documents\notes.txt"]
+        );
+    }
+
+    #[test]
+    fn cancelled_folder_search_returns_none() {
+        let c = drive_c();
+        let query = Query::parse("projetos/").unwrap();
+        assert!(search(&[&c], &base(&query), &|| true).is_none());
     }
 }

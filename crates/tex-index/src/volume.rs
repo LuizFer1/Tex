@@ -13,7 +13,16 @@ pub(crate) struct Lineage {
     pub excluded: bool,
     pub in_home: bool,
     pub in_app_root: bool,
+    pub in_folders: bool,
+    pub nearest: Option<Record>,
     pub depth: u16,
+}
+
+/// Bit `i` of a directory is set when it matches folder `i` of the query; `count` folders.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct FolderMask<'a> {
+    pub bits: &'a [u8],
+    pub count: u8,
 }
 
 pub struct VolumeIndex {
@@ -236,13 +245,16 @@ impl VolumeIndex {
     /// Walks from `record` up to the root. `hidden` is set by a hidden record or ancestor; `system`
     /// by a system one, the Windows folder or NTFS metadata at the root; `excluded` by a record in
     /// `excluded`. Inside an app root (a Start Menu folder) only the entries below that root count
-    /// for `hidden` and `system`. `None` for orphans and cycles.
+    /// for `hidden` and `system`. `in_folders` when the ancestors match every folder of `folders`,
+    /// nearest first, and `nearest` is the one that matched the last folder. `None` for orphans
+    /// and cycles.
     pub(crate) fn lineage(
         &self,
         record: Record,
         home: Option<Record>,
         app_roots: &[Record],
         excluded: &[Record],
+        folders: Option<FolderMask>,
     ) -> Option<Lineage> {
         let mut lineage = Lineage {
             hidden: false,
@@ -250,8 +262,11 @@ impl VolumeIndex {
             excluded: false,
             in_home: false,
             in_app_root: false,
+            in_folders: false,
+            nearest: None,
             depth: 0,
         };
+        let mut pending = folders.map_or(0, |mask| mask.count);
         let mut below_root = (false, false);
         let mut current = record;
         while current != ROOT {
@@ -278,9 +293,23 @@ impl VolumeIndex {
             {
                 lineage.system = true;
             }
+            if let Some(mask) = folders
+                && pending > 0
+                && current != record
+                && mask
+                    .bits
+                    .get(current as usize)
+                    .is_some_and(|bits| bits & (1 << (pending - 1)) != 0)
+            {
+                if pending == mask.count {
+                    lineage.nearest = Some(current);
+                }
+                pending -= 1;
+            }
             lineage.depth += 1;
             current = entry.parent;
         }
+        lineage.in_folders = pending == 0;
         if excluded.contains(&ROOT) {
             lineage.excluded = true;
         }
@@ -460,11 +489,16 @@ mod tests {
     #[test]
     fn lineage_reports_depth_and_home() {
         let volume = sample();
-        let lineage = volume.lineage(22, Some(20), &[], &[]).unwrap();
+        let lineage = volume.lineage(22, Some(20), &[], &[], None).unwrap();
         assert_eq!(lineage.depth, 3);
         assert!(lineage.in_home);
         assert!(lineage.visible());
-        assert!(!volume.lineage(22, Some(99), &[], &[]).unwrap().in_home);
+        assert!(
+            !volume
+                .lineage(22, Some(99), &[], &[], None)
+                .unwrap()
+                .in_home
+        );
     }
 
     impl Lineage {
@@ -486,10 +520,10 @@ mod tests {
             },
         );
         volume.upsert(24, 23, "config.json", FILE);
-        let lineage = volume.lineage(24, None, &[], &[]).unwrap();
+        let lineage = volume.lineage(24, None, &[], &[], None).unwrap();
         assert!(lineage.hidden);
         assert!(!lineage.system);
-        assert!(volume.lineage(22, None, &[], &[]).unwrap().visible());
+        assert!(volume.lineage(22, None, &[], &[], None).unwrap().visible());
     }
 
     #[test]
@@ -505,7 +539,7 @@ mod tests {
             },
         );
         volume.upsert(24, 23, "data.bin", FILE);
-        let lineage = volume.lineage(24, None, &[], &[]).unwrap();
+        let lineage = volume.lineage(24, None, &[], &[], None).unwrap();
         assert!(lineage.system);
         assert!(!lineage.hidden);
     }
@@ -513,10 +547,15 @@ mod tests {
     #[test]
     fn excluded_folder_marks_itself_and_descendants() {
         let volume = sample();
-        assert!(volume.lineage(21, None, &[], &[21]).unwrap().excluded);
-        assert!(volume.lineage(22, None, &[], &[21]).unwrap().excluded);
-        assert!(!volume.lineage(20, None, &[], &[21]).unwrap().excluded);
-        assert!(volume.lineage(22, None, &[], &[ROOT]).unwrap().excluded);
+        assert!(volume.lineage(21, None, &[], &[21], None).unwrap().excluded);
+        assert!(volume.lineage(22, None, &[], &[21], None).unwrap().excluded);
+        assert!(!volume.lineage(20, None, &[], &[21], None).unwrap().excluded);
+        assert!(
+            volume
+                .lineage(22, None, &[], &[ROOT], None)
+                .unwrap()
+                .excluded
+        );
     }
 
     #[test]
@@ -528,7 +567,7 @@ mod tests {
         volume.upsert(32, ROOT, "$Extend", DIR);
         volume.upsert(33, ROOT, "System Volume Information", DIR);
         for record in [31, 32, 33] {
-            let lineage = volume.lineage(record, None, &[], &[]).unwrap();
+            let lineage = volume.lineage(record, None, &[], &[], None).unwrap();
             assert!(lineage.system);
             assert!(!lineage.hidden);
         }
@@ -547,14 +586,64 @@ mod tests {
                 system: true,
             },
         );
-        assert!(volume.lineage(22, None, &[], &[]).unwrap().visible());
+        assert!(volume.lineage(22, None, &[], &[], None).unwrap().visible());
     }
 
     #[test]
     fn lineage_is_none_for_orphans() {
         let mut volume = sample();
         volume.upsert(30, 99, "orphan.txt", FILE);
-        assert!(volume.lineage(30, None, &[], &[]).is_none());
+        assert!(volume.lineage(30, None, &[], &[], None).is_none());
+    }
+
+    #[test]
+    fn lineage_consumes_folders_from_the_nearest() {
+        let mut volume = VolumeIndex::new('C');
+        volume.upsert(20, ROOT, "Projetos", DIR);
+        volume.upsert(21, 20, "Tex", DIR);
+        volume.upsert(22, 21, "target", DIR);
+        volume.upsert(23, 22, "tex.exe", FILE);
+        let mut bits = vec![0u8; 24];
+        bits[20] = 0b01;
+        bits[21] = 0b10;
+        let mask = FolderMask {
+            bits: &bits,
+            count: 2,
+        };
+        let lineage = volume.lineage(23, None, &[], &[], Some(mask)).unwrap();
+        assert!(lineage.in_folders);
+        assert_eq!(lineage.nearest, Some(21));
+
+        let mut reversed = vec![0u8; 24];
+        reversed[20] = 0b10;
+        reversed[21] = 0b01;
+        let mask = FolderMask {
+            bits: &reversed,
+            count: 2,
+        };
+        assert!(
+            !volume
+                .lineage(23, None, &[], &[], Some(mask))
+                .unwrap()
+                .in_folders
+        );
+
+        let mut own = vec![0u8; 24];
+        own[21] = 0b01;
+        let mask = FolderMask {
+            bits: &own,
+            count: 1,
+        };
+        assert!(
+            !volume
+                .lineage(21, None, &[], &[], Some(mask))
+                .unwrap()
+                .in_folders
+        );
+
+        let plain = volume.lineage(23, None, &[], &[], None).unwrap();
+        assert!(plain.in_folders);
+        assert_eq!(plain.nearest, None);
     }
 
     #[test]
@@ -581,12 +670,22 @@ mod tests {
                 ..FILE
             },
         );
-        let lineage = volume.lineage(42, None, &[41], &[]).unwrap();
+        let lineage = volume.lineage(42, None, &[41], &[], None).unwrap();
         assert!(lineage.visible());
         assert!(lineage.in_app_root);
-        assert!(!volume.lineage(43, None, &[41], &[]).unwrap().visible());
-        assert!(!volume.lineage(42, None, &[], &[]).unwrap().visible());
-        assert!(!volume.lineage(22, None, &[41], &[]).unwrap().in_app_root);
+        assert!(
+            !volume
+                .lineage(43, None, &[41], &[], None)
+                .unwrap()
+                .visible()
+        );
+        assert!(!volume.lineage(42, None, &[], &[], None).unwrap().visible());
+        assert!(
+            !volume
+                .lineage(22, None, &[41], &[], None)
+                .unwrap()
+                .in_app_root
+        );
     }
 
     #[test]
