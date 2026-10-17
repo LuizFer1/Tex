@@ -392,3 +392,96 @@ msgstr "nada para “{0}”"
 
 msgid "Check the categories and ignored folders in Settings › Search."
 msgstr "Confira as categorias e as pastas ignoradas em Configurações › Pesquisa."
+
+msgid "tex — clipboard"
+msgstr "tex — clipboard"
+
+msgid "search history"
+msgstr "buscar no histórico"
+
+msgid "RECORDING"
+msgstr "GRAVANDO"
+
+msgid "PAUSED"
+msgstr "PAUSADO"
+
+msgid "Today"
+msgstr "Hoje"
+
+msgid "Yesterday"
+msgstr "Ontem"
+
+msgid "Jan"
+msgstr "jan"
+
+msgid "Feb"
+msgstr "fev"
+
+msgid "Mar"
+msgstr "mar"
+
+msgid "Apr"
+msgstr "abr"
+
+msgid "May"
+msgstr "mai"
+
+msgid "Jun"
+msgstr "jun"
+
+msgid "Jul"
+msgstr "jul"
+
+msgid "Aug"
+msgstr "ago"
+
+msgid "Sep"
+msgstr "set"
+
+msgid "Oct"
+msgstr "out"
+
+msgid "Nov"
+msgstr "nov"
+
+msgid "Dec"
+msgstr "dez"
+
+msgid "text · {0} characters · {1}"
+msgstr "texto · {0} caracteres · {1}"
+
+msgid "image · {0} × {1} · {2}"
+msgstr "imagem · {0} × {1} · {2}"
+
+msgid "Unfavorite"
+msgstr "Desfavoritar"
+
+msgid "entry deleted"
+msgstr "item excluído"
+
+msgid "nothing here."
+msgstr "nada por aqui."
+
+msgid "Mark entries with the star to keep them here."
+msgstr "Marque itens com a estrela para guardá-los aqui."
+
+msgid "Capture is paused. Resume it with the PAUSED button."
+msgstr "A captura está pausada. Retome pelo botão PAUSADO."
+
+msgid "Copy anything and I'll keep it here."
+msgstr "Copie qualquer coisa e eu guardo aqui."
+
+msgid "copy"
+msgstr "copiar"
+
+msgid "copy and paste"
+msgstr "copiar e colar"
+
+msgid "↵ {0} · ctrl ↵ {1} · del delete"
+msgstr "↵ {0} · ctrl ↵ {1} · del excluir"
+
+msgid "saving new copies"
+msgstr "salvando novas cópias"
+
+msgid "new copies are not saved"
+msgstr "novas cópias não são salvas"

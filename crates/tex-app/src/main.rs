@@ -44,7 +44,7 @@ use crate::clipboard_client::{
     ClipboardClient, Command as ClipboardCommand, Event as ClipboardEvent, PAGE_SIZE, SEARCH_LIMIT,
     history_folder, now_ms,
 };
-use crate::history::{HistoryList, size_parts, when_parts};
+use crate::history::{HistoryList, day_starts_through, size_parts, when_parts};
 use crate::icons::{IconCache, IconLoader, IconState};
 use crate::results::{
     Row, build_rows, file_icon, group_digits, header_counts, ready_summary, short_path,
@@ -279,13 +279,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
     tray.on_toggle_pause({
         let windows = windows.clone();
-        move || {
-            with_app(|app| app.settings.clipboard.paused = !app.settings.clipboard.paused);
-            if let Some(window) = windows.settings.upgrade() {
-                save_settings(&window);
-            }
-            clipboard_changed(&windows);
-        }
+        move || toggle_pause(&windows)
     });
     tray.on_quit(|| {
         let _ = slint::quit_event_loop();
@@ -294,6 +288,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     slint::run_event_loop_until_quit()?;
     Ok(())
+}
+
+fn toggle_pause(windows: &Windows) {
+    with_app(|app| app.settings.clipboard.paused = !app.settings.clipboard.paused);
+    if let Some(window) = windows.settings.upgrade() {
+        save_settings(&window);
+    }
+    clipboard_changed(windows);
 }
 
 fn open_from_key(windows: &Windows, client: &SearchClient) {
@@ -1444,10 +1446,23 @@ fn wire_history(window: &HistoryWindow, windows: &Windows, client: &SearchClient
                     });
                 }
                 WindowEvent::ThemeChanged(_) => theme_changed(&windows),
+                WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
+                    let _ = window.upgrade_in_event_loop(|window| {
+                        shape_window(
+                            window.window(),
+                            window.get_tab_width(),
+                            window.get_tab_height(),
+                        );
+                    });
+                }
                 _ => {}
             }
             EventResult::Propagate
         }
+    });
+    window.on_toggle_pause({
+        let windows = windows.clone();
+        move || toggle_pause(&windows)
     });
     window.on_query_edited({
         let window = window.as_weak();
@@ -1600,6 +1615,7 @@ fn show_history(windows: &Windows) {
     window.set_paused(paused);
     window.set_paste_by_default(paste);
     window.set_unavailable(with_history(|history| history.unavailable.clone()).into());
+    window.set_current_year(i32::from(local_time(now_ms()).year));
     sync_selection(&window);
     load_history(&window);
     let area = match monitor {
@@ -1617,6 +1633,11 @@ fn show_history(windows: &Windows) {
         window.set_skip_taskbar(true);
         window.focus_window();
     });
+    shape_window(
+        window.window(),
+        window.get_tab_width(),
+        window.get_tab_height(),
+    );
 }
 
 /// Hides the history and drops its rows and content, so nothing stays in memory while closed.
@@ -1937,6 +1958,15 @@ fn sync_selection(window: &HistoryWindow) {
         (history.list.selected_index(), changed)
     });
     window.set_selected(index.map_or(-1, |index| index as i32));
+    let headers = index.map_or(0, |index| {
+        let dates: Vec<[i32; 3]> = window
+            .get_rows()
+            .iter()
+            .map(|row| [row.date_day, row.date_month, row.date_year])
+            .collect();
+        day_starts_through(&dates, index)
+    });
+    window.set_selected_headers(headers as i32);
     if changed {
         window.set_renaming(false);
         window.set_editing(false);

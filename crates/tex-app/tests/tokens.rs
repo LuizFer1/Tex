@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 const THEME_FILES: &[&str] = &["theme.slint", "artwork.slint"];
-const LEGACY: &[&str] = &["history.slint", "settings.slint", "about.slint"];
+const LEGACY: &[&str] = &["settings.slint", "about.slint"];
 
 fn slint_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
     for entry in fs::read_dir(dir).unwrap() {

@@ -1,31 +1,5 @@
-import { Button, LineEdit, ListView, Palette, TextEdit } from "std-widgets.slint";
-
-component FilterChip inherits Rectangle {
-    in property <string> label;
-    in property <bool> active;
-    callback clicked();
-
-    width: label-text.preferred-width + 20px;
-    height: 24px;
-    border-radius: 12px;
-    background: root.active ? Palette.accent-background : transparent;
-    border-width: root.active ? 0px : 1px;
-    border-color: Palette.border;
-
-    label-text := Text {
-        text: root.label;
-        color: root.active ? Palette.accent-foreground : Palette.foreground;
-        font-size: 12px;
-        vertical-alignment: center;
-        horizontal-alignment: center;
-    }
-
-    TouchArea {
-        clicked => {
-            root.clicked();
-        }
-    }
-}
+import { Tokens } from "theme.slint";
+import { Icon, Icons, TextField, TextArea, ScrollBar, TabItem, TabBar, TabbedFrame, Footer, EmptyState, Button, ButtonKind, Kicker } from "kit/kit.slint";
 
 export struct HistoryRow {
     id: string,
@@ -60,16 +34,6 @@ export global HistoryText {
         return row.kind == 1 ? @tr("Image") : @tr("Text");
     }
 
-    public pure function when(row: HistoryRow) -> string {
-        if row.day == 0 {
-            return @tr("Today {0}", row.time);
-        }
-        if row.day == 1 {
-            return @tr("Yesterday {0}", row.time);
-        }
-        return @tr("{1}/{0}/{2} {3}", row.date-day, row.date-month, row.date-year, row.time);
-    }
-
     public pure function size(row: HistoryRow) -> string {
         return self.size-text(row.size-value, row.size-unit);
     }
@@ -86,90 +50,56 @@ export global HistoryText {
         }
         return @tr("{0} GB", value);
     }
-}
 
-component TextIcon inherits Rectangle {
-    width: 16px;
-    height: 20px;
-    border-width: 1px;
-    border-radius: 2px;
-    border-color: Palette.foreground;
-    opacity: 0.7;
-
-    VerticalLayout {
-        padding: 4px;
-        spacing: 3px;
-        alignment: start;
-        for line in [1, 0.7, 1, 0.5]: Rectangle {
-            height: 1px;
-            width: (parent.width - 8px) * line;
-            background: Palette.foreground;
-        }
-    }
-}
-
-component HistoryItem inherits Rectangle {
-    in property <HistoryRow> item;
-    in property <bool> selected;
-    callback clicked();
-    callback double-clicked();
-
-    background: root.selected ? Palette.selection-background : transparent;
-    border-radius: 4px;
-
-    HorizontalLayout {
-        padding-left: 8px;
-        padding-right: 10px;
-        spacing: 10px;
-
-        Rectangle {
-            width: 36px;
-            if root.item.kind == 1 && !root.item.unreadable: Image {
-                width: 36px;
-                height: 36px;
-                source: root.item.thumbnail;
-                image-fit: contain;
-            }
-            if root.item.kind != 1 || root.item.unreadable: TextIcon { }
-        }
-
-        VerticalLayout {
-            alignment: center;
-            spacing: 2px;
-
-            HorizontalLayout {
-                spacing: 6px;
-                Text {
-                    text: HistoryText.title(root.item);
-                    horizontal-stretch: 1;
-                    overflow: elide;
-                    font-italic: root.item.unreadable;
-                    color: root.selected ? Palette.selection-foreground : Palette.foreground;
-                }
-
-                if root.item.favorite: Text {
-                    text: "★";
-                    color: #e8a33d;
-                }
-            }
-
-            Text {
-                text: HistoryText.when(root.item) + " · " + HistoryText.size(root.item);
-                font-size: 11px;
-                opacity: 0.6;
-                overflow: elide;
-                color: root.selected ? Palette.selection-foreground : Palette.foreground;
-            }
-        }
+    public pure function same-day(a: HistoryRow, b: HistoryRow) -> bool {
+        return a.date-day == b.date-day && a.date-month == b.date-month && a.date-year == b.date-year;
     }
 
-    TouchArea {
-        clicked => {
-            root.clicked();
+    public pure function month(value: int) -> string {
+        if value == 1 {
+            return @tr("Jan");
         }
-        double-clicked => {
-            root.double-clicked();
+        if value == 2 {
+            return @tr("Feb");
         }
+        if value == 3 {
+            return @tr("Mar");
+        }
+        if value == 4 {
+            return @tr("Apr");
+        }
+        if value == 5 {
+            return @tr("May");
+        }
+        if value == 6 {
+            return @tr("Jun");
+        }
+        if value == 7 {
+            return @tr("Jul");
+        }
+        if value == 8 {
+            return @tr("Aug");
+        }
+        if value == 9 {
+            return @tr("Sep");
+        }
+        if value == 10 {
+            return @tr("Oct");
+        }
+        if value == 11 {
+            return @tr("Nov");
+        }
+        return @tr("Dec");
+    }
+
+    public pure function day-label(row: HistoryRow, current-year: int) -> string {
+        if row.day == 0 {
+            return @tr("Today").to-uppercase();
+        }
+        if row.day == 1 {
+            return @tr("Yesterday").to-uppercase();
+        }
+        return (row.date-day + " " + self.month(row.date-month) + (row.date-year != current-year ? " " + row.date-year : "")).to-uppercase();
     }
 }
 
@@ -177,9 +107,10 @@ export component HistoryWindow inherits Window {
     title: @tr("Clipboard history");
     no-frame: true;
     always-on-top: true;
-    width: 820px;
-    height: 520px;
-    background: Palette.background;
+    width: 640px;
+    height: 618px;
+    background: Tokens.paper;
+    default-font-family: Tokens.ui-font;
     forward-focus: input;
 
     in property <ColorScheme> scheme;
@@ -192,6 +123,11 @@ export component HistoryWindow inherits Window {
     in property <string> unavailable;
     in property <bool> searching;
     in property <bool> paste-by-default;
+    in property <int> current-year;
+    // Day headers above rows 0..=selected, from history::day_starts_through.
+    in property <int> selected-headers;
+    out property <length> tab-width: frame.tab-width;
+    out property <length> tab-height: frame.tab-height;
 
     // -1 nothing or loading, 0 text, 1 image, 2 unreadable
     in property <int> content-kind: -1;
@@ -216,10 +152,8 @@ export component HistoryWindow inherits Window {
     callback load-more();
     callback dismissed();
     callback open-settings();
+    callback toggle-pause();
 
-    changed scheme => {
-        Palette.color-scheme = self.scheme;
-    }
     changed renaming => {
         if !self.renaming {
             input.focus();
@@ -230,8 +164,19 @@ export component HistoryWindow inherits Window {
             input.focus();
         }
     }
+    changed selected => {
+        root.expanded = true;
+        root.reveal();
+    }
+    changed selected-height => {
+        root.reveal();
+    }
 
-    property <length> row-height: 48px;
+    property <length> card-height: 50px;
+    property <length> day-height: 30px;
+    property <length> selected-height: root.card-height;
+    property <bool> expanded: true;
+    property <length> current-top: 4px + root.selected *root.card-height + root.selected-headers * root.day-height + list.content-y;
     property <bool> has-selection: root.selected >= 0 && root.selected < root.rows.length;
     property <HistoryRow> current: root.rows[root.selected];
     property <bool> usable: root.has-selection && !root.current.unreadable;
@@ -239,6 +184,8 @@ export component HistoryWindow inherits Window {
     property <string> edit-draft;
     property <string> primary-action: root.paste-by-default ? @tr("Copy and paste") : @tr("Copy");
     property <string> other-action: root.paste-by-default ? @tr("Copy") : @tr("Copy and paste");
+    property <string> primary-action-short: root.paste-by-default ? @tr("copy and paste") : @tr("copy");
+    property <string> other-action-short: root.paste-by-default ? @tr("copy") : @tr("copy and paste");
 
     public function reset() {
         root.query = "";
@@ -248,12 +195,25 @@ export component HistoryWindow inherits Window {
         root.editing = false;
         root.confirm-delete = false;
         root.action-error = 0;
+        root.expanded = true;
         list.content-y = 0;
         input.focus();
     }
 
     public function scroll-to-top() {
         list.content-y = 0;
+    }
+
+    function reveal() {
+        if root.selected <= 0 {
+            list.content-y = 0;
+            return;
+        }
+        if root.current-top < 0 {
+            list.content-y -= root.current-top;
+        } else if root.current-top + root.selected-height > list.height {
+            list.content-y -= root.current-top + root.selected-height - list.height;
+        }
     }
 
     function set-filter(value: int) {
@@ -264,6 +224,7 @@ export component HistoryWindow inherits Window {
     function start-rename() {
         if root.usable {
             root.rename-draft = root.current.named ? root.current.title : "";
+            root.expanded = true;
             root.confirm-delete = false;
             root.editing = false;
             root.renaming = true;
@@ -273,6 +234,7 @@ export component HistoryWindow inherits Window {
     function start-edit() {
         if root.usable && root.current.kind == 0 && root.content-kind == 0 {
             root.edit-draft = root.content-text;
+            root.expanded = true;
             root.confirm-delete = false;
             root.renaming = false;
             root.action-error = 0;
@@ -287,9 +249,11 @@ export component HistoryWindow inherits Window {
         if root.current.favorite {
             root.renaming = false;
             root.editing = false;
+            root.expanded = true;
             root.confirm-delete = true;
         } else {
             root.delete(root.selected);
+            footer.show-toast(@tr("entry deleted"));
         }
     }
 
@@ -327,6 +291,7 @@ export component HistoryWindow inherits Window {
             if root.confirm-delete && event.text == Key.Return {
                 root.confirm-delete = false;
                 root.delete(root.selected);
+                footer.show-toast(@tr("entry deleted"));
                 return accept;
             }
             if event.text == Key.DownArrow {
@@ -374,49 +339,97 @@ export component HistoryWindow inherits Window {
             reject
         }
 
-        VerticalLayout {
-            padding: 8px;
-            spacing: 6px;
+        frame := TabbedFrame {
+            title: @tr("tex — clipboard");
 
-            input := LineEdit {
-                height: 40px;
-                font-size: 16px;
-                placeholder-text: @tr("Search clipboard history");
-                text <=> root.query;
-                edited(text) => {
-                    root.query-edited(text);
+            HorizontalLayout {
+                padding-left: 20px;
+                padding-right: 20px;
+                padding-top: 16px;
+                padding-bottom: 12px;
+                spacing: 12px;
+                Text {
+                    text: "›";
+                    font-family: Tokens.mono-font;
+                    font-size: Tokens.size-history-input;
+                    font-weight: 500;
+                    color: Tokens.action;
+                    vertical-alignment: center;
+                }
+                input := TextField {
+                    horizontal-stretch: 1;
+                    height: 28px;
+                    mono: true;
+                    font-size: Tokens.size-history-input;
+                    placeholder: @tr("search history");
+                    text <=> root.query;
+                    edited(text) => {
+                        root.query-edited(text);
+                    }
+                }
+                Rectangle {
+                    height: 26px;
+                    horizontal-stretch: 0;
+                    border-radius: Tokens.radius-control;
+                    border-width: Tokens.border-strong;
+                    border-color: root.paused ? Tokens.warn : Tokens.control-off;
+                    accessible-role: button;
+                    accessible-label: root.paused ? @tr("PAUSED") : @tr("RECORDING");
+                    HorizontalLayout {
+                        padding-left: 9px;
+                        padding-right: 10px;
+                        spacing: 7px;
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 7px;
+                                height: 7px;
+                                background: root.paused ? Tokens.warn : Tokens.action;
+                            }
+                        }
+                        Text {
+                            text: root.paused ? @tr("PAUSED") : @tr("RECORDING");
+                            font-family: Tokens.mono-font;
+                            font-size: Tokens.size-kicker;
+                            font-weight: 600;
+                            letter-spacing: Tokens.size-kicker * 0.06;
+                            color: root.paused ? Tokens.warn-text : Tokens.ink-2;
+                            vertical-alignment: center;
+                        }
+                    }
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.toggle-pause();
+                        }
+                    }
                 }
             }
 
-            HorizontalLayout {
-                spacing: 6px;
-                alignment: start;
-                FilterChip {
-                    label: @tr("All");
+            TabBar {
+                TabItem {
+                    text: @tr("All");
                     active: root.filter == 0;
                     clicked => {
                         root.set-filter(0);
                     }
                 }
-
-                FilterChip {
-                    label: "★ " + @tr("Favorites");
+                TabItem {
+                    text: @tr("Favorites");
                     active: root.filter == 1;
                     clicked => {
                         root.set-filter(1);
                     }
                 }
-
-                FilterChip {
-                    label: @tr("Text");
+                TabItem {
+                    text: @tr("Text");
                     active: root.filter == 2;
                     clicked => {
                         root.set-filter(2);
                     }
                 }
-
-                FilterChip {
-                    label: @tr("Images");
+                TabItem {
+                    text: @tr("Images");
                     active: root.filter == 3;
                     clicked => {
                         root.set-filter(3);
@@ -424,278 +437,318 @@ export component HistoryWindow inherits Window {
                 }
             }
 
-            if root.paused: Rectangle {
-                height: 24px;
-                border-radius: 4px;
-                background: Palette.alternate-background;
-                Text {
-                    text: @tr("Capture is paused");
-                    font-size: 12px;
-                    vertical-alignment: center;
-                    horizontal-alignment: center;
-                }
-            }
-
-            HorizontalLayout {
+            Rectangle {
                 vertical-stretch: 1;
-                spacing: 8px;
 
-                Rectangle {
-                    width: 330px;
-
-                    list := ListView {
-                        property <int> current: root.selected;
-                        property <length> current-top: self.current * root.row-height + self.content-y;
-
-                        changed current => {
-                            if self.current <= 0 {
-                                self.content-y = 0;
-                            } else if self.current-top < 0 {
-                                self.content-y -= self.current-top;
-                            } else if self.current-top + root.row-height > self.visible-height {
-                                self.content-y -= self.current-top + root.row-height - self.visible-height;
-                            }
+                list := Flickable {
+                    width: parent.width;
+                    height: parent.height;
+                    content-height: cards.preferred-height;
+                    changed content-y => {
+                        if self.height - self.content-y >= self.content-height - 8 * root.card-height {
+                            root.load-more();
                         }
-                        changed content-y => {
-                            if self.visible-height - self.content-y >= self.content-height - 8 * root.row-height {
-                                root.load-more();
-                            }
-                        }
+                    }
 
-                        for row[index] in root.rows: HistoryItem {
-                            height: root.row-height;
-                            item: row;
-                            selected: index == root.selected;
-                            clicked => {
-                                root.select(index);
+                    cards := VerticalLayout {
+                        width: list.width;
+                        padding-top: 4px;
+                        padding-bottom: 12px;
+                        for row[index] in root.rows: Rectangle {
+                            property <bool> day-start: index == 0 || !HistoryText.same-day(root.rows[index - 1], row);
+                            property <bool> is-selected: index == root.selected;
+                            property <bool> open: self.is-selected && root.expanded;
+
+                            changed height => {
+                                if self.is-selected {
+                                    root.selected-height = self.height - (self.day-start ? root.day-height : 0px);
+                                }
                             }
-                            double-clicked => {
-                                root.select(index);
-                                if !row.unreadable {
-                                    root.pick(index, false);
+
+                            VerticalLayout {
+                                if day-start: HorizontalLayout {
+                                    height: root.day-height;
+                                    padding-left: 20px;
+                                    Kicker {
+                                        text: HistoryText.day-label(row, root.current-year);
+                                        vertical-alignment: bottom;
+                                    }
+                                }
+                                HorizontalLayout {
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    padding-top: 2px;
+                                    padding-bottom: 2px;
+                                    card := Rectangle {
+                                        border-radius: Tokens.radius-card;
+                                        background: is-selected ? Tokens.paper-2 : touch.has-hover ? Tokens.row-hover : transparent;
+                                        border-width: is-selected ? Tokens.border-strong : 0px;
+                                        border-color: Tokens.action;
+
+                                        touch := TouchArea {
+                                            clicked => {
+                                                if is-selected {
+                                                    if !root.renaming && !root.editing && !root.confirm-delete {
+                                                        root.expanded = !root.expanded;
+                                                    }
+                                                } else {
+                                                    root.select(index);
+                                                }
+                                            }
+                                            double-clicked => {
+                                                root.select(index);
+                                                if !row.unreadable {
+                                                    root.pick(index, false);
+                                                }
+                                            }
+                                        }
+
+                                        VerticalLayout {
+                                            HorizontalLayout {
+                                                min-height: root.card-height - 4px;
+                                                padding-left: 10px;
+                                                padding-right: 10px;
+                                                spacing: 10px;
+                                                Text {
+                                                    width: 44px;
+                                                    text: row.time;
+                                                    font-family: Tokens.mono-font;
+                                                    font-size: Tokens.size-meta;
+                                                    color: Tokens.muted;
+                                                    vertical-alignment: center;
+                                                }
+                                                if row.kind == 1 && !row.unreadable: VerticalLayout {
+                                                    alignment: center;
+                                                    Rectangle {
+                                                        width: 44px;
+                                                        height: 28px;
+                                                        border-radius: 2px;
+                                                        border-width: Tokens.border-control;
+                                                        border-color: Tokens.control-off;
+                                                        clip: true;
+                                                        Image {
+                                                            width: parent.width;
+                                                            height: parent.height;
+                                                            source: row.thumbnail;
+                                                            image-fit: cover;
+                                                        }
+                                                    }
+                                                }
+                                                if row.kind != 1 || row.unreadable: Icon {
+                                                    width: 15px;
+                                                    source: row.unreadable ? Icons.warning : Icons.file-text;
+                                                    tint: row.unreadable ? Tokens.muted : Tokens.type-file;
+                                                }
+                                                if !(open && root.renaming): Text {
+                                                    horizontal-stretch: 1;
+                                                    text: HistoryText.title(row);
+                                                    font-size: Tokens.size-label;
+                                                    font-italic: row.unreadable;
+                                                    color: Tokens.ink;
+                                                    vertical-alignment: center;
+                                                    overflow: elide;
+                                                }
+                                                if open && root.renaming: VerticalLayout {
+                                                    horizontal-stretch: 1;
+                                                    alignment: center;
+                                                    TextField {
+                                                        height: 30px;
+                                                        boxed: true;
+                                                        font-weight: 500;
+                                                        text <=> root.rename-draft;
+                                                        init => {
+                                                            self.focus();
+                                                            self.select-all();
+                                                        }
+                                                        accepted => {
+                                                            root.rename(root.selected, root.rename-draft);
+                                                        }
+                                                    }
+                                                }
+                                                if row.kind == 1 && !row.unreadable && row.width > 0: Text {
+                                                    text: @tr("{0} × {1}", row.width, row.height);
+                                                    font-family: Tokens.mono-font;
+                                                    font-size: Tokens.size-kicker;
+                                                    color: Tokens.muted;
+                                                    vertical-alignment: center;
+                                                }
+                                                Rectangle {
+                                                    width: 16px;
+                                                    if row.favorite: Icon {
+                                                        width: 13px;
+                                                        source: Icons.star;
+                                                        tint: Tokens.action;
+                                                    }
+                                                }
+                                            }
+
+                                            if open: VerticalLayout {
+                                                padding-left: 64px;
+                                                padding-right: 12px;
+                                                padding-bottom: 12px;
+                                                spacing: 10px;
+
+                                                if root.editing: TextArea {
+                                                    height: 180px;
+                                                    text <=> root.edit-draft;
+                                                    init => {
+                                                        self.focus();
+                                                    }
+                                                }
+                                                if !root.editing && root.content-kind == 0: Rectangle {
+                                                    height: min(180px, preview.preferred-height + 16px);
+                                                    background: Tokens.field;
+                                                    border-width: Tokens.border-control;
+                                                    border-color: Tokens.border;
+                                                    border-radius: Tokens.radius-control;
+                                                    clip: true;
+                                                    read := Flickable {
+                                                        x: 10px;
+                                                        y: 8px;
+                                                        width: parent.width - 20px - Tokens.scrollbar-width;
+                                                        height: parent.height - 16px;
+                                                        content-height: preview.preferred-height;
+                                                        preview := Text {
+                                                            width: read.width;
+                                                            text: root.content-preview;
+                                                            font-family: Tokens.mono-font;
+                                                            font-size: Tokens.size-body;
+                                                            color: Tokens.ink;
+                                                            wrap: word-wrap;
+                                                        }
+                                                    }
+                                                    ScrollBar {
+                                                        x: parent.width - self.width - 2px;
+                                                        height: parent.height;
+                                                        viewport-y <=> read.content-y;
+                                                        viewport-height: read.content-height;
+                                                        visible-height: read.height;
+                                                    }
+                                                }
+                                                if root.content-kind == 1: Image {
+                                                    height: 180px;
+                                                    source: root.content-image;
+                                                    image-fit: contain;
+                                                }
+                                                if root.content-kind == 2: Text {
+                                                    text: @tr("Unreadable entry");
+                                                    font-size: Tokens.size-body;
+                                                    color: Tokens.muted;
+                                                }
+
+                                                if root.content-kind == 0 || root.content-kind == 1: Text {
+                                                    text: root.content-kind == 0
+                                                        ? @tr("text · {0} characters · {1}", root.content-text.character-count, HistoryText.size(row))
+                                                        : @tr("image · {0} × {1} · {2}", row.width, row.height, HistoryText.size(row));
+                                                    font-family: Tokens.mono-font;
+                                                    font-size: Tokens.size-kicker;
+                                                    color: Tokens.muted;
+                                                }
+
+                                                if root.renaming: HorizontalLayout {
+                                                    spacing: 6px;
+                                                    alignment: start;
+                                                    Button { kind: ButtonKind.primary; key: "↵"; text: @tr("Save"); clicked => { root.rename(root.selected, root.rename-draft); } }
+                                                    Button { key: "esc"; text: @tr("Cancel"); clicked => { root.renaming = false; } }
+                                                }
+                                                if root.editing: HorizontalLayout {
+                                                    spacing: 6px;
+                                                    alignment: start;
+                                                    Button { kind: ButtonKind.primary; key: "ctrl S"; text: @tr("Save"); clicked => { root.edit(root.selected, root.edit-draft); } }
+                                                    Button { key: "esc"; text: @tr("Cancel"); clicked => { root.editing = false; root.action-error = 0; } }
+                                                }
+                                                if root.confirm-delete: HorizontalLayout {
+                                                    spacing: 6px;
+                                                    Text {
+                                                        horizontal-stretch: 1;
+                                                        text: @tr("Delete this favorite?");
+                                                        font-size: Tokens.size-label;
+                                                        color: Tokens.ink;
+                                                        vertical-alignment: center;
+                                                    }
+                                                    Button {
+                                                        kind: ButtonKind.danger-filled;
+                                                        key: "↵";
+                                                        text: @tr("Yes");
+                                                        clicked => {
+                                                            root.confirm-delete = false;
+                                                            root.delete(root.selected);
+                                                            footer.show-toast(@tr("entry deleted"));
+                                                        }
+                                                    }
+                                                    Button { key: "esc"; text: @tr("No"); clicked => { root.confirm-delete = false; } }
+                                                }
+                                                if !root.renaming && !root.editing && !root.confirm-delete: HorizontalLayout {
+                                                    spacing: 6px;
+                                                    alignment: start;
+                                                    Button {
+                                                        kind: ButtonKind.primary;
+                                                        key: "↵";
+                                                        text: root.primary-action;
+                                                        enabled: root.usable && root.content-kind != 2;
+                                                        clicked => { root.pick(root.selected, false); }
+                                                    }
+                                                    Button {
+                                                        key: "ctrl ↵";
+                                                        text: root.other-action;
+                                                        enabled: root.usable && root.content-kind != 2;
+                                                        clicked => { root.pick(root.selected, true); }
+                                                    }
+                                                    Button {
+                                                        key: "ctrl D";
+                                                        text: root.current.favorite ? @tr("Unfavorite") : @tr("Favorite");
+                                                        enabled: root.usable;
+                                                        clicked => { root.toggle-favorite-selected(); }
+                                                    }
+                                                    Button {
+                                                        key: "F2";
+                                                        text: @tr("Rename");
+                                                        enabled: root.usable;
+                                                        clicked => { root.start-rename(); }
+                                                    }
+                                                    if root.current.kind == 0: Button {
+                                                        key: "ctrl E";
+                                                        text: @tr("Edit");
+                                                        enabled: root.usable && root.content-kind == 0;
+                                                        clicked => { root.start-edit(); }
+                                                    }
+                                                    Button {
+                                                        kind: ButtonKind.danger;
+                                                        key: "del";
+                                                        text: @tr("Delete");
+                                                        clicked => { root.request-delete(); }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
-
-                    if root.rows.length == 0 && !root.searching: Text {
-                        width: parent.width - 24px;
-                        text: root.unavailable != "" ? @tr("Clipboard history unavailable: {0}", root.unavailable) : root.query == "" && root.filter == 0 ? @tr("Clipboard history is empty") : @tr("No results");
-                        wrap: word-wrap;
-                        opacity: 0.7;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
                 }
 
-                Rectangle {
-                    width: 1px;
-                    background: Palette.border;
+                ScrollBar {
+                    x: parent.width - self.width - 2px;
+                    height: parent.height;
+                    viewport-y <=> list.content-y;
+                    viewport-height: list.content-height;
+                    visible-height: list.height;
                 }
 
-                if root.has-selection: VerticalLayout {
-                    horizontal-stretch: 1;
-                    spacing: 8px;
-                    padding-left: 4px;
-
-                    HorizontalLayout {
-                        spacing: 8px;
-                        Text {
-                            text: root.current.unreadable ? @tr("Unreadable entry") : root.current.named ? root.current.title : root.current.kind == 1 ? @tr("Image") : @tr("Text");
-                            horizontal-stretch: 1;
-                            font-size: 15px;
-                            font-weight: 600;
-                            overflow: elide;
-                            vertical-alignment: center;
-                        }
-
-                        if root.current.favorite: Text {
-                            text: "★";
-                            font-size: 15px;
-                            color: #e8a33d;
-                            vertical-alignment: center;
-                        }
-                    }
-
-                    Text {
-                        text: HistoryText.when(root.current) + " · " + HistoryText.size(root.current) + (root.current.kind == 1 && root.current.width > 0 ? " · " + @tr("{0} × {1}", root.current.width, root.current.height) : "");
-                        font-size: 12px;
-                        opacity: 0.7;
-                        overflow: elide;
-                    }
-
-                    Rectangle {
-                        vertical-stretch: 1;
-                        clip: true;
-
-                        if root.editing: TextEdit {
-                            width: parent.width;
-                            height: parent.height;
-                            font-size: 13px;
-                            wrap: word-wrap;
-                            text <=> root.edit-draft;
-                            init => {
-                                self.focus();
-                            }
-                        }
-
-                        if !root.editing && root.content-kind == 0: TextEdit {
-                            width: parent.width;
-                            height: parent.height;
-                            font-size: 13px;
-                            wrap: word-wrap;
-                            read-only: true;
-                            text: root.content-preview;
-                        }
-
-                        if root.content-kind == 1: Image {
-                            width: parent.width;
-                            height: parent.height;
-                            source: root.content-image;
-                            image-fit: contain;
-                        }
-
-                        if root.content-kind == 2: Text {
-                            text: @tr("Unreadable entry");
-                            opacity: 0.7;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-                    }
-
-                    if root.renaming: HorizontalLayout {
-                        spacing: 6px;
-                        LineEdit {
-                            horizontal-stretch: 1;
-                            text <=> root.rename-draft;
-                            init => {
-                                self.focus();
-                                self.select-all();
-                            }
-                            accepted => {
-                                root.rename(root.selected, root.rename-draft);
-                            }
-                        }
-
-                        Button {
-                            text: @tr("Save");
-                            primary: true;
-                            clicked => {
-                                root.rename(root.selected, root.rename-draft);
-                            }
-                        }
-
-                        Button {
-                            text: @tr("Cancel");
-                            clicked => {
-                                root.renaming = false;
-                            }
-                        }
-                    }
-
-                    if root.editing: HorizontalLayout {
-                        spacing: 6px;
-                        alignment: end;
-                        Button {
-                            text: @tr("Save");
-                            primary: true;
-                            clicked => {
-                                root.edit(root.selected, root.edit-draft);
-                            }
-                        }
-
-                        Button {
-                            text: @tr("Cancel");
-                            clicked => {
-                                root.editing = false;
-                                root.action-error = 0;
-                            }
-                        }
-                    }
-
-                    if root.confirm-delete: HorizontalLayout {
-                        spacing: 6px;
-                        Text {
-                            text: @tr("Delete this favorite?");
-                            horizontal-stretch: 1;
-                            vertical-alignment: center;
-                        }
-
-                        Button {
-                            text: @tr("Yes");
-                            primary: true;
-                            clicked => {
-                                root.confirm-delete = false;
-                                root.delete(root.selected);
-                            }
-                        }
-
-                        Button {
-                            text: @tr("No");
-                            clicked => {
-                                root.confirm-delete = false;
-                            }
-                        }
-                    }
-
-                    if !root.renaming && !root.editing && !root.confirm-delete: HorizontalLayout {
-                        spacing: 6px;
-                        alignment: start;
-                        Button {
-                            text: root.primary-action;
-                            primary: true;
-                            enabled: root.usable && root.content-kind != 2;
-                            clicked => {
-                                root.pick(root.selected, false);
-                            }
-                        }
-
-                        Button {
-                            text: root.current.favorite ? @tr("Remove favorite") : @tr("Favorite");
-                            enabled: root.usable;
-                            clicked => {
-                                root.toggle-favorite-selected();
-                            }
-                        }
-
-                        Button {
-                            text: @tr("Rename");
-                            enabled: root.usable;
-                            clicked => {
-                                root.start-rename();
-                            }
-                        }
-
-                        if root.current.kind == 0: Button {
-                            text: @tr("Edit");
-                            enabled: root.usable && root.content-kind == 0;
-                            clicked => {
-                                root.start-edit();
-                            }
-                        }
-
-                        Button {
-                            text: @tr("Delete");
-                            clicked => {
-                                root.request-delete();
-                            }
-                        }
-                    }
-                }
-
-                if !root.has-selection: Rectangle {
-                    horizontal-stretch: 1;
+                if root.rows.length == 0 && !root.searching: EmptyState {
+                    width: parent.width;
+                    height: parent.height;
+                    art: Tokens.art-clipboard;
+                    title: root.unavailable != "" ? @tr("Clipboard history unavailable: {0}", root.unavailable) : root.query != "" ? @tr("nothing for “{0}”", root.query) : @tr("nothing here.");
+                    hint: root.unavailable != "" || root.query != "" ? "" : root.filter == 1 ? @tr("Mark entries with the star to keep them here.") : root.paused ? @tr("Capture is paused. Resume it with the PAUSED button.") : @tr("Copy anything and I'll keep it here.");
                 }
             }
 
-            Text {
-                height: 18px;
-                text: root.action-error == 1 ? @tr("Too large to save") : root.action-error == 2 ? @tr("Could not write to the clipboard") : @tr("Enter {0}  Ctrl+Enter {1}  Del delete", root.primary-action, root.other-action);
-                font-size: 11px;
-                opacity: root.action-error != 0 ? 1 : 0.6;
-                color: root.action-error != 0 ? #d13438 : Palette.foreground;
-                overflow: elide;
-                vertical-alignment: center;
+            footer := Footer {
+                hints: @tr("↵ {0} · ctrl ↵ {1} · del delete", root.primary-action-short, root.other-action-short);
+                status: root.action-error == 1 ? @tr("Too large to save") : root.action-error == 2 ? @tr("Could not write to the clipboard") : root.paused ? @tr("new copies are not saved") : @tr("saving new copies");
+                status-color: root.action-error != 0 ? Tokens.danger : root.paused ? Tokens.warn-text : Tokens.muted;
             }
         }
     }

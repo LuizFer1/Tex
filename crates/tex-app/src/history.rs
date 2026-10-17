@@ -150,6 +150,17 @@ impl HistoryList {
     }
 }
 
+/// Day headers shown above rows `0..=index`: the first row and every row copied on another
+/// day than the row above it start a day.
+pub fn day_starts_through(dates: &[[i32; 3]], index: usize) -> usize {
+    let Some(last) = dates.len().checked_sub(1) else {
+        return 0;
+    };
+    (0..=index.min(last))
+        .filter(|&i| i == 0 || dates[i] != dates[i - 1])
+        .count()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -175,6 +186,23 @@ mod tests {
         let mut list = HistoryList::default();
         list.replace(ids.to_vec());
         list
+    }
+
+    #[test]
+    fn day_starts_count_the_first_row_and_each_new_day() {
+        let dates = [
+            [17, 10, 2026],
+            [17, 10, 2026],
+            [16, 10, 2026],
+            [16, 10, 2026],
+            [3, 9, 2026],
+        ];
+        assert_eq!(day_starts_through(&dates, 0), 1);
+        assert_eq!(day_starts_through(&dates, 1), 1);
+        assert_eq!(day_starts_through(&dates, 2), 2);
+        assert_eq!(day_starts_through(&dates, 4), 3);
+        assert_eq!(day_starts_through(&dates, 9), 3);
+        assert_eq!(day_starts_through(&[], 0), 0);
     }
 
     #[test]
