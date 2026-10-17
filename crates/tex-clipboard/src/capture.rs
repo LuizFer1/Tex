@@ -1,3 +1,7 @@
+use std::hash::{DefaultHasher, Hash, Hasher};
+
+use crate::image::Rgba;
+
 #[derive(Debug, Clone, Default)]
 pub struct ClipFacts<'a> {
     pub from_tex: bool,
@@ -69,6 +73,37 @@ pub fn should_capture(facts: &ClipFacts, settings: &CaptureSettings) -> Decision
 
 pub fn fits(size: u64, settings: &CaptureSettings) -> bool {
     size <= settings.max_item_bytes
+}
+
+/// How long identical content still counts as the copy saved last.
+pub const REPEAT_WINDOW_MS: i64 = 1000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LastCopy {
+    pub fingerprint: u64,
+    pub copied_at: i64,
+}
+
+pub fn text_fingerprint(text: &str) -> u64 {
+    fingerprint(&(0u8, text))
+}
+
+pub fn image_fingerprint(image: &Rgba) -> u64 {
+    fingerprint(&(1u8, image.width, image.height, &image.pixels))
+}
+
+fn fingerprint(value: &impl Hash) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    value.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Apps often write one copy more than once (OLE writes and then flushes, some tools write
+/// twice), so the same content within [`REPEAT_WINDOW_MS`] of the last saved copy is that copy.
+pub fn is_repeat(last: Option<LastCopy>, fingerprint: u64, now: i64) -> bool {
+    last.is_some_and(|last| {
+        last.fingerprint == fingerprint && (0..=REPEAT_WINDOW_MS).contains(&(now - last.copied_at))
+    })
 }
 
 #[cfg(test)]
@@ -227,5 +262,60 @@ mod tests {
     fn fits_up_to_the_maximum() {
         assert!(fits(10, &settings()));
         assert!(!fits(11, &settings()));
+    }
+
+    fn last(text: &str, copied_at: i64) -> Option<LastCopy> {
+        Some(LastCopy {
+            fingerprint: text_fingerprint(text),
+            copied_at,
+        })
+    }
+
+    #[test]
+    fn same_content_within_the_window_is_a_repeat() {
+        let fingerprint = text_fingerprint("same");
+        assert!(is_repeat(last("same", 5_000), fingerprint, 5_000));
+        assert!(is_repeat(
+            last("same", 5_000),
+            fingerprint,
+            5_000 + REPEAT_WINDOW_MS
+        ));
+    }
+
+    #[test]
+    fn same_content_after_the_window_is_a_new_copy() {
+        let fingerprint = text_fingerprint("same");
+        assert!(!is_repeat(
+            last("same", 5_000),
+            fingerprint,
+            5_001 + REPEAT_WINDOW_MS
+        ));
+        assert!(!is_repeat(last("same", 5_000), fingerprint, 4_999));
+    }
+
+    #[test]
+    fn other_content_or_no_last_copy_is_a_new_copy() {
+        assert!(!is_repeat(
+            last("same", 5_000),
+            text_fingerprint("other"),
+            5_000
+        ));
+        assert!(!is_repeat(None, text_fingerprint("same"), 5_000));
+    }
+
+    #[test]
+    fn images_compare_size_and_pixels() {
+        let image = Rgba {
+            width: 2,
+            height: 1,
+            pixels: vec![1; 8],
+        };
+        let flipped = Rgba {
+            width: 1,
+            height: 2,
+            ..image.clone()
+        };
+        assert_eq!(image_fingerprint(&image), image_fingerprint(&image.clone()));
+        assert_ne!(image_fingerprint(&image), image_fingerprint(&flipped));
     }
 }

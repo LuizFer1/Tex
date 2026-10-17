@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::io;
 use std::mem::{size_of, zeroed};
 use std::ptr;
@@ -12,8 +12,8 @@ use windows_sys::Win32::Foundation::{
 };
 use windows_sys::Win32::System::DataExchange::{
     AddClipboardFormatListener, CloseClipboard, EmptyClipboard, GetClipboardData,
-    GetClipboardOwner, IsClipboardFormatAvailable, OpenClipboard, RegisterClipboardFormatW,
-    RemoveClipboardFormatListener, SetClipboardData,
+    GetClipboardOwner, GetClipboardSequenceNumber, IsClipboardFormatAvailable, OpenClipboard,
+    RegisterClipboardFormatW, RemoveClipboardFormatListener, SetClipboardData,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Memory::{
@@ -85,6 +85,7 @@ struct Handlers {
 
 thread_local! {
     static HANDLERS: RefCell<Option<Handlers>> = const { RefCell::new(None) };
+    static LAST_SEQUENCE: Cell<u32> = const { Cell::new(0) };
 }
 
 /// Watches the clipboard on its own thread. For every update `wanted` picks the content to
@@ -197,6 +198,9 @@ unsafe extern "system" fn window_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     if message == WM_CLIPBOARDUPDATE {
+        if !new_sequence() {
+            return 0;
+        }
         HANDLERS.with_borrow(|handlers| {
             if let Some(handlers) = handlers
                 && let Some(clip) = read_clip(window, &*handlers.wanted)
@@ -207,6 +211,12 @@ unsafe extern "system" fn window_proc(
         return 0;
     }
     unsafe { DefWindowProcW(window, message, wparam, lparam) }
+}
+
+/// Windows can queue several updates for one clipboard state; only the first one is read.
+fn new_sequence() -> bool {
+    let sequence = unsafe { GetClipboardSequenceNumber() };
+    sequence == 0 || LAST_SEQUENCE.replace(sequence) != sequence
 }
 
 /// Reads the formats first and then only the content `wanted` asks for; text that turns out

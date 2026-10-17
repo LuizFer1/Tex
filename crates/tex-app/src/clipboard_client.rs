@@ -11,8 +11,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tex_clipboard::{
     CaptureSettings, ClipFacts, Content, Decision, EditError, HistoryFilter, KEY_LEN, Key,
-    NewEntry, OpenError, Retention, Store, Summary, dib_to_rgba, encode_png, fits, new_key,
-    should_capture, thumbnail,
+    LastCopy, NewEntry, OpenError, Retention, Store, Summary, dib_to_rgba, encode_png, fits,
+    image_fingerprint, is_repeat, new_key, should_capture, text_fingerprint, thumbnail,
 };
 use tex_platform::{Clip, ClipFormats, Payload, protect, unprotect};
 
@@ -161,6 +161,7 @@ fn run(
         store,
         settings,
         generation,
+        last_copy: None,
     };
     report(worker.retain(on_event));
     loop {
@@ -198,6 +199,7 @@ struct Worker {
     store: Store,
     settings: ClientSettings,
     generation: Arc<AtomicU64>,
+    last_copy: Option<LastCopy>,
 }
 
 impl Worker {
@@ -335,25 +337,41 @@ fn payload_for(formats: &ClipFormats, settings: &CaptureSettings) -> Option<Payl
 
 /// What a clipboard change adds to the history, when the capture rules and the size limit
 /// accept it. Images are measured as PNG.
-fn entry_from_clip(clip: Clip, settings: &CaptureSettings) -> Option<NewEntry> {
+/// The entry to save for `clip` and its fingerprint; `None` when the rules skip it, it is too
+/// large, or it repeats the last saved copy.
+fn entry_from_clip(
+    clip: Clip,
+    settings: &CaptureSettings,
+    last: Option<LastCopy>,
+    now: i64,
+) -> Option<(NewEntry, u64)> {
     let decision = should_capture(&facts_from_clip(&clip), settings);
     match decision {
         Decision::Text => {
             let text = clip.text?;
-            fits(text.len() as u64, settings).then_some(NewEntry::Text(text))
+            let fingerprint = text_fingerprint(&text);
+            if is_repeat(last, fingerprint, now) || !fits(text.len() as u64, settings) {
+                return None;
+            }
+            Some((NewEntry::Text(text), fingerprint))
         }
         Decision::Image => {
             let image = dib_to_rgba(clip.dib.as_deref()?)?;
+            let fingerprint = image_fingerprint(&image);
+            if is_repeat(last, fingerprint, now) {
+                return None;
+            }
             let png = encode_png(&image);
             if !fits(png.len() as u64, settings) {
                 return None;
             }
-            Some(NewEntry::Image {
+            let entry = NewEntry::Image {
                 thumbnail: encode_png(&thumbnail(&image, THUMBNAIL_SIZE)),
                 png,
                 width: image.width,
                 height: image.height,
-            })
+            };
+            Some((entry, fingerprint))
         }
         Decision::Skip(_) => None,
     }
@@ -380,10 +398,17 @@ fn apply(
             worker.retain(emit)?;
         }
         Command::Captured(clip) => {
-            let Some(entry) = entry_from_clip(clip, &worker.settings.capture) else {
+            let now = now_ms();
+            let Some((entry, fingerprint)) =
+                entry_from_clip(clip, &worker.settings.capture, worker.last_copy, now)
+            else {
                 return Ok(());
             };
-            let summary = worker.store.insert(&entry, now_ms())?;
+            let summary = worker.store.insert(&entry, now)?;
+            worker.last_copy = Some(LastCopy {
+                fingerprint,
+                copied_at: now,
+            });
             emit(Event::Added(summary));
             worker.retain(emit)?;
         }
@@ -459,7 +484,7 @@ mod tests {
     use std::cell::RefCell;
     use std::fs;
 
-    use tex_clipboard::{DAY_MS, Kind, Preview, Rgba, decode_png, rgba_to_dib};
+    use tex_clipboard::{DAY_MS, Kind, Preview, REPEAT_WINDOW_MS, Rgba, decode_png, rgba_to_dib};
     use tex_platform::protect;
 
     use super::*;
@@ -509,6 +534,7 @@ mod tests {
             store: Store::open_in_memory(new_key()).unwrap(),
             settings,
             generation: Arc::default(),
+            last_copy: None,
         }
     }
 
@@ -766,12 +792,42 @@ mod tests {
     }
 
     #[test]
-    fn identical_copies_are_separate_rows() {
+    fn the_same_copy_written_again_is_one_row() {
         let mut worker = worker(settings());
         run(&mut worker, Command::Captured(text_clip("same")));
+        assert!(run(&mut worker, Command::Captured(text_clip("same"))).is_empty());
+        run(&mut worker, Command::Captured(text_clip("other")));
+        run(&mut worker, Command::Captured(text_clip("same")));
+        let page = worker.store.page(HistoryFilter::All, None, 10).unwrap();
+        assert_eq!(page.len(), 3);
+    }
+
+    #[test]
+    fn identical_copies_after_the_window_are_separate_rows() {
+        let mut worker = worker(settings());
+        run(&mut worker, Command::Captured(text_clip("same")));
+        if let Some(last) = &mut worker.last_copy {
+            last.copied_at -= REPEAT_WINDOW_MS + 1;
+        }
         run(&mut worker, Command::Captured(text_clip("same")));
         let page = worker.store.page(HistoryFilter::All, None, 10).unwrap();
         assert_eq!(page.len(), 2);
+    }
+
+    #[test]
+    fn the_same_image_written_again_is_one_row() {
+        let image = Rgba {
+            width: 4,
+            height: 4,
+            pixels: vec![120; 4 * 4 * 4],
+        };
+        let clip = Clip {
+            dib: Some(rgba_to_dib(&image)),
+            ..Clip::default()
+        };
+        let mut worker = worker(settings());
+        run(&mut worker, Command::Captured(clip.clone()));
+        assert!(run(&mut worker, Command::Captured(clip)).is_empty());
     }
 
     #[test]
