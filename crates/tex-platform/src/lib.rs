@@ -9,7 +9,8 @@ pub use windows::{
 mod clipboard;
 #[cfg(windows)]
 pub use clipboard::{
-    Clip, ClipboardWatcher, foreground_window, paste_into, write_image, write_text,
+    Clip, ClipFormats, ClipboardWatcher, Payload, foreground_window, paste_into, write_image,
+    write_text,
 };
 #[cfg(windows)]
 mod dpapi;

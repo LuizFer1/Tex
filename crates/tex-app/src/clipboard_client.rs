@@ -3,9 +3,9 @@ use std::fs;
 use std::io;
 use std::iter;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -14,7 +14,7 @@ use tex_clipboard::{
     NewEntry, OpenError, Retention, Store, Summary, dib_to_rgba, encode_png, fits, new_key,
     should_capture, thumbnail,
 };
-use tex_platform::{Clip, protect, unprotect};
+use tex_platform::{Clip, ClipFormats, Payload, protect, unprotect};
 
 pub const PAGE_SIZE: usize = 200;
 const SEARCH_LIMIT: usize = 500;
@@ -68,6 +68,7 @@ pub enum Event {
 pub struct ClipboardClient {
     commands: Sender<Command>,
     generation: Arc<AtomicU64>,
+    capture: Arc<Mutex<CaptureSettings>>,
 }
 
 impl ClipboardClient {
@@ -79,6 +80,7 @@ impl ClipboardClient {
     ) -> Self {
         let (commands, receiver) = mpsc::channel();
         let generation = Arc::new(AtomicU64::new(0));
+        let capture = Arc::new(Mutex::new(settings.capture.clone()));
         thread::spawn({
             let generation = Arc::clone(&generation);
             move || run(&receiver, &folder, settings, generation, &on_event)
@@ -86,11 +88,26 @@ impl ClipboardClient {
         Self {
             commands,
             generation,
+            capture,
         }
     }
 
     pub fn send(&self, command: Command) {
         let _ = self.commands.send(command);
+    }
+
+    /// Hands new settings to the worker and to [`ClipboardClient::wanted`].
+    pub fn configure(&self, settings: ClientSettings) {
+        *self.capture.lock().unwrap_or_else(PoisonError::into_inner) = settings.capture.clone();
+        self.send(Command::Configure(settings));
+    }
+
+    /// What the clipboard watcher should read for these formats under the current settings.
+    pub fn wanted(&self, formats: &ClipFormats) -> Option<Payload> {
+        payload_for(
+            formats,
+            &self.capture.lock().unwrap_or_else(PoisonError::into_inner),
+        )
     }
 
     /// Starts a search and cancels the one running; returns its generation.
@@ -288,6 +305,24 @@ fn facts_from_clip(clip: &Clip) -> ClipFacts<'_> {
         owner_exe: clip.owner_exe.as_deref(),
         has_text: clip.text.as_deref().is_some_and(|text| !text.is_empty()),
         has_image: clip.dib.as_deref().is_some_and(|dib| !dib.is_empty()),
+    }
+}
+
+/// Applies the capture rules to the formats alone, so paused, opted-out, ignored and Tex's
+/// own copies read nothing, and an image is read only when it is the one captured.
+fn payload_for(formats: &ClipFormats, settings: &CaptureSettings) -> Option<Payload> {
+    let facts = ClipFacts {
+        from_tex: formats.from_tex,
+        excluded: formats.excluded,
+        history_disallowed: formats.history_disallowed,
+        owner_exe: formats.owner_exe.as_deref(),
+        has_text: formats.text,
+        has_image: formats.image,
+    };
+    match should_capture(&facts, settings) {
+        Decision::Text => Some(Payload::Text),
+        Decision::Image => Some(Payload::Image),
+        Decision::Skip(_) => None,
     }
 }
 
@@ -625,6 +660,92 @@ mod tests {
         assert!(!facts.has_image);
     }
 
+    fn client(settings: ClientSettings) -> (ClipboardClient, Receiver<Command>) {
+        let (commands, receiver) = std::sync::mpsc::channel();
+        let client = ClipboardClient {
+            commands,
+            generation: Arc::default(),
+            capture: Arc::new(Mutex::new(settings.capture)),
+        };
+        (client, receiver)
+    }
+
+    fn formats(text: bool, image: bool) -> ClipFormats {
+        ClipFormats {
+            text,
+            image,
+            owner_exe: Some("EXCEL.EXE".into()),
+            ..ClipFormats::default()
+        }
+    }
+
+    #[test]
+    fn reads_only_the_content_that_will_be_captured() {
+        let mut capture = settings().capture;
+        assert_eq!(
+            payload_for(&formats(true, true), &capture),
+            Some(Payload::Text)
+        );
+        assert_eq!(
+            payload_for(&formats(false, true), &capture),
+            Some(Payload::Image)
+        );
+        capture.capture_images = false;
+        assert_eq!(payload_for(&formats(false, true), &capture), None);
+        capture.capture_text = false;
+        assert_eq!(payload_for(&formats(true, false), &capture), None);
+        capture.capture_images = true;
+        assert_eq!(
+            payload_for(&formats(true, true), &capture),
+            Some(Payload::Image)
+        );
+        assert_eq!(
+            payload_for(&formats(false, false), &settings().capture),
+            None
+        );
+    }
+
+    #[test]
+    fn skipped_copies_read_nothing() {
+        let capture = settings().capture;
+        let paused = CaptureSettings {
+            paused: true,
+            ..settings().capture
+        };
+        assert_eq!(payload_for(&formats(true, true), &paused), None);
+        let ignored = ClipFormats {
+            owner_exe: Some("keepass.exe".into()),
+            ..formats(true, true)
+        };
+        assert_eq!(payload_for(&ignored, &capture), None);
+        let excluded = ClipFormats {
+            excluded: true,
+            ..formats(true, true)
+        };
+        assert_eq!(payload_for(&excluded, &capture), None);
+        let disallowed = ClipFormats {
+            history_disallowed: true,
+            ..formats(true, true)
+        };
+        assert_eq!(payload_for(&disallowed, &capture), None);
+        let own = ClipFormats {
+            from_tex: true,
+            ..formats(true, true)
+        };
+        assert_eq!(payload_for(&own, &capture), None);
+    }
+
+    #[test]
+    fn configure_changes_what_the_watcher_reads() {
+        let (client, receiver) = client(settings());
+        assert_eq!(client.wanted(&formats(true, false)), Some(Payload::Text));
+        let mut paused = settings();
+        paused.capture.paused = true;
+        client.configure(paused.clone());
+        assert_eq!(client.wanted(&formats(true, false)), None);
+        assert_eq!(receiver.try_recv().unwrap(), Command::Configure(paused));
+    }
+
     #[test]
     fn captured_text_is_added() {
         let mut worker = worker(settings());
@@ -861,11 +982,7 @@ mod tests {
 
     #[test]
     fn cancel_search_drops_the_running_search() {
-        let (commands, receiver) = std::sync::mpsc::channel();
-        let client = ClipboardClient {
-            commands,
-            generation: Arc::default(),
-        };
+        let (client, receiver) = client(settings());
         let generation = client.search("acao".into(), HistoryFilter::All);
         client.cancel_search();
         let mut worker = worker(settings());

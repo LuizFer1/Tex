@@ -157,10 +157,16 @@ fn main() -> Result<(), Box<dyn Error>> {
             unavailable: String::new(),
         });
     });
-    let _watcher = match ClipboardWatcher::start({
-        let clipboard = clipboard.clone();
-        move |clip| clipboard.send(ClipboardCommand::Captured(clip))
-    }) {
+    let _watcher = match ClipboardWatcher::start(
+        {
+            let clipboard = clipboard.clone();
+            move |formats| clipboard.wanted(formats)
+        },
+        {
+            let clipboard = clipboard.clone();
+            move |clip| clipboard.send(ClipboardCommand::Captured(clip))
+        },
+    ) {
         Ok(watcher) => Some(watcher),
         Err(error) => {
             with_app(|app| app.capture_error = error.to_string());
@@ -584,7 +590,7 @@ fn clipboard_changed(windows: &Windows) {
             clipboard.on_pick == OnPick::CopyAndPaste,
         )
     });
-    send_history(ClipboardCommand::Configure(settings));
+    with_history(|history| history.client.configure(settings));
     if let Some(tray) = windows.tray.upgrade() {
         tray.set_paused(paused);
     }

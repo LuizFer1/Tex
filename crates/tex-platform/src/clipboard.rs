@@ -56,23 +56,58 @@ pub struct Clip {
     pub owner_exe: Option<String>,
 }
 
-type Callback = Box<dyn Fn(Clip)>;
-
-thread_local! {
-    static ON_CHANGE: RefCell<Option<Callback>> = const { RefCell::new(None) };
+/// The formats on the clipboard, known before any content is read.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ClipFormats {
+    /// `CF_UNICODETEXT` is offered and, once read, not empty.
+    pub text: bool,
+    /// `CF_DIBV5` or `CF_DIB` is offered.
+    pub image: bool,
+    pub excluded: bool,
+    pub history_disallowed: bool,
+    pub from_tex: bool,
+    pub owner_exe: Option<String>,
 }
 
-/// Calls `on_change` on its own thread for every clipboard update. Dropping it stops the thread.
+/// The content worth reading for a [`ClipFormats`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Payload {
+    Text,
+    Image,
+}
+
+type Wanted = dyn Fn(&ClipFormats) -> Option<Payload>;
+
+struct Handlers {
+    wanted: Box<Wanted>,
+    on_change: Box<dyn Fn(Clip)>,
+}
+
+thread_local! {
+    static HANDLERS: RefCell<Option<Handlers>> = const { RefCell::new(None) };
+}
+
+/// Watches the clipboard on its own thread. For every update `wanted` picks the content to
+/// read from the formats alone and `on_change` gets it; when `wanted` returns `None` nothing
+/// is read. Dropping it stops the thread.
 pub struct ClipboardWatcher {
     thread_id: u32,
     thread: Option<JoinHandle<()>>,
 }
 
 impl ClipboardWatcher {
-    pub fn start(on_change: impl Fn(Clip) + Send + 'static) -> io::Result<ClipboardWatcher> {
+    pub fn start(
+        wanted: impl Fn(&ClipFormats) -> Option<Payload> + Send + 'static,
+        on_change: impl Fn(Clip) + Send + 'static,
+    ) -> io::Result<ClipboardWatcher> {
         let (ready, started) = mpsc::channel();
         let thread = thread::spawn(move || {
-            ON_CHANGE.with_borrow_mut(|slot| *slot = Some(Box::new(on_change)));
+            HANDLERS.with_borrow_mut(|slot| {
+                *slot = Some(Handlers {
+                    wanted: Box::new(wanted),
+                    on_change: Box::new(on_change),
+                })
+            });
             let window = match create_window() {
                 Ok(window) => window,
                 Err(error) => {
@@ -162,42 +197,58 @@ unsafe extern "system" fn window_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     if message == WM_CLIPBOARDUPDATE {
-        if let Some(clip) = read_clip(window) {
-            ON_CHANGE.with_borrow(|callback| {
-                if let Some(callback) = callback {
-                    callback(clip);
-                }
-            });
-        }
+        HANDLERS.with_borrow(|handlers| {
+            if let Some(handlers) = handlers
+                && let Some(clip) = read_clip(window, &*handlers.wanted)
+            {
+                (handlers.on_change)(clip);
+            }
+        });
         return 0;
     }
     unsafe { DefWindowProcW(window, message, wparam, lparam) }
 }
 
-/// Reads the formats Tex cares about. `None` when the clipboard stays locked by another app.
-fn read_clip(window: HWND) -> Option<Clip> {
+/// Reads the formats first and then only the content `wanted` asks for; text that turns out
+/// empty asks again without it. `None` when nothing is wanted or the clipboard stays locked.
+fn read_clip(window: HWND, wanted: &Wanted) -> Option<Clip> {
+    let owner_exe = owner_exe();
     if !open_clipboard(window) {
         return None;
     }
-    let from_tex = available(format(TEX_FORMAT));
-    let excluded = available(format(EXCLUDE_FORMAT));
-    let history_disallowed = read_format(format(HISTORY_FORMAT))
-        .and_then(|bytes| bytes.get(..4).map(|value| value == [0, 0, 0, 0]))
-        .unwrap_or(false);
-    let (text, dib) = if from_tex {
-        (None, None)
+    let mut formats = ClipFormats {
+        text: available(CF_UNICODETEXT as u32),
+        image: available(CF_DIBV5 as u32) || available(CF_DIB as u32),
+        excluded: available(format(EXCLUDE_FORMAT)),
+        history_disallowed: read_format(format(HISTORY_FORMAT))
+            .and_then(|bytes| bytes.get(..4).map(|value| value == [0, 0, 0, 0]))
+            .unwrap_or(false),
+        from_tex: available(format(TEX_FORMAT)),
+        owner_exe,
+    };
+    let mut payload = wanted(&formats);
+    let mut text = None;
+    if payload == Some(Payload::Text) {
+        text = read_text().filter(|text| !text.is_empty());
+        if text.is_none() {
+            formats.text = false;
+            payload = wanted(&formats);
+        }
+    }
+    let dib = if payload == Some(Payload::Image) {
+        read_format(CF_DIBV5 as u32).or_else(|| read_format(CF_DIB as u32))
     } else {
-        let dib = read_format(CF_DIBV5 as u32).or_else(|| read_format(CF_DIB as u32));
-        (read_text(), dib)
+        None
     };
     unsafe { CloseClipboard() };
+    payload?;
     Some(Clip {
         text,
         dib,
-        excluded,
-        history_disallowed,
-        from_tex,
-        owner_exe: owner_exe(),
+        excluded: formats.excluded,
+        history_disallowed: formats.history_disallowed,
+        from_tex: formats.from_tex,
+        owner_exe: formats.owner_exe,
     })
 }
 
