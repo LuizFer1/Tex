@@ -22,7 +22,7 @@ cargo run -p tex-indexer -- console        # admin terminal: index and serve in 
 cargo run -p tex-indexer -- install        # admin terminal: register and start the service from this exe
 cargo run -p tex-indexer -- install --all-users   # admin terminal: same, but every signed-in user may search
 cargo run -p tex-indexer -- uninstall      # admin terminal: stop and remove the service
-"%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.1.0 installer\tex.iss   # after cargo build --release: target\installer\Tex-Setup-0.1.0.exe
+"%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.2.0 installer\tex.iss   # after cargo build --release; AppVersion = workspace version; output target\installer\Tex-Setup-0.2.0.exe
 cargo run --release -p tex-indexer --example fake_server -- C:\some\folder   # no admin: serve one folder for app testing
 ```
 
@@ -39,7 +39,7 @@ Cargo workspace, crates in `crates/`:
 - `tex-ipc`: messages between the app and the search service (`serde` + `postcard`, u32 length prefix, 4 MB limit).
 - `tex-indexer` (lib + binary): the search service. Each NTFS volume gets a thread (`runner.rs`) that loads its snapshot from `%ProgramData%\Tex\index` or enumerates the MFT (`FSCTL_ENUM_USN_DATA`), then blocks on `FSCTL_READ_USN_JOURNAL` and applies close records. `engine.rs` answers requests and is pure (tested); `pipe.rs` serves `\\.\pipe\tex-indexer` with a DACL for SYSTEM, Administrators and either the installing user (`--allow <sid>`) or every interactive user (`--allow-interactive`, from `install --all-users`). The pipe is strictly request→response: never read and write the same synchronous pipe handle from two threads. New volumes are discovered at start and on every `Status` request (no device notifications). Opening volumes needs admin, so `runner.rs` and `volumes.rs` I/O are only verified manually. The SCM starts the exe as `tex-indexer service --allow…` (`service.rs`); that subcommand is not for manual use. Data lives in `%ProgramData%\Tex` (private ACL): snapshots in `index\<volume serial>.bin`, written via temp file + rename, and the log in `logs\indexer.log`, rotated at 1 MB. Check the log first when the service misbehaves.
 
-Releases: `installer/tex.iss` (Inno Setup, UTF-8 with BOM) installs both exes to Program Files. Before copying it removes any existing `tex-indexer` service using the new exe extracted to `{tmp}`, then runs `install` or `install --all-users` according to its "Who can use Tex" page and puts the shortcut and the `Run` value in the user or the common scope. `.github/workflows/release.yml` builds the installer and a draft GitHub Release on every `v*` tag, which must match the workspace version.
+Releases: `installer/tex.iss` (Inno Setup, UTF-8 with BOM) installs both exes to Program Files. Before copying it removes any existing `tex-indexer` service using the new exe extracted to `{tmp}`, then runs `install` or `install --all-users` according to its "Who can use Tex" page and puts the shortcut and the `Run` value in the user or the common scope. `.github/workflows/release.yml` runs `cargo test`, then builds the installer and a draft GitHub Release on every `v*` tag, which must match the workspace version. There is no other CI, so run `cargo test`, `cargo clippy --all-targets` and `cargo fmt` locally before committing.
 
 Event flow: everything runs on the main thread inside Slint's winit event loop (`run_event_loop_until_quit`, so hiding every window does not exit). `global-hotkey` needs a Win32 message loop on the thread that created the manager, and winit's loop provides it. Hotkey callbacks arrive through `set_event_handler` and go back into Slint with `invoke_from_event_loop`; the history hotkey is told apart by its id. Nothing polls and there are no timers, so the CPU stays at 0 while idle. Keep it that way.
 
@@ -54,7 +54,7 @@ Slint uses the software renderer (`renderer-software`) with winit. Access to the
 ## Stack
 
 - Rust for everything: UI and features, built as one native desktop program. The UI framework is Slint, chosen for its low RAM and CPU footprint. Target: under ~80 MB of RAM at idle with the popup closed.
-- Windows first, with macOS and Linux planned later. Keep OS-specific code (clipboard, file index, installed apps, global hotkey, tray) behind traits so other platforms can be added without touching the UI or the core.
+- Windows first, with macOS and Linux planned later. Keep OS-specific code (clipboard, file index, installed apps, global hotkey, tray) in `tex-platform`'s per-OS modules, all exposing the same public API, so other platforms can be added without touching the UI or the core.
 - The UI is a frameless popup opened by a global hotkey (Spotlight/PowerToys Run style). It lives in the system tray the rest of the time.
 
 ## License constraints
