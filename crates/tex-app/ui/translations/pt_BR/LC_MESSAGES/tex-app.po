@@ -306,6 +306,9 @@ msgstr "Texto"
 msgid "That shortcut is already used by another program. The previous one was kept."
 msgstr "Esse atalho já é usado por outro programa. O atalho anterior foi mantido."
 
+msgid "That shortcut is already used by another program, so it is not active. Choose another one."
+msgstr "Esse atalho já é usado por outro programa e não está ativo. Escolha outro."
+
 msgid "Theme"
 msgstr "Tema"
 

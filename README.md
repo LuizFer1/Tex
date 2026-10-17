@@ -31,7 +31,7 @@ One search box for everything on your computer.
 Tex keeps what you copy, so you can find it and use it again later. Press **Alt+V** (you can change it) to open the history.
 
 - Text and images are **captured automatically** whenever you copy them. There is nothing to turn on per copy.
-- **Every copy is a new entry.** Copying the same content twice creates two separate entries. Duplicates are kept on purpose, because each copy is its own moment in the history.
+- **Every copy is a new entry.** Copying the same content twice creates two separate entries. Duplicates are kept on purpose, because each copy is its own moment in the history. The one exception: some apps write a single copy to the clipboard more than once, so the same content written again within 1 second of the last saved entry counts as that same copy.
 - Each entry is **independent**. Editing, renaming, favoriting, deleting, or expiring one entry never affects another, even when their content is identical.
 - The history lists entries newest first, with a **preview** on the side. You can **search** names and text, and filter by favorites, text, or images.
 - **Enter** (or a double click) **copies the entry back** to the clipboard and closes the history. If you choose "Copy and paste" in Settings, it also pastes into the window you were using. **Ctrl+Enter** does the other one.
@@ -45,7 +45,7 @@ The first version supports two kinds of content.
 
 | Action | Text | Image |
 | --- | --- | --- |
-| Automatic capture | ✅ plain text | ✅ bitmaps (24 and 32 bits) |
+| Automatic capture | ✅ plain text | ✅ bitmaps (1 to 32 bits, uncompressed) |
 | View / preview | ✅ | ✅ |
 | Search by content | ✅ | — (by name) |
 | Copy again | ✅ | ✅ |
@@ -142,7 +142,7 @@ cargo build --release
 target\release\tex-indexer.exe install     # in an administrator terminal; --all-users lets every account search; uninstall removes it
 ```
 
-To build the installer, install [Inno Setup 6](https://jrsoftware.org/isinfo.php) and, after the release build, run `ISCC.exe /DAppVersion=0.1.0 installer\tex.iss`. The result is `target\installer\Tex-Setup-0.1.0.exe`.
+To build the installer, install [Inno Setup 6](https://jrsoftware.org/isinfo.php) and, after the release build, run `ISCC.exe /DAppVersion=0.3.0 installer\tex.iss` with the workspace version. The result is `target\installer\Tex-Setup-0.3.0.exe`.
 
 To try the app without administrator rights, serve a single folder instead:
 
@@ -150,9 +150,9 @@ To try the app without administrator rights, serve a single folder instead:
 cargo run --release -p tex-indexer --example fake_server -- C:\Users\you
 ```
 
-Press **Alt+Space** to open the search popup and type. **↑/↓** move the selection, **Enter** opens the item, **Ctrl+Enter** shows it in its folder, **Tab** switches between All, Apps, Files and Folders, and **Esc** or clicking outside closes the popup. Apps (Start Menu shortcuts and executables) are listed first. Press **Alt+V** for the clipboard history. The tray menu has Open Tex, Clipboard history, Settings, About Tex, Pause capture, and Quit.
+Press **Alt+Space** to open the search popup and type. **↑/↓** move the selection, **Enter** opens the item and **Ctrl+Enter** shows it in its folder (Settings can swap the two), **Tab** switches between All, Apps, Files and Folders, and **Esc** or clicking outside closes the popup. Apps (Start Menu shortcuts and executables) are listed first. Press **Alt+V** for the clipboard history. Clicking the tray icon opens or closes the popup, and its menu has Open Tex, Clipboard history, Settings, About Tex, Pause capture, and Quit.
 
-Measured with the release build on Windows 10 at 1920×1080: about 15 MB working set at startup, about 18 MB after opening the popup, and no CPU time while idle.
+Measured with the installed 0.3.0 release on Windows 10 at 1920×1080, with every window closed after a session of use: `tex.exe` holds about 36 MB working set (7 MB private) and uses almost no CPU. The search service's memory grows with the number of files indexed.
 
 ---
 

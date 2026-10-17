@@ -1,6 +1,8 @@
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::iter;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
@@ -24,6 +26,7 @@ pub struct SearchOptions {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     Search {
+        id: u64,
         query: String,
         filter: Filter,
         options: SearchOptions,
@@ -38,50 +41,70 @@ pub enum Event {
     Unavailable,
 }
 
+#[derive(Clone, Default)]
+pub struct Latest(Arc<AtomicU64>);
+
+impl Latest {
+    pub fn is(&self, id: u64) -> bool {
+        self.0.load(Ordering::Relaxed) == id
+    }
+
+    fn next(&self) -> u64 {
+        self.0.fetch_add(1, Ordering::Relaxed) + 1
+    }
+}
+
 #[derive(Clone)]
 pub struct SearchClient {
     commands: Sender<Command>,
+    latest: Latest,
 }
 
 impl SearchClient {
     /// Starts the thread that talks to the search service. `on_event` runs on that thread.
-    pub fn start(home: String, on_event: impl Fn(Event) + Send + 'static) -> Self {
+    pub fn start(home: String, latest: Latest, on_event: impl Fn(Event) + Send + 'static) -> Self {
         let (commands, receiver) = mpsc::channel();
         thread::spawn(move || run(&receiver, &home, &on_event));
-        Self { commands }
+        Self { commands, latest }
     }
 
     pub fn send(&self, command: Command) {
         let _ = self.commands.send(command);
     }
+
+    pub fn search(&self, query: String, filter: Filter, options: SearchOptions) {
+        self.send(Command::Search {
+            id: self.latest.next(),
+            query,
+            filter,
+            options,
+        });
+    }
 }
 
 fn run(receiver: &Receiver<Command>, home: &str, on_event: &dyn Fn(Event)) {
     let mut connection = None;
-    let mut next_id = 0;
     while let Ok(first) = receiver.recv() {
         for command in coalesce(iter::once(first).chain(receiver.try_iter())) {
             let request = match command {
                 Command::Search {
+                    id,
                     query,
                     filter,
                     options,
-                } => {
-                    next_id += 1;
-                    Request::Search(SearchQuery {
-                        id: next_id,
-                        query,
-                        filter,
-                        limit: LIMIT,
-                        home: home.to_owned(),
-                        include_hidden: options.include_hidden,
-                        include_system: options.include_system,
-                        excluded_folders: options.excluded_folders,
-                        show_apps: options.show_apps,
-                        show_files: options.show_files,
-                        show_folders: options.show_folders,
-                    })
-                }
+                } => Request::Search(SearchQuery {
+                    id,
+                    query,
+                    filter,
+                    limit: LIMIT,
+                    home: home.to_owned(),
+                    include_hidden: options.include_hidden,
+                    include_system: options.include_system,
+                    excluded_folders: options.excluded_folders,
+                    show_apps: options.show_apps,
+                    show_files: options.show_files,
+                    show_folders: options.show_folders,
+                }),
                 Command::Status => Request::Status,
             };
             on_event(match exchange(&mut connection, &request) {
@@ -138,6 +161,7 @@ mod tests {
 
     fn search(text: &str) -> Command {
         Command::Search {
+            id: 0,
             query: text.into(),
             filter: Filter::All,
             options: SearchOptions::default(),
@@ -166,5 +190,14 @@ mod tests {
             [Command::Status]
         );
         assert_eq!(coalesce(vec![search("x")].into_iter()), [search("x")]);
+    }
+
+    #[test]
+    fn only_the_newest_id_is_latest() {
+        let latest = Latest::default();
+        let first = latest.next();
+        let second = latest.next();
+        assert!(!latest.is(first));
+        assert!(latest.is(second));
     }
 }

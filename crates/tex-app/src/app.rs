@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use global_hotkey::GlobalHotKeyManager;
 use global_hotkey::hotkey::HotKey;
@@ -22,11 +22,14 @@ pub struct AppState {
     pub winkey_error: String,
     pub capture_error: String,
     pub paste_target: isize,
+    pub previous_foreground: isize,
     hotkeys: GlobalHotKeyManager,
     hotkey: Option<HotKey>,
     history_hotkey: Option<HotKey>,
     winkey: Option<WinKeyHook>,
 }
+
+const TRAY_CLICK_GRACE: Duration = Duration::from_millis(300);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HotkeyError {
@@ -36,6 +39,12 @@ pub enum HotkeyError {
 
 thread_local! {
     static APP: RefCell<Option<AppState>> = const { RefCell::new(None) };
+}
+
+/// Clicking the tray icon takes the focus from the popup, which hides it just before the
+/// click arrives, so a popup that closed this recently still counts as open.
+pub fn tray_click_closes(closed_at: Option<Instant>, now: Instant) -> bool {
+    closed_at.is_some_and(|closed_at| now.saturating_duration_since(closed_at) < TRAY_CLICK_GRACE)
 }
 
 pub fn init(state: AppState) {
@@ -58,6 +67,7 @@ impl AppState {
             winkey_error: String::new(),
             capture_error: String::new(),
             paste_target: 0,
+            previous_foreground: 0,
             hotkeys,
             hotkey: None,
             history_hotkey: None,
@@ -243,6 +253,17 @@ pub fn client_settings(clipboard: &Clipboard) -> ClientSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tray_click_right_after_the_popup_closed_keeps_it_closed() {
+        let now = Instant::now();
+        assert!(!tray_click_closes(None, now));
+        assert!(tray_click_closes(
+            Some(now),
+            now + Duration::from_millis(100)
+        ));
+        assert!(!tray_click_closes(Some(now), now + Duration::from_secs(1)));
+    }
 
     #[test]
     fn the_two_shortcuts_cannot_be_the_same() {

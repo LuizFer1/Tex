@@ -65,6 +65,7 @@ pub enum NewEntry {
 #[derive(Debug)]
 pub enum OpenError {
     WrongKey,
+    NewerVersion(i32),
     Sql(rusqlite::Error),
 }
 
@@ -78,6 +79,10 @@ impl fmt::Display for OpenError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             OpenError::WrongKey => f.write_str("the key does not open this history"),
+            OpenError::NewerVersion(version) => write!(
+                f,
+                "this history was written by a newer version of Tex (schema {version})"
+            ),
             OpenError::Sql(error) => error.fmt(f),
         }
     }
@@ -199,7 +204,13 @@ impl Store {
         Store::init(Connection::open_in_memory()?, key)
     }
 
+    /// Creates the schema in a new file and refuses one from a newer schema, which this
+    /// version would misread.
     fn init(conn: Connection, key: Key) -> Result<Store, OpenError> {
+        let version: i32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        if version > SCHEMA_VERSION {
+            return Err(OpenError::NewerVersion(version));
+        }
         conn.pragma_update(None, "auto_vacuum", "INCREMENTAL")?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.execute_batch(SCHEMA)?;
@@ -319,24 +330,27 @@ impl Store {
     }
 
     /// `None` when `cancelled()` turned true midway.
+    /// Rows found by `query`, newest first and older than `before` when given; `Ok(None)`
+    /// when cancelled.
     pub fn search(
         &self,
         query: &str,
         filter: HistoryFilter,
+        before: Option<i64>,
         limit: usize,
         cancelled: &dyn Fn() -> bool,
     ) -> rusqlite::Result<Option<Vec<Summary>>> {
         let query = tex_index::fold(query.trim());
         if query.is_empty() {
-            return self.page(filter, None, limit).map(Some);
+            return self.page(filter, before, limit).map(Some);
         }
         let sql = format!(
             "SELECT {COLUMNS}, CASE WHEN kind = 0 THEN content END FROM entries
-             WHERE {} ORDER BY id DESC",
+             WHERE {} AND id < ?1 ORDER BY id DESC",
             filter_sql(filter)
         );
         let mut statement = self.conn.prepare(&sql)?;
-        let mut rows = statement.query([])?;
+        let mut rows = statement.query([before.unwrap_or(i64::MAX)])?;
         let mut found = Vec::new();
         while found.len() < limit {
             if cancelled() {
@@ -350,17 +364,41 @@ impl Store {
             let Some((name, preview)) = self.readable(&raw) else {
                 continue;
             };
-            let matches = name
-                .as_deref()
-                .is_some_and(|name| tex_index::fold(name).contains(&query))
-                || content
-                    .and_then(|sealed| self.open_text(&sealed))
-                    .is_some_and(|text| tex_index::fold(&text).contains(&query));
-            if matches {
+            if self.found(name.as_deref(), content, &query) {
                 found.push(raw.into_summary(name, preview));
             }
         }
         Ok(Some(found))
+    }
+
+    pub fn matches(&self, id: i64, query: &str) -> rusqlite::Result<bool> {
+        let query = tex_index::fold(query.trim());
+        let row = self
+            .conn
+            .query_row(
+                "SELECT name, CASE WHEN kind = 0 THEN content END FROM entries WHERE id = ?1",
+                [id],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<Vec<u8>>>(0)?,
+                        row.get::<_, Option<Vec<u8>>>(1)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((name, content)) = row else {
+            return Ok(false);
+        };
+        let name = name.and_then(|sealed| self.open_text(&sealed));
+        Ok(query.is_empty() || self.found(name.as_deref(), content, &query))
+    }
+
+    /// Names match for every row, content only for texts. `query` is already folded.
+    fn found(&self, name: Option<&str>, content: Option<Vec<u8>>, query: &str) -> bool {
+        name.is_some_and(|name| tex_index::fold(name).contains(query))
+            || content
+                .and_then(|sealed| self.open_text(&sealed))
+                .is_some_and(|text| tex_index::fold(&text).contains(query))
     }
 
     pub fn summary(&self, id: i64) -> rusqlite::Result<Option<Summary>> {
@@ -582,7 +620,7 @@ mod tests {
 
     fn search_ids(store: &Store, query: &str, filter: HistoryFilter) -> Vec<i64> {
         ids(&store
-            .search(query, filter, 100, &|| false)
+            .search(query, filter, None, 100, &|| false)
             .unwrap()
             .unwrap())
     }
@@ -750,6 +788,19 @@ mod tests {
     }
 
     #[test]
+    fn matches_one_row_like_search() {
+        let mut store = store();
+        let plain = store.insert(&text("Ação rápida"), NOW).unwrap().id;
+        let picture = store.insert(&image(), NOW).unwrap().id;
+        store.rename(picture, Some("Recibo")).unwrap();
+        assert!(store.matches(plain, "acao").unwrap());
+        assert!(!store.matches(plain, "recibo").unwrap());
+        assert!(store.matches(picture, "recibo").unwrap());
+        assert!(!store.matches(picture, "acao").unwrap());
+        assert!(!store.matches(picture + 1, "acao").unwrap());
+    }
+
+    #[test]
     fn search_respects_limit_and_cancellation() {
         let mut store = store();
         let mut all = Vec::new();
@@ -758,10 +809,15 @@ mod tests {
         }
         all.reverse();
         let limited = store
-            .search("match", HistoryFilter::All, 3, &|| false)
+            .search("match", HistoryFilter::All, None, 3, &|| false)
             .unwrap()
             .unwrap();
         assert_eq!(ids(&limited), all[..3]);
+        let next = store
+            .search("match", HistoryFilter::All, Some(all[2]), 3, &|| false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(ids(&next), all[3..6]);
         let calls = Cell::new(0);
         let cancelled = || {
             calls.set(calls.get() + 1);
@@ -769,7 +825,7 @@ mod tests {
         };
         assert_eq!(
             store
-                .search("match", HistoryFilter::All, 100, &cancelled)
+                .search("match", HistoryFilter::All, None, 100, &cancelled)
                 .unwrap(),
             None
         );
@@ -866,6 +922,27 @@ mod tests {
         removed.sort();
         assert_eq!(removed, [a, c]);
         assert_eq!(page_ids(&store, HistoryFilter::All), [b]);
+    }
+
+    #[test]
+    fn a_newer_schema_is_refused_untouched() {
+        let dir = temp_dir("newer");
+        let path = dir.join("clipboard.db");
+        let key = new_key();
+        drop(Store::open(&path, key.clone()).unwrap());
+        Connection::open(&path)
+            .unwrap()
+            .pragma_update(None, "user_version", SCHEMA_VERSION + 1)
+            .unwrap();
+        assert!(matches!(
+            Store::open(&path, key),
+            Err(OpenError::NewerVersion(version)) if version == SCHEMA_VERSION + 1
+        ));
+        let version: i32 = Connection::open(&path)
+            .unwrap()
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION + 1);
     }
 
     #[test]

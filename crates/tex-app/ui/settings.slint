@@ -41,7 +41,7 @@ export component SettingsWindow inherits Window {
     in-out property <int> theme;
     in property <string> hotkey-text;
     in-out property <bool> recording;
-    // 0 none, 1 could not register
+    // 0 none, 1 could not register (previous kept), 2 conflict, 3 could not register at startup
     in property <int> hotkey-error;
     in-out property <bool> windows-key;
     in property <string> winkey-error;
@@ -62,7 +62,7 @@ export component SettingsWindow inherits Window {
 
     in property <string> history-hotkey-text;
     in-out property <bool> history-recording;
-    // 0 none, 1 could not register, 2 used to open Tex
+    // 0 none, 1 could not register (previous kept), 2 used to open Tex, 3 could not register at startup
     in property <int> history-hotkey-error;
     in-out property <bool> paused;
     in-out property <bool> capture-text;
@@ -103,6 +103,12 @@ export component SettingsWindow inherits Window {
     callback add-app();
     callback remove-app(int);
     callback clear-history();
+
+    changed current-tab => {
+        if self.current-tab == 1 {
+            root.refresh-drives();
+        }
+    }
 
     changed scheme => {
         Palette.color-scheme = self.scheme;
@@ -212,6 +218,11 @@ export component SettingsWindow inherits Window {
                             }
                             if root.hotkey-error == 1: Hint {
                                 text: @tr("That shortcut is already used by another program. The previous one was kept.");
+                                color: #d13438;
+                                opacity: 1;
+                            }
+                            if root.hotkey-error == 3: Hint {
+                                text: @tr("That shortcut is already used by another program, so it is not active. Choose another one.");
                                 color: #d13438;
                                 opacity: 1;
                             }
@@ -470,6 +481,11 @@ export component SettingsWindow inherits Window {
                                 }
                                 if root.history-hotkey-error == 1: Hint {
                                     text: @tr("That shortcut is already used by another program. The previous one was kept.");
+                                    color: #d13438;
+                                    opacity: 1;
+                                }
+                                if root.history-hotkey-error == 3: Hint {
+                                    text: @tr("That shortcut is already used by another program, so it is not active. Choose another one.");
                                     color: #d13438;
                                     opacity: 1;
                                 }

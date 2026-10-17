@@ -21,6 +21,7 @@ use std::time::Instant;
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use slint::winit_030::winit::event::WindowEvent;
 use slint::winit_030::winit::platform::windows::WindowExtWindows;
+use slint::winit_030::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::winit_030::{EventResult, WinitWindowAccessor};
 use slint::{
     CloseRequestResponse, ComponentHandle, Image, Model, ModelRc, PhysicalPosition, Rgba8Pixel,
@@ -31,20 +32,21 @@ use tex_clipboard::{
 };
 use tex_ipc::{Filter, VolumeState, VolumeStatus};
 use tex_platform::{
-    ClipboardWatcher, IconPixels, LocalTime, SingleInstance, foreground_window, local_time,
-    open_path, paste_into, pick_file, pick_folder, primary_work_area, reveal_in_folder,
-    work_area_under_cursor, write_image, write_text,
+    ClipboardWatcher, IconPixels, LocalTime, SingleInstance, catch_windows_key, foreground_window,
+    local_time, lock_foreground, open_path, paste_into, pick_file, pick_folder, primary_work_area,
+    restore_foreground, reveal_in_folder, take_foreground, work_area_under_cursor, write_image,
+    write_text,
 };
 
 use crate::app::{AppState, HotkeyError, with_app};
 use crate::clipboard_client::{
-    ClipboardClient, Command as ClipboardCommand, Event as ClipboardEvent, PAGE_SIZE,
+    ClipboardClient, Command as ClipboardCommand, Event as ClipboardEvent, PAGE_SIZE, SEARCH_LIMIT,
     history_folder, now_ms,
 };
 use crate::history::{HistoryList, size_parts, when_parts};
 use crate::icons::{IconCache, IconLoader, IconState};
 use crate::results::{Row, build_rows, group_digits, status_parts, step_selection};
-use crate::search_client::{Command, Event, SearchClient};
+use crate::search_client::{Command, Event, Latest, SearchClient};
 use crate::settings::{
     CLEANUP_DAYS, Cleanup, EnterAction, ITEM_SIZES_MB, KeepSearch, Language, OnPick, PopupMonitor,
     STORAGE_LIMITS_MB, Settings, Theme, settings_path,
@@ -54,6 +56,7 @@ use crate::shortcut::Shortcut;
 slint::include_modules!();
 
 const ICON_CACHE_SIZE: usize = 256;
+const SEARCH_TAB: i32 = 1;
 const CLIPBOARD_TAB: i32 = 2;
 const PREVIEW_CHARS: usize = 100_000;
 
@@ -182,15 +185,23 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    let client = SearchClient::start(std::env::var("USERPROFILE").unwrap_or_default(), {
-        let windows = windows.clone();
-        let icons = icons.clone();
-        move |event| {
+    let latest = Latest::default();
+    let client = SearchClient::start(
+        std::env::var("USERPROFILE").unwrap_or_default(),
+        latest.clone(),
+        {
             let windows = windows.clone();
             let icons = icons.clone();
-            let _ = slint::invoke_from_event_loop(move || show_event(&windows, event, &icons));
-        }
-    });
+            move |event| {
+                let windows = windows.clone();
+                let icons = icons.clone();
+                let latest = latest.clone();
+                let _ = slint::invoke_from_event_loop(move || {
+                    show_event(&windows, event, &icons, &latest)
+                });
+            }
+        },
+    );
 
     with_app(|app| {
         app.resume_hotkey();
@@ -224,11 +235,25 @@ fn main() -> Result<(), Box<dyn Error>> {
     wire_popup(&popup, &windows, &client);
     wire_settings(&settings_window, &windows, &client);
     wire_history(&history, &windows, &client);
+    for window in [about.window(), settings_window.window()] {
+        let windows = windows.clone();
+        window.on_winit_window_event(move |_, event| {
+            if matches!(event, WindowEvent::ThemeChanged(_)) {
+                theme_changed(&windows);
+            }
+            EventResult::Propagate
+        });
+    }
 
     tray.on_open({
         let windows = windows.clone();
         let client = client.clone();
         move || show_popup(&windows, &client)
+    });
+    tray.on_toggle({
+        let windows = windows.clone();
+        let client = client.clone();
+        move || tray_toggle(&windows, &client)
     });
     tray.on_history({
         let windows = windows.clone();
@@ -284,15 +309,20 @@ fn wire_popup(popup: &Popup, windows: &Windows, client: &SearchClient) {
         let popup = popup.as_weak();
         move || {
             if let Some(popup) = popup.upgrade() {
-                hide_popup(&popup);
+                close_popup(&popup);
             }
         }
     });
     popup.window().on_winit_window_event({
         let popup = popup.as_weak();
+        let windows = windows.clone();
         move |_, event| {
-            if matches!(event, WindowEvent::Focused(false)) {
-                let _ = popup.upgrade_in_event_loop(|popup| hide_popup(&popup));
+            match event {
+                WindowEvent::Focused(false) => {
+                    let _ = popup.upgrade_in_event_loop(|popup| hide_popup(&popup));
+                }
+                WindowEvent::ThemeChanged(_) => theme_changed(&windows),
+                _ => {}
             }
             EventResult::Propagate
         }
@@ -555,15 +585,25 @@ fn resume_hotkeys() {
     });
 }
 
+/// The error shown under a shortcut: when the previous one could not be registered either,
+/// nothing was kept and the shortcut is not active.
+fn hotkey_error(result: Result<(), HotkeyError>, previous_failed: bool) -> i32 {
+    match result {
+        Ok(()) => 0,
+        Err(HotkeyError::Register) if previous_failed => 3,
+        Err(HotkeyError::Register) => 1,
+        Err(HotkeyError::Conflict) => 2,
+    }
+}
+
 fn change_history_hotkey(window: &SettingsWindow, shortcut: &Shortcut) {
     let result = with_app(|app| app.apply_history_hotkey(shortcut));
     resume_hotkeys();
     window.set_history_recording(false);
-    window.set_history_hotkey_error(match result {
-        Ok(()) => 0,
-        Err(HotkeyError::Register) => 1,
-        Err(HotkeyError::Conflict) => 2,
-    });
+    window.set_history_hotkey_error(hotkey_error(
+        result,
+        with_app(|app| app.history_hotkey_failed),
+    ));
     window.set_history_hotkey_text(with_app(|app| app.history_shortcut().display()).into());
     if result.is_ok() {
         save_settings(window);
@@ -607,11 +647,7 @@ fn change_hotkey(window: &SettingsWindow, shortcut: &Shortcut) {
     let result = with_app(|app| app.apply_hotkey(shortcut));
     resume_hotkeys();
     window.set_recording(false);
-    window.set_hotkey_error(match result {
-        Ok(()) => 0,
-        Err(HotkeyError::Register) => 1,
-        Err(HotkeyError::Conflict) => 2,
-    });
+    window.set_hotkey_error(hotkey_error(result, with_app(|app| app.hotkey_failed)));
     window.set_hotkey_text(with_app(|app| app.shortcut().display()).into());
     if result.is_ok() {
         save_settings(window);
@@ -672,6 +708,11 @@ fn settings_edited(windows: &Windows, client: &SearchClient) {
     }
 }
 
+fn theme_changed(windows: &Windows) {
+    let windows = windows.clone();
+    let _ = slint::invoke_from_event_loop(move || apply_theme(&windows));
+}
+
 fn apply_theme(windows: &Windows) {
     let scheme = app::color_scheme(with_app(|app| app.settings.general.theme));
     if let Some(popup) = windows.popup.upgrade() {
@@ -718,7 +759,7 @@ fn fill_settings(window: &SettingsWindow, app: &AppState) {
         Theme::Dark => 2,
     });
     window.set_hotkey_text(app.shortcut().display().into());
-    window.set_hotkey_error(if app.hotkey_failed { 1 } else { 0 });
+    window.set_hotkey_error(if app.hotkey_failed { 3 } else { 0 });
     window.set_recording(false);
     window.set_windows_key(general.windows_key);
     window.set_winkey_error(app.winkey_error.as_str().into());
@@ -747,7 +788,7 @@ fn fill_settings(window: &SettingsWindow, app: &AppState) {
     fill_folders(window, &app.settings);
     let clipboard = &app.settings.clipboard;
     window.set_history_hotkey_text(app.history_shortcut().display().into());
-    window.set_history_hotkey_error(if app.history_hotkey_failed { 1 } else { 0 });
+    window.set_history_hotkey_error(if app.history_hotkey_failed { 3 } else { 0 });
     window.set_history_recording(false);
     window.set_paused(clipboard.paused);
     window.set_capture_text(clipboard.capture_text);
@@ -884,7 +925,9 @@ fn show_settings(windows: &Windows, client: &SearchClient, tab: Option<i32>) {
     if let Some(tab) = tab {
         window.set_current_tab(tab);
     }
-    client.send(Command::Status);
+    if window.get_current_tab() == SEARCH_TAB {
+        client.send(Command::Status);
+    }
     send_history(ClipboardCommand::Usage);
     let _ = window.show();
     window
@@ -897,10 +940,37 @@ fn toggle_popup(windows: &Windows, client: &SearchClient) {
         return;
     };
     if popup.window().is_visible() {
-        hide_popup(&popup);
+        close_popup(&popup);
     } else {
         show_popup(windows, client);
     }
+}
+
+fn tray_toggle(windows: &Windows, client: &SearchClient) {
+    let Some(popup) = windows.popup.upgrade() else {
+        return;
+    };
+    if popup.window().is_visible() {
+        close_popup(&popup);
+    } else if !with_app(|app| app::tray_click_closes(app.closed_at, Instant::now())) {
+        show_popup(windows, client);
+    }
+}
+
+fn is_foreground(popup: &Popup) -> bool {
+    popup_hwnd(popup) == Some(foreground_window())
+}
+
+fn popup_hwnd(popup: &Popup) -> Option<isize> {
+    popup
+        .window()
+        .with_winit_window(
+            |window| match window.window_handle().map(|handle| handle.as_raw()) {
+                Ok(RawWindowHandle::Win32(handle)) => Some(handle.hwnd.get()),
+                _ => None,
+            },
+        )
+        .flatten()
 }
 
 /// The only way the popup closes, so the time it closed is always known.
@@ -908,11 +978,25 @@ fn hide_popup(popup: &Popup) {
     if popup.window().is_visible() {
         with_app(|app| app.closed_at = Some(Instant::now()));
     }
+    lock_foreground(false);
     let _ = popup.hide();
+}
+
+/// Closes the popup from the keyboard or a toggle, giving the foreground back to the window
+/// that had it instead of letting Windows pick the next one. Hiding because the focus went
+/// elsewhere uses [`hide_popup`], so the window the user chose keeps it.
+fn close_popup(popup: &Popup) {
+    let previous = with_app(|app| std::mem::take(&mut app.previous_foreground));
+    if popup.window().is_visible() && is_foreground(popup) {
+        lock_foreground(false);
+        restore_foreground(previous);
+    }
+    hide_popup(popup);
 }
 
 /// Restores the last search if it is recent enough (otherwise clears it), asks the service
 /// for its status, moves the popup to the configured monitor and gives it keyboard focus.
+/// The popup only closes when it loses the focus, so one that cannot get it is hidden again.
 fn show_popup(windows: &Windows, client: &SearchClient) {
     let Some(popup) = windows.popup.upgrade() else {
         return;
@@ -945,13 +1029,34 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
         let (x, y) = placement::popup_origin(&area, placement::POPUP_WIDTH);
         popup.window().set_position(PhysicalPosition::new(x, y));
     }
+    let previous = foreground_window();
+    with_app(|app| app.previous_foreground = previous);
     if popup.show().is_err() {
         return;
     }
-    popup.window().with_winit_window(|window| {
-        window.set_skip_taskbar(true);
-        window.focus_window();
-    });
+    popup
+        .window()
+        .with_winit_window(|window| window.set_skip_taskbar(true));
+    let Some(window) = popup_hwnd(&popup).filter(|window| take_foreground(*window)) else {
+        hide_popup(&popup);
+        return;
+    };
+    {
+        let windows = windows.clone();
+        catch_windows_key(window, move || {
+            if !with_app(|app| app.settings.general.windows_key) {
+                return false;
+            }
+            let windows = windows.clone();
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(popup) = windows.popup.upgrade() {
+                    close_popup(&popup);
+                }
+            });
+            true
+        });
+    }
+    lock_foreground(true);
     if keep {
         popup.invoke_restore();
         search(&popup, client);
@@ -960,6 +1065,7 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
 
 fn search(popup: &Popup, client: &SearchClient) {
     let query = popup.get_query();
+    popup.set_expanded(!query.trim().is_empty());
     if query.trim().is_empty() {
         popup.set_rows(ModelRc::default());
         popup.set_selected(-1);
@@ -971,11 +1077,11 @@ fn search(popup: &Popup, client: &SearchClient) {
         3 => Filter::Folders,
         _ => Filter::All,
     };
-    client.send(Command::Search {
-        query: query.to_string(),
+    client.search(
+        query.to_string(),
         filter,
-        options: with_app(|app| app::search_options(&app.settings.search)),
-    });
+        with_app(|app| app::search_options(&app.settings.search)),
+    );
 }
 
 fn move_selection(popup: &Popup, step: i32) {
@@ -986,7 +1092,7 @@ fn move_selection(popup: &Popup, step: i32) {
     }
 }
 
-fn show_event(windows: &Windows, event: Event, icons: &IconLoader) {
+fn show_event(windows: &Windows, event: Event, icons: &IconLoader, latest: &Latest) {
     let popup = windows.popup.upgrade();
     let settings = windows.settings.upgrade();
     match event {
@@ -994,7 +1100,7 @@ fn show_event(windows: &Windows, event: Event, icons: &IconLoader) {
             let Some(popup) = popup else {
                 return;
             };
-            if popup.get_query().trim().is_empty() {
+            if popup.get_query().trim().is_empty() || !latest.is(results.id) {
                 return;
             }
             let rows = build_rows(&results.hits);
@@ -1160,16 +1266,21 @@ fn wire_history(window: &HistoryWindow, windows: &Windows, client: &SearchClient
     });
     window.window().on_winit_window_event({
         let window = window.as_weak();
+        let windows = windows.clone();
         move |_, event| {
-            if matches!(event, WindowEvent::Focused(false)) {
-                let _ = window.upgrade_in_event_loop(|window| {
-                    if window.window().is_visible()
-                        && !window.get_renaming()
-                        && !window.get_editing()
-                    {
-                        hide_history(&window);
-                    }
-                });
+            match event {
+                WindowEvent::Focused(false) => {
+                    let _ = window.upgrade_in_event_loop(|window| {
+                        if window.window().is_visible()
+                            && !window.get_renaming()
+                            && !window.get_editing()
+                        {
+                            hide_history(&window);
+                        }
+                    });
+                }
+                WindowEvent::ThemeChanged(_) => theme_changed(&windows),
+                _ => {}
             }
             EventResult::Propagate
         }
@@ -1395,19 +1506,27 @@ fn load_history(window: &HistoryWindow) {
     });
 }
 
-/// Asks for the next page when the list is a page that may continue and none is on its way.
+/// Asks for the next page of the list or of the search when it may continue and none is on
+/// its way.
 fn load_more(window: &HistoryWindow) {
     let filter = history_filter(window);
+    let query = window.get_query().to_string();
     with_history(|history| {
-        if history.search.is_some() || !history.more || history.loading_more {
+        if !history.more || history.loading_more {
             return;
         }
-        if let Some(before) = history.list.last() {
-            history.loading_more = true;
-            history.client.send(ClipboardCommand::Page {
+        let Some(before) = history.list.last() else {
+            return;
+        };
+        history.loading_more = true;
+        match history.search {
+            Some(generation) => history
+                .client
+                .search_more(query, filter, before, generation),
+            None => history.client.send(ClipboardCommand::Page {
                 filter,
                 before: Some(before),
-            });
+            }),
         }
     });
 }
@@ -1445,21 +1564,34 @@ fn clipboard_event(windows: &Windows, event: ClipboardEvent) {
             }
             if append {
                 if loading_more {
-                    append_rows(&window, &rows);
+                    append_rows(&window, &rows, PAGE_SIZE);
                 }
             } else {
                 let more = rows.len() == PAGE_SIZE;
                 replace_rows(&window, &rows, more);
             }
         }
-        ClipboardEvent::SearchResults { generation, rows } => {
-            if visible && with_history(|history| history.search == Some(generation)) {
-                replace_rows(&window, &rows, false);
+        ClipboardEvent::SearchResults {
+            generation,
+            rows,
+            append,
+        } => {
+            let (current, loading_more) =
+                with_history(|history| (history.search == Some(generation), history.loading_more));
+            if !visible || !current {
+                return;
+            }
+            if append {
+                if loading_more {
+                    append_rows(&window, &rows, SEARCH_LIMIT);
+                }
+            } else {
+                replace_rows(&window, &rows, rows.len() == SEARCH_LIMIT);
             }
         }
-        ClipboardEvent::Added(summary) => {
+        ClipboardEvent::Added(summary, found) => {
             if visible {
-                row_added(&window, &summary);
+                row_added(&window, &summary, found);
             }
         }
         ClipboardEvent::Changed(summary) => {
@@ -1548,28 +1680,28 @@ fn replace_rows(window: &HistoryWindow, rows: &[Summary], more: bool) {
     sync_selection(window);
 }
 
-fn append_rows(window: &HistoryWindow, rows: &[Summary]) {
+fn append_rows(window: &HistoryWindow, rows: &[Summary], page: usize) {
     let model = history_rows(rows);
     with_history(|history| {
         history.list.append(rows.iter().map(|row| row.id).collect());
         for row in model {
             history.rows.push(row);
         }
-        history.more = rows.len() == PAGE_SIZE;
+        history.more = rows.len() == page;
         history.loading_more = false;
     });
     sync_selection(window);
 }
 
-/// A new copy goes on top when the list shows the newest rows and the filter takes it.
-fn row_added(window: &HistoryWindow, summary: &Summary) {
+/// A new copy goes on top when the filter takes it and, during a search, the search finds it.
+fn row_added(window: &HistoryWindow, summary: &Summary, found: bool) {
     let accepted = match history_filter(window) {
         HistoryFilter::All => true,
         HistoryFilter::Favorites => summary.favorite,
         HistoryFilter::Text => summary.kind == Kind::Text,
         HistoryFilter::Images => summary.kind == Kind::Image,
     };
-    if !accepted || with_history(|history| history.search.is_some()) {
+    if !accepted || (!found && with_history(|history| history.search.is_some())) {
         return;
     }
     let row = history_rows(std::slice::from_ref(summary)).remove(0);
@@ -1676,11 +1808,19 @@ fn request_content(history: &mut HistoryState, id: i64) {
     }
 }
 
+/// Content that does not decrypt makes its row unreadable, so it can only be deleted.
 fn content_arrived(window: &HistoryWindow, visible: bool, id: i64, content: Option<Content>) {
     let paste = with_history(|history| {
         history.requested = None;
         if !visible {
             return None;
+        }
+        if content.is_none()
+            && let Some(index) = history.list.index_of(id)
+            && let Some(mut row) = history.rows.row_data(index)
+        {
+            row.unreadable = true;
+            history.rows.set_row_data(index, row);
         }
         history.content = Some((id, content));
         match history.shown {

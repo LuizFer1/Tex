@@ -48,9 +48,15 @@ impl Channel {
     }
 }
 
+enum Format {
+    Indexed(Vec<[u8; 4]>),
+    Masks([Channel; 4]),
+    Bgr,
+}
+
 /// Reads a packed DIB (`CF_DIB`/`CF_DIBV5` bytes): BITMAPINFOHEADER or V4/V5 header,
-/// 24 or 32 bits, BI_RGB or BI_BITFIELDS, bottom-up or top-down. 32-bit images whose
-/// alpha is all zero are treated as opaque.
+/// 1, 4 or 8 bits with a color table, 16, 24 or 32 bits, BI_RGB or BI_BITFIELDS,
+/// bottom-up or top-down. 32-bit images whose alpha is all zero are treated as opaque.
 pub fn dib_to_rgba(dib: &[u8]) -> Option<Rgba> {
     let header_len = u32_at(dib, 0)? as usize;
     if header_len < INFO_HEADER_LEN || header_len > dib.len() {
@@ -67,9 +73,26 @@ pub fn dib_to_rgba(dib: &[u8]) -> Option<Rgba> {
     let len = rgba_len(width, height)?;
 
     let mut offset = header_len;
-    let channels = match (bits, compression) {
-        (24 | 32, BI_RGB) => None,
-        (32, BI_BITFIELDS) => {
+    let format = match (bits, compression) {
+        (1 | 4 | 8, BI_RGB) => {
+            let entries = if palette == 0 { 1 << bits } else { palette };
+            let table_len = entries.checked_mul(4)?;
+            let table = dib.get(offset..offset.checked_add(table_len)?)?;
+            offset += table_len;
+            Format::Indexed(
+                table
+                    .chunks_exact(4)
+                    .map(|color| [color[2], color[1], color[0], 255])
+                    .collect(),
+            )
+        }
+        (16, BI_RGB) => Format::Masks([
+            Channel::new(0x7c00),
+            Channel::new(0x03e0),
+            Channel::new(0x001f),
+            Channel::new(0),
+        ]),
+        (16 | 32, BI_BITFIELDS) => {
             if header_len == INFO_HEADER_LEN {
                 offset += 12;
             }
@@ -78,40 +101,61 @@ pub fn dib_to_rgba(dib: &[u8]) -> Option<Rgba> {
             } else {
                 0
             };
-            Some([
+            Format::Masks([
                 Channel::new(u32_at(dib, 40)?),
                 Channel::new(u32_at(dib, 44)?),
                 Channel::new(u32_at(dib, 48)?),
                 Channel::new(alpha),
             ])
         }
+        (24 | 32, BI_RGB) => Format::Bgr,
         _ => return None,
     };
-    offset = offset.checked_add(palette.checked_mul(4)?)?;
+    if !matches!(format, Format::Indexed(_)) {
+        offset = offset.checked_add(palette.checked_mul(4)?)?;
+    }
 
-    let bytes_per_pixel = usize::from(bits / 8);
-    let stride = (width as usize * usize::from(bits)).div_ceil(32) * 4;
+    let bits = usize::from(bits);
+    let stride = (width as usize * bits).div_ceil(32) * 4;
+    let row_len = (width as usize * bits).div_ceil(8);
     let data = dib.get(offset..offset.checked_add(stride.checked_mul(height as usize)?)?)?;
 
     let mut pixels = Vec::with_capacity(len);
     for y in 0..height as usize {
         let row = if top_down { y } else { height as usize - 1 - y };
-        let row = &data[row * stride..row * stride + width as usize * bytes_per_pixel];
-        for px in row.chunks_exact(bytes_per_pixel) {
-            match &channels {
-                Some([r, g, b, a]) => {
-                    let value = u32::from_le_bytes(px.try_into().ok()?);
+        let row = &data[row * stride..row * stride + row_len];
+        match &format {
+            Format::Indexed(table) => {
+                for x in 0..width as usize {
+                    let bit = x * bits;
+                    let index = (row[bit / 8] >> (8 - bits - bit % 8)) & ((1u16 << bits) - 1) as u8;
+                    pixels.extend(
+                        table
+                            .get(usize::from(index))
+                            .copied()
+                            .unwrap_or([0, 0, 0, 255]),
+                    );
+                }
+            }
+            Format::Masks([r, g, b, a]) => {
+                for px in row.chunks_exact(bits / 8) {
+                    let value = match *px {
+                        [low, high] => u32::from(u16::from_le_bytes([low, high])),
+                        _ => u32::from_le_bytes(px.try_into().ok()?),
+                    };
                     let alpha = if a.max == 0 { 255 } else { a.read(value) };
                     pixels.extend([r.read(value), g.read(value), b.read(value), alpha]);
                 }
-                None => {
+            }
+            Format::Bgr => {
+                for px in row.chunks_exact(bits / 8) {
                     let alpha = if bits == 32 { px[3] } else { 255 };
                     pixels.extend([px[2], px[1], px[0], alpha]);
                 }
             }
         }
     }
-    if bits == 32 && channels.is_none() && pixels.chunks_exact(4).all(|px| px[3] == 0) {
+    if bits == 32 && matches!(format, Format::Bgr) && pixels.chunks_exact(4).all(|px| px[3] == 0) {
         pixels.chunks_exact_mut(4).for_each(|px| px[3] = 255);
     }
     Some(Rgba {
@@ -339,8 +383,55 @@ mod tests {
     }
 
     #[test]
+    fn reads_1_bit_with_its_color_table() {
+        let mut dib = header(40, 9, -1, 1, 0);
+        dib.extend([0, 0, 0, 0, 255, 255, 255, 0]);
+        dib.extend([0b1010_0000, 0b1000_0000, 0, 0]);
+        let image = dib_to_rgba(&dib).unwrap();
+        let black = [0, 0, 0, 255];
+        assert_eq!(
+            image.pixels,
+            [
+                WHITE, black, WHITE, black, black, black, black, black, WHITE
+            ]
+            .concat()
+        );
+    }
+
+    #[test]
+    fn reads_4_and_8_bit_with_a_short_color_table() {
+        let mut dib = header(40, 2, -1, 4, 0);
+        dib[32..36].copy_from_slice(&2u32.to_le_bytes());
+        dib.extend([0, 0, 255, 0, 255, 0, 0, 0]);
+        dib.extend([0x01, 0, 0, 0]);
+        assert_eq!(dib_to_rgba(&dib).unwrap().pixels, [RED, BLUE].concat());
+
+        let mut dib = header(40, 3, -1, 8, 0);
+        dib[32..36].copy_from_slice(&2u32.to_le_bytes());
+        dib.extend([0, 255, 0, 0, 255, 255, 255, 0]);
+        dib.extend([1, 0, 7, 0]);
+        assert_eq!(
+            dib_to_rgba(&dib).unwrap().pixels,
+            [WHITE, GREEN, [0, 0, 0, 255]].concat()
+        );
+    }
+
+    #[test]
+    fn reads_16_bit_555_and_565() {
+        let mut dib = header(40, 2, -1, 16, 0);
+        dib.extend([0x00, 0x7c, 0x1f, 0x00]);
+        assert_eq!(dib_to_rgba(&dib).unwrap().pixels, [RED, BLUE].concat());
+
+        let mut dib = header(40, 2, -1, 16, 3);
+        dib.extend([0; 12]);
+        masks(&mut dib, 40, &[0xf800, 0x07e0, 0x001f]);
+        dib.extend([0xe0, 0x07, 0xff, 0xff]);
+        assert_eq!(dib_to_rgba(&dib).unwrap().pixels, [GREEN, WHITE].concat());
+    }
+
+    #[test]
     fn rejects_unsupported_and_truncated() {
-        let mut dib = header(40, 2, 2, 8, 0);
+        let mut dib = header(40, 2, 2, 8, 1);
         dib.extend([0; 64]);
         assert_eq!(dib_to_rgba(&dib), None);
         let mut dib = header(40, 2, 2, 24, 0);

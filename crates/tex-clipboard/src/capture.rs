@@ -55,10 +55,7 @@ pub fn should_capture(facts: &ClipFacts, settings: &CaptureSettings) -> Decision
         return Decision::Skip(Skip::OptedOut);
     }
     if let Some(owner) = facts.owner_exe
-        && settings
-            .ignored_apps
-            .iter()
-            .any(|app| app.eq_ignore_ascii_case(owner))
+        && settings.ignored_apps.iter().any(|app| same_app(app, owner))
     {
         return Decision::Skip(Skip::IgnoredApp);
     }
@@ -69,6 +66,11 @@ pub fn should_capture(facts: &ClipFacts, settings: &CaptureSettings) -> Decision
     } else {
         Decision::Skip(Skip::NoContent)
     }
+}
+
+/// Exe names compared the way Windows compares file names: without case, accents included.
+pub fn same_app(a: &str, b: &str) -> bool {
+    a.to_lowercase() == b.to_lowercase()
 }
 
 pub fn fits(size: u64, settings: &CaptureSettings) -> bool {
@@ -213,6 +215,16 @@ mod tests {
             ..text()
         };
         assert_eq!(should_capture(&facts, &settings()), Decision::Text);
+        let mut settings = settings();
+        settings.ignored_apps = vec!["Éditeur.exe".into()];
+        let facts = ClipFacts {
+            owner_exe: Some("éDITEUR.EXE"),
+            ..text()
+        };
+        assert_eq!(
+            should_capture(&facts, &settings),
+            Decision::Skip(Skip::IgnoredApp)
+        );
     }
 
     #[test]

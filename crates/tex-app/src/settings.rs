@@ -321,7 +321,7 @@ fn normalize_apps(apps: &[String]) -> Vec<String> {
     for app in apps {
         let app = app.trim();
         let name = app.rsplit(['\\', '/']).next().unwrap_or(app).trim();
-        if name.is_empty() || clean.iter().any(|seen| seen.eq_ignore_ascii_case(name)) {
+        if name.is_empty() || clean.iter().any(|seen| tex_clipboard::same_app(seen, name)) {
             continue;
         }
         clean.push(name.to_owned());

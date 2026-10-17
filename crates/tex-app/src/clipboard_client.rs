@@ -17,7 +17,7 @@ use tex_clipboard::{
 use tex_platform::{Clip, ClipFormats, Payload, protect, unprotect};
 
 pub const PAGE_SIZE: usize = 200;
-const SEARCH_LIMIT: usize = 500;
+pub const SEARCH_LIMIT: usize = 500;
 const THUMBNAIL_SIZE: u32 = 96;
 const DATABASE: &str = "clipboard.db";
 const KEY: &str = "clipboard.key";
@@ -40,6 +40,7 @@ pub enum Command {
     Search {
         query: String,
         filter: HistoryFilter,
+        before: Option<i64>,
         generation: u64,
     },
     Content(i64),
@@ -54,9 +55,17 @@ pub enum Command {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     Unavailable(String),
-    Page { rows: Vec<Summary>, append: bool },
-    SearchResults { generation: u64, rows: Vec<Summary> },
-    Added(Summary),
+    Page {
+        rows: Vec<Summary>,
+        append: bool,
+    },
+    SearchResults {
+        generation: u64,
+        rows: Vec<Summary>,
+        append: bool,
+    },
+    /// A new copy, and whether the running search finds it.
+    Added(Summary, bool),
     Changed(Summary),
     Removed(Vec<i64>),
     Content(i64, Option<Content>),
@@ -116,9 +125,19 @@ impl ClipboardClient {
         self.send(Command::Search {
             query,
             filter,
+            before: None,
             generation,
         });
         generation
+    }
+
+    pub fn search_more(&self, query: String, filter: HistoryFilter, before: i64, generation: u64) {
+        self.send(Command::Search {
+            query,
+            filter,
+            before: Some(before),
+            generation,
+        });
     }
 
     /// Cancels the running search, if any.
@@ -162,6 +181,7 @@ fn run(
         settings,
         generation,
         last_copy: None,
+        search: None,
     };
     report(worker.retain(on_event));
     loop {
@@ -200,6 +220,8 @@ struct Worker {
     settings: ClientSettings,
     generation: Arc<AtomicU64>,
     last_copy: Option<LastCopy>,
+    /// The generation and query of the last search run.
+    search: Option<(u64, String)>,
 }
 
 impl Worker {
@@ -409,7 +431,15 @@ fn apply(
                 fingerprint,
                 copied_at: now,
             });
-            emit(Event::Added(summary));
+            let found = match &worker.search {
+                Some((generation, query))
+                    if *generation == worker.generation.load(Ordering::SeqCst) =>
+                {
+                    worker.store.matches(summary.id, query)?
+                }
+                _ => false,
+            };
+            emit(Event::Added(summary, found));
             worker.retain(emit)?;
         }
         Command::Page { filter, before } => {
@@ -422,6 +452,7 @@ fn apply(
         Command::Search {
             query,
             filter,
+            before,
             generation,
         } => {
             let current = Arc::clone(&worker.generation);
@@ -429,11 +460,16 @@ fn apply(
             if cancelled() {
                 return Ok(());
             }
-            if let Some(rows) = worker
+            let found = worker
                 .store
-                .search(&query, filter, SEARCH_LIMIT, &cancelled)?
-            {
-                emit(Event::SearchResults { generation, rows });
+                .search(&query, filter, before, SEARCH_LIMIT, &cancelled)?;
+            worker.search = Some((generation, query));
+            if let Some(rows) = found {
+                emit(Event::SearchResults {
+                    generation,
+                    rows,
+                    append: before.is_some(),
+                });
             }
         }
         Command::Content(id) => {
@@ -535,6 +571,7 @@ mod tests {
             settings,
             generation: Arc::default(),
             last_copy: None,
+            search: None,
         }
     }
 
@@ -556,6 +593,7 @@ mod tests {
         Command::Search {
             query: query.into(),
             filter: HistoryFilter::All,
+            before: None,
             generation,
         }
     }
@@ -564,7 +602,7 @@ mod tests {
         events
             .iter()
             .filter_map(|event| match event {
-                Event::Added(summary) => Some(summary),
+                Event::Added(summary, _) => Some(summary),
                 _ => None,
             })
             .collect()
@@ -1034,6 +1072,7 @@ mod tests {
             Event::SearchResults {
                 generation: 2,
                 rows,
+                append: false,
             },
         ] = &events[..]
         else {
@@ -1041,6 +1080,79 @@ mod tests {
         };
         assert_eq!(rows.len(), 1);
         assert!(run(&mut worker, search("acao", 1)).is_empty());
+    }
+
+    #[test]
+    fn a_new_copy_says_whether_the_running_search_finds_it() {
+        let mut worker = worker(settings());
+        worker.generation.store(1, Ordering::SeqCst);
+        run(&mut worker, search("rel", 1));
+        let found = |events: &[Event]| match events.first() {
+            Some(Event::Added(_, found)) => *found,
+            other => panic!("added expected, got {other:?}"),
+        };
+        assert!(found(&run(
+            &mut worker,
+            Command::Captured(text_clip("relatorio"))
+        )));
+        assert!(!found(&run(
+            &mut worker,
+            Command::Captured(text_clip("outro"))
+        )));
+        worker.generation.store(2, Ordering::SeqCst);
+        assert!(!found(&run(
+            &mut worker,
+            Command::Captured(text_clip("relato"))
+        )));
+    }
+
+    #[test]
+    fn search_more_continues_after_the_last_row() {
+        let mut worker = worker(settings());
+        let now = super::now_ms();
+        let ids: Vec<i64> = (0..SEARCH_LIMIT + 2)
+            .map(|_| {
+                worker
+                    .store
+                    .insert(&NewEntry::Text("match".into()), now)
+                    .unwrap()
+                    .id
+            })
+            .collect();
+        let events = run(&mut worker, search("match", 0));
+        let [
+            Event::SearchResults {
+                rows,
+                append: false,
+                ..
+            },
+        ] = &events[..]
+        else {
+            panic!("results expected, got {events:?}");
+        };
+        assert_eq!(rows.len(), SEARCH_LIMIT);
+        let last = rows.last().unwrap().id;
+        let events = run(
+            &mut worker,
+            Command::Search {
+                query: "match".into(),
+                filter: HistoryFilter::All,
+                before: Some(last),
+                generation: 0,
+            },
+        );
+        let [
+            Event::SearchResults {
+                rows, append: true, ..
+            },
+        ] = &events[..]
+        else {
+            panic!("more results expected, got {events:?}");
+        };
+        assert_eq!(
+            rows.iter().map(|row| row.id).collect::<Vec<_>>(),
+            [ids[1], ids[0]]
+        );
     }
 
     #[test]
@@ -1103,7 +1215,7 @@ mod tests {
         client.send(Command::Captured(text_clip("hello")));
         assert!(matches!(
             events.recv_timeout(timeout).unwrap(),
-            Event::Added(_)
+            Event::Added(_, false)
         ));
         assert_eq!(events.recv_timeout(timeout).unwrap(), Event::Usage(5));
         let first = client.search("hel".into(), HistoryFilter::All);
@@ -1111,7 +1223,9 @@ mod tests {
         assert!(second > first);
         let last = loop {
             match events.recv_timeout(timeout).unwrap() {
-                Event::SearchResults { generation, rows } => {
+                Event::SearchResults {
+                    generation, rows, ..
+                } => {
                     if generation == second {
                         break rows;
                     }

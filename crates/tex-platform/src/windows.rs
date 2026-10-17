@@ -1,12 +1,15 @@
+use std::ffi::c_void;
 use std::io;
+use std::mem::size_of;
 use std::os::windows::process::CommandExt;
 use std::process::Command;
 use std::ptr;
 
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_ALREADY_EXISTS, FILETIME, GetLastError, HANDLE, POINT, SYSTEMTIME,
+    CloseHandle, ERROR_ALREADY_EXISTS, FILETIME, GetLastError, HANDLE, HWND, POINT, SYSTEMTIME,
 };
 use windows_sys::Win32::Globalization::GetUserDefaultLocaleName;
+use windows_sys::Win32::Graphics::Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute};
 use windows_sys::Win32::Graphics::Gdi::{
     GetMonitorInfoW, HMONITOR, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint,
 };
@@ -16,9 +19,13 @@ use windows_sys::Win32::System::Threading::CreateMutexW;
 use windows_sys::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime};
 use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
-use windows_sys::Win32::UI::WindowsAndMessaging::{GetCursorPos, SW_SHOWNORMAL};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    GetCursorPos, GetForegroundWindow, IsIconic, IsWindow, IsWindowVisible, LSFW_LOCK, LSFW_UNLOCK,
+    LockSetForegroundWindow, SW_SHOWNORMAL, SetForegroundWindow,
+};
 
 use crate::WorkArea;
+use crate::winkey::{MASK_KEY, tap_key};
 
 pub struct SingleInstance(HANDLE);
 
@@ -49,6 +56,57 @@ pub fn work_area_under_cursor() -> Option<WorkArea> {
     let mut cursor = POINT { x: 0, y: 0 };
     unsafe { GetCursorPos(&mut cursor) };
     monitor_work_area(unsafe { MonitorFromPoint(cursor, MONITOR_DEFAULTTOPRIMARY) })
+}
+
+/// While locked, other processes cannot take the foreground from this one; clicking another
+/// window or pressing Alt still can. Only works while this process is in the foreground.
+pub fn lock_foreground(lock: bool) {
+    unsafe { LockSetForegroundWindow(if lock { LSFW_LOCK } else { LSFW_UNLOCK }) };
+}
+
+/// Brings `window`, a window of this process, to the foreground. Windows only lets the process
+/// that got the last input take it, and a key the hook swallowed does not count, so when the
+/// direct call fails this sends the mask key first. winit sends Alt instead, which Windows can
+/// take as a lone key press and answer by opening the Start menu.
+pub fn take_foreground(window: isize) -> bool {
+    let window = window as HWND;
+    let is_foreground = || unsafe { GetForegroundWindow() } == window;
+    if is_foreground() {
+        return true;
+    }
+    unsafe { SetForegroundWindow(window) };
+    if is_foreground() {
+        return true;
+    }
+    tap_key(MASK_KEY);
+    unsafe { SetForegroundWindow(window) };
+    is_foreground()
+}
+
+/// Gives the foreground back to `window` when it can still take it: it exists, is visible and
+/// not minimized, and is not cloaked (the Start menu and other shell windows stay "visible"
+/// while hidden). Call it while this process is in the foreground.
+pub fn restore_foreground(window: isize) {
+    let window = window as HWND;
+    if window.is_null()
+        || unsafe { IsWindow(window) } == 0
+        || unsafe { IsWindowVisible(window) } == 0
+        || unsafe { IsIconic(window) } != 0
+    {
+        return;
+    }
+    let mut cloaked = 0u32;
+    let attribute = unsafe {
+        DwmGetWindowAttribute(
+            window,
+            DWMWA_CLOAKED as u32,
+            &mut cloaked as *mut u32 as *mut c_void,
+            size_of::<u32>() as u32,
+        )
+    };
+    if attribute != 0 || cloaked == 0 {
+        unsafe { SetForegroundWindow(window) };
+    }
 }
 
 /// Work area and DPI scale of the primary monitor.

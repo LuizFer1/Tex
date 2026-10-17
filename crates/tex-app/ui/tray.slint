@@ -5,6 +5,7 @@ export component TexTray inherits SystemTrayIcon {
     tooltip: "Tex";
 
     callback open();
+    callback toggle();
     callback history();
     callback settings();
     callback about();
@@ -12,7 +13,7 @@ export component TexTray inherits SystemTrayIcon {
     callback quit();
 
     clicked => {
-        root.open();
+        root.toggle();
     }
 
     Menu {

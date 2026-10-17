@@ -219,14 +219,14 @@ fn new_sequence() -> bool {
     sequence == 0 || LAST_SEQUENCE.replace(sequence) != sequence
 }
 
-/// Reads the formats first and then only the content `wanted` asks for; text that turns out
-/// empty asks again without it. `None` when nothing is wanted or the clipboard stays locked.
+/// Reads the formats first and then only the content `wanted` asks for. `None` when nothing
+/// is wanted, the text wanted turns out empty, or the clipboard stays locked.
 fn read_clip(window: HWND, wanted: &Wanted) -> Option<Clip> {
     let owner_exe = owner_exe();
     if !open_clipboard(window) {
         return None;
     }
-    let mut formats = ClipFormats {
+    let formats = ClipFormats {
         text: available(CF_UNICODETEXT as u32),
         image: available(CF_DIBV5 as u32) || available(CF_DIB as u32),
         excluded: available(format(EXCLUDE_FORMAT)),
@@ -241,8 +241,7 @@ fn read_clip(window: HWND, wanted: &Wanted) -> Option<Clip> {
     if payload == Some(Payload::Text) {
         text = read_text().filter(|text| !text.is_empty());
         if text.is_none() {
-            formats.text = false;
-            payload = wanted(&formats);
+            payload = None;
         }
     }
     let dib = if payload == Some(Payload::Image) {

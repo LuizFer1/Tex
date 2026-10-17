@@ -131,6 +131,8 @@ export component Popup inherits Window {
     in property <bool> show-files: true;
     in property <bool> show-folders: true;
     in property <ColorScheme> scheme;
+    // Whether the query has more than spaces in it, set by the app on every edit.
+    in-out property <bool> expanded;
 
     callback dismissed();
     callback query-edited(string);
@@ -145,13 +147,13 @@ export component Popup inherits Window {
     }
 
     property <length> row-height: 30px;
-    property <bool> expanded: root.query != "";
     property <length> list-height: min(root.rows.length, 8) * root.row-height;
     property <string> status-text: root.service-unavailable ? @tr("Search service is not running. Run tex-indexer install in an administrator terminal.") : (root.status-indexing != "" ? @tr("Indexing {}…", root.status-indexing) : "") + (root.status-indexing != "" && root.status-failed != "" ? " · " : "") + (root.status-failed != "" ? @tr("Unavailable: {}", root.status-failed) : "");
 
     public function reset() {
         root.query = "";
         root.filter = 0;
+        root.expanded = false;
         input.focus();
     }
 
@@ -264,6 +266,15 @@ export component Popup inherits Window {
                 }
             }
 
+            if root.expanded && root.status-text != "": Text {
+                height: 22px;
+                text: root.status-text;
+                font-size: 12px;
+                opacity: 0.7;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
             if root.expanded && root.rows.length > 0: ListView {
                 height: root.list-height;
                 property <[ResultRow]> model: root.rows;
@@ -296,14 +307,6 @@ export component Popup inherits Window {
                 }
             }
 
-            if root.expanded && root.status-text != "": Text {
-                height: 22px;
-                text: root.status-text;
-                font-size: 12px;
-                opacity: 0.7;
-                vertical-alignment: center;
-                overflow: elide;
-            }
         }
     }
 }

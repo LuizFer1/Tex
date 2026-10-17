@@ -2,8 +2,9 @@
 mod windows;
 #[cfg(windows)]
 pub use windows::{
-    LocalTime, SingleInstance, local_time, open_path, primary_work_area, reveal_in_folder,
-    system_uses_dark_theme, user_language, work_area_under_cursor,
+    LocalTime, SingleInstance, local_time, lock_foreground, open_path, primary_work_area,
+    restore_foreground, reveal_in_folder, system_uses_dark_theme, take_foreground, user_language,
+    work_area_under_cursor,
 };
 #[cfg(windows)]
 mod clipboard;
@@ -31,7 +32,7 @@ pub use folder::pick_folder;
 #[cfg(windows)]
 mod winkey;
 #[cfg(windows)]
-pub use winkey::WinKeyHook;
+pub use winkey::{WinKeyHook, catch_windows_key};
 
 #[cfg(not(windows))]
 compile_error!("tex-platform only supports Windows for now");
