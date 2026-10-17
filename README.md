@@ -142,7 +142,7 @@ cargo build --release
 target\release\tex-indexer.exe install     # in an administrator terminal; --all-users lets every account search; uninstall removes it
 ```
 
-To build the installer, install [Inno Setup 6](https://jrsoftware.org/isinfo.php) and, after the release build, run `ISCC.exe /DAppVersion=0.3.0 installer\tex.iss` with the workspace version. The result is `target\installer\Tex-Setup-0.3.0.exe`.
+To build the installer, install [Inno Setup 6](https://jrsoftware.org/isinfo.php) and, after the release build, run `ISCC.exe /DAppVersion=0.4.0 installer\tex.iss` with the workspace version. The result is `target\installer\Tex-Setup-0.4.0.exe`.
 
 To try the app without administrator rights, serve a single folder instead:
 
@@ -165,3 +165,5 @@ Tex is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE.md).
 - **Commercial use is not allowed** under this license. To use Tex commercially, contact the author for a separate license.
 
 The UI is built with [Slint](https://slint.dev), used under the Slint Royalty-free Desktop, Mobile, and Web Applications License 2.0. As that license requires, Tex shows the `AboutSlint` widget on its About screen.
+
+The bundled fonts, [Nunito](https://github.com/googlefonts/nunito) and [IBM Plex Mono](https://github.com/IBM/plex), are under the SIL Open Font License 1.1 (`crates/tex-app/ui/fonts`). The icons come from [Phosphor](https://phosphoricons.com) under the MIT license (`crates/tex-app/ui/icons`).
