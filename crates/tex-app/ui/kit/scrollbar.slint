@@ -1,0 +1,36 @@
+import { Tokens } from "../theme.slint";
+
+export component ScrollBar inherits Rectangle {
+    in-out property <length> viewport-y;
+    in property <length> viewport-height;
+    in property <length> visible-height;
+
+    property <length> range: max(0px, root.viewport-height - root.visible-height);
+    property <length> thumb-height: root.range == 0px ? 0px : max(24px, root.height * root.visible-height / root.viewport-height);
+
+    width: Tokens.scrollbar-width;
+    visible: root.range > 0px;
+
+    Rectangle {
+        x: 2px;
+        width: parent.width - 4px;
+        height: root.thumb-height;
+        y: root.range == 0px ? 0px : (root.height - root.thumb-height) * (-root.viewport-y / root.range);
+        border-radius: 2px;
+        background: Tokens.scrollbar;
+    }
+
+    touch := TouchArea {
+        property <length> start-y;
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down {
+                self.start-y = root.viewport-y;
+            }
+        }
+        moved => {
+            if self.pressed && root.range > 0px {
+                root.viewport-y = max(-root.range, min(0px, self.start-y - (self.mouse-y - self.pressed-y) * root.range / (root.height - root.thumb-height)));
+            }
+        }
+    }
+}

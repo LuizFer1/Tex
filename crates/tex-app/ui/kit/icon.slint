@@ -1,0 +1,56 @@
+import { Tokens } from "../theme.slint";
+
+export global Icons {
+    out property <image> app: @image-url("../icons/app-window-fill.svg");
+    out property <image> folder: @image-url("../icons/folder-simple-fill.svg");
+    out property <image> file: @image-url("../icons/file-fill.svg");
+    out property <image> file-doc: @image-url("../icons/file-doc-fill.svg");
+    out property <image> file-xls: @image-url("../icons/file-xls-fill.svg");
+    out property <image> file-pdf: @image-url("../icons/file-pdf-fill.svg");
+    out property <image> file-text: @image-url("../icons/file-text-fill.svg");
+    out property <image> file-image: @image-url("../icons/file-image-fill.svg");
+    out property <image> file-zip: @image-url("../icons/file-zip-fill.svg");
+    out property <image> file-code: @image-url("../icons/file-code-fill.svg");
+    out property <image> image: @image-url("../icons/image-fill.svg");
+    out property <image> star: @image-url("../icons/star-fill.svg");
+    out property <image> warning: @image-url("../icons/warning-fill.svg");
+    out property <image> caret-down: @image-url("../icons/caret-down.svg");
+    out property <image> close: @image-url("../icons/x.svg");
+    out property <image> minimize: @image-url("../icons/minus.svg");
+    out property <image> maximize: @image-url("../icons/square.svg");
+    out property <image> restore: @image-url("../icons/copy.svg");
+    out property <image> reset: @image-url("../icons/arrow-counter-clockwise.svg");
+    out property <image> check: @image-url("../icons/check-bold.svg");
+
+    /// Same order as results::FileIcon.
+    public pure function file-kind(kind: int) -> image {
+        if kind == 1 {
+            return self.file-doc;
+        }
+        if kind == 2 {
+            return self.file-xls;
+        }
+        if kind == 3 {
+            return self.file-pdf;
+        }
+        if kind == 4 {
+            return self.file-text;
+        }
+        if kind == 5 {
+            return self.file-image;
+        }
+        if kind == 6 {
+            return self.file-zip;
+        }
+        if kind == 7 {
+            return self.file-code;
+        }
+        return self.file;
+    }
+}
+
+export component Icon inherits Image {
+    in property <color> tint: Tokens.ink;
+    colorize: root.tint;
+    image-fit: contain;
+}

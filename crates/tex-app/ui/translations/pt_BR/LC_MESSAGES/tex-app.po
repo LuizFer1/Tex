@@ -365,3 +365,9 @@ msgstr "{0} × {1}"
 
 msgid "{1}/{0}/{2} {3}"
 msgstr "{0}/{1}/{2} {3}"
+
+msgid "recording… esc cancels"
+msgstr "gravando… esc cancela"
+
+msgid "Record"
+msgstr "Gravar"

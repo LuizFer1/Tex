@@ -1,0 +1,168 @@
+import { Tokens } from "../theme.slint";
+
+export component SignatureTab inherits Rectangle {
+    in property <string> text;
+    height: 26px;
+    horizontal-stretch: 0;
+    background: Tokens.action;
+    border-top-left-radius: Tokens.radius-tab;
+    border-top-right-radius: Tokens.radius-tab;
+
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 10px;
+        spacing: 6px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 16px;
+                height: 16px;
+                border-radius: 4px;
+                clip: true;
+                Image {
+                    width: 16px;
+                    height: 16px;
+                    source: Tokens.app-icon;
+                    image-fit: cover;
+                }
+            }
+        }
+        Text {
+            text: root.text;
+            font-family: Tokens.mono-font;
+            font-size: Tokens.size-kicker;
+            font-weight: 600;
+            color: Tokens.on-action;
+            vertical-alignment: center;
+        }
+    }
+}
+
+/// The popup shape: the "tex —" tab above a body outlined in the action color. The window
+/// itself is clipped to this shape by the app (tex_platform::shape_tabbed_window).
+export component TabbedFrame inherits Rectangle {
+    in property <string> title;
+    out property <length> tab-width: tab.width;
+    out property <length> tab-height: tab.height;
+
+    VerticalLayout {
+        HorizontalLayout {
+            alignment: start;
+            tab := SignatureTab {
+                text: root.title;
+            }
+        }
+        Rectangle {
+            vertical-stretch: 1;
+            background: Tokens.paper;
+            border-width: Tokens.border-control;
+            border-color: Tokens.action;
+            border-top-left-radius: 0px;
+            border-top-right-radius: Tokens.radius-tab;
+            border-bottom-left-radius: Tokens.radius-tab;
+            border-bottom-right-radius: Tokens.radius-tab;
+            clip: true;
+            VerticalLayout {
+                padding: Tokens.border-control;
+                @children
+            }
+        }
+    }
+}
+
+export component Footer inherits Rectangle {
+    in property <string> hints;
+    in property <string> status;
+    in property <color> status-color: Tokens.muted;
+
+    property <string> toast;
+
+    public function show-toast(text: string) {
+        root.toast = text;
+        timer.running = true;
+        timer.restart();
+    }
+
+    height: 33px;
+    background: Tokens.paper-2;
+
+    Rectangle {
+        y: 0px;
+        height: 1px;
+        background: Tokens.border;
+    }
+
+    HorizontalLayout {
+        padding-left: 20px;
+        padding-right: 20px;
+        spacing: 12px;
+        Text {
+            text: root.hints;
+            horizontal-stretch: 1;
+            font-family: Tokens.mono-font;
+            font-size: Tokens.size-kicker;
+            color: Tokens.ink-2;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Text {
+            text: root.toast != "" ? root.toast : root.status;
+            font-family: Tokens.mono-font;
+            font-size: Tokens.size-kicker;
+            color: root.toast != "" ? Tokens.action-strong : root.status-color;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+            overflow: elide;
+        }
+    }
+
+    timer := Timer {
+        interval: 1.6s;
+        running: false;
+        triggered => {
+            root.toast = "";
+            self.running = false;
+        }
+    }
+}
+
+export component EmptyState inherits VerticalLayout {
+    in property <image> art;
+    in property <string> title;
+    in property <string> hint;
+
+    alignment: center;
+    spacing: 10px;
+    padding: 20px;
+
+    HorizontalLayout {
+        alignment: center;
+        Rectangle {
+            width: 132px;
+            height: 132px;
+            border-radius: Tokens.radius-art;
+            clip: true;
+            Image {
+                width: 132px;
+                height: 132px;
+                source: root.art;
+                image-fit: cover;
+            }
+        }
+    }
+    Text {
+        text: root.title;
+        font-family: Tokens.mono-font;
+        font-size: Tokens.size-result;
+        color: Tokens.ink;
+        horizontal-alignment: center;
+        wrap: word-wrap;
+    }
+    if root.hint != "": Text {
+        text: root.hint;
+        font-size: Tokens.size-body;
+        color: Tokens.muted;
+        horizontal-alignment: center;
+        wrap: word-wrap;
+    }
+}

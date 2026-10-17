@@ -1,0 +1,74 @@
+import { Tokens } from "../theme.slint";
+import { FocusRing } from "focus.slint";
+
+export component Segmented inherits Rectangle {
+    in property <[string]> options;
+    in-out property <int> current-index;
+    in property <string> label;
+    callback selected(int);
+
+    property <bool> keyboard;
+
+    function choose(index: int) {
+        if index >= 0 && index < root.options.length && index != root.current-index {
+            root.current-index = index;
+            root.selected(index);
+        }
+    }
+
+    horizontal-stretch: 0;
+    border-width: Tokens.border-control;
+    border-color: Tokens.action;
+    border-radius: Tokens.radius-control;
+    accessible-role: tab-list;
+    accessible-label: root.label;
+
+    HorizontalLayout {
+        padding: Tokens.border-control;
+        for option[index] in root.options: Rectangle {
+            height: 30px;
+            background: index == root.current-index ? Tokens.action : transparent;
+            accessible-role: tab;
+            accessible-label: option;
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 14px;
+                Text {
+                    text: option;
+                    font-size: Tokens.size-button;
+                    font-weight: 500;
+                    color: index == root.current-index ? Tokens.on-action : Tokens.ink-3;
+                    vertical-alignment: center;
+                }
+            }
+            TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.choose(index);
+                }
+            }
+        }
+    }
+
+    focus := FocusScope {
+        focus-on-click: false;
+        key-pressed(event) => {
+            if event.text == Key.LeftArrow {
+                root.choose(root.current-index - 1);
+                return accept;
+            }
+            if event.text == Key.RightArrow {
+                root.choose(root.current-index + 1);
+                return accept;
+            }
+            reject
+        }
+        focus-gained(reason) => {
+            root.keyboard = reason == FocusReason.tab-navigation;
+        }
+    }
+
+    FocusRing {
+        show: focus.has-focus && root.keyboard;
+    }
+}

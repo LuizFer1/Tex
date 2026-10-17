@@ -1,0 +1,63 @@
+import { Tokens } from "../theme.slint";
+
+export component TabItem inherits Rectangle {
+    in property <string> text;
+    in property <string> number;
+    in property <bool> active;
+    in property <length> font-size: Tokens.size-body;
+    callback clicked();
+
+    horizontal-stretch: 0;
+    accessible-role: tab;
+    accessible-label: root.text;
+
+    HorizontalLayout {
+        spacing: 6px;
+        if root.number != "": Text {
+            text: root.number;
+            font-family: Tokens.mono-font;
+            font-size: Tokens.size-kicker;
+            color: root.active ? Tokens.action : Tokens.muted-2;
+            vertical-alignment: center;
+        }
+        Text {
+            text: root.text;
+            font-size: root.font-size;
+            font-weight: 500;
+            color: root.active ? Tokens.ink : Tokens.muted;
+            vertical-alignment: center;
+        }
+    }
+
+    Rectangle {
+        y: parent.height - 2px;
+        height: 2px;
+        background: root.active ? Tokens.action : transparent;
+    }
+
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+export component TabBar inherits Rectangle {
+    in property <length> padding-x: 20px;
+    in property <length> bar-height: 37px;
+    height: root.bar-height;
+
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Tokens.border;
+    }
+
+    HorizontalLayout {
+        padding-left: root.padding-x;
+        padding-right: root.padding-x;
+        spacing: 20px;
+        @children
+    }
+}

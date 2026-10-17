@@ -1,0 +1,67 @@
+import { Tokens } from "../theme.slint";
+import { FocusRing } from "focus.slint";
+
+export component Toggle inherits Rectangle {
+    in-out property <bool> checked;
+    in property <bool> enabled: true;
+    in property <string> label;
+    callback toggled();
+
+    property <bool> keyboard;
+
+    function flip() {
+        root.checked = !root.checked;
+        root.toggled();
+    }
+
+    width: 38px;
+    height: 20px;
+    border-radius: Tokens.radius-control;
+    border-width: Tokens.border-strong;
+    border-color: root.checked ? Tokens.action : Tokens.control-off;
+    background: root.checked ? Tokens.action : transparent;
+    opacity: root.enabled ? 1 : 0.45;
+    accessible-role: switch;
+    accessible-checked: root.checked;
+    accessible-label: root.label;
+    accessible-action-default => {
+        root.flip();
+    }
+
+    Rectangle {
+        x: root.checked ? parent.width - self.width - 3.5px : 3.5px;
+        y: (parent.height - self.height) / 2;
+        width: 13px;
+        height: 13px;
+        border-radius: 1px;
+        background: root.checked ? Tokens.on-action : Tokens.control-off;
+        animate x { duration: 120ms; }
+    }
+
+    TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.flip();
+        }
+    }
+
+    focus := FocusScope {
+        focus-on-click: false;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == " " || event.text == Key.Return {
+                root.flip();
+                return accept;
+            }
+            reject
+        }
+        focus-gained(reason) => {
+            root.keyboard = reason == FocusReason.tab-navigation;
+        }
+    }
+
+    FocusRing {
+        show: focus.has-focus && root.keyboard;
+    }
+}

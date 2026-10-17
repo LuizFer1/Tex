@@ -1,0 +1,89 @@
+import { Tokens } from "../theme.slint";
+import { FocusRing } from "focus.slint";
+import { Icon } from "icon.slint";
+
+export enum ButtonKind { primary, secondary, tertiary, danger, danger-filled }
+
+export component Button inherits Rectangle {
+    in property <string> text;
+    in property <string> key;
+    in property <string> tip;
+    in property <image> icon;
+    in property <bool> has-icon;
+    in property <ButtonKind> kind: ButtonKind.secondary;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    property <bool> keyboard;
+    property <bool> filled: root.kind == ButtonKind.primary || root.kind == ButtonKind.danger-filled;
+    property <bool> dangerous: root.kind == ButtonKind.danger || root.kind == ButtonKind.danger-filled;
+    property <color> base: root.kind == ButtonKind.primary ? Tokens.action : root.dangerous ? (touch.has-hover ? Tokens.danger-hover : Tokens.danger) : root.kind == ButtonKind.tertiary ? Tokens.control-off : Tokens.ink;
+    property <color> label: root.filled ? Tokens.on-action : root.kind == ButtonKind.danger ? Tokens.danger : Tokens.ink;
+
+    height: 30px;
+    min-width: 30px;
+    border-radius: Tokens.radius-control;
+    border-width: root.kind == ButtonKind.primary ? Tokens.border-strong : Tokens.border-control;
+    border-color: root.base;
+    background: root.filled ? root.base : touch.has-hover && root.enabled ? (root.kind == ButtonKind.danger ? Tokens.danger-bg : Tokens.paper-2) : transparent;
+    opacity: root.enabled ? 1 : 0.45;
+    accessible-role: button;
+    accessible-label: root.text != "" ? root.text : root.tip;
+    accessible-action-default => {
+        root.clicked();
+    }
+
+    HorizontalLayout {
+        padding-left: root.text == "" ? 8px : 12px;
+        padding-right: root.text == "" ? 8px : 12px;
+        spacing: 6px;
+        alignment: center;
+        if root.key != "": Text {
+            text: root.key;
+            font-family: Tokens.mono-font;
+            font-size: Tokens.size-key;
+            font-weight: 500;
+            color: root.filled ? Tokens.on-action-muted : Tokens.action-strong;
+            vertical-alignment: center;
+        }
+        if root.has-icon: Icon {
+            width: 14px;
+            source: root.icon;
+            tint: root.label;
+        }
+        if root.text != "": Text {
+            text: root.text;
+            font-size: Tokens.size-button;
+            font-weight: 500;
+            color: root.label;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    focus := FocusScope {
+        focus-on-click: false;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == " " || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+        focus-gained(reason) => {
+            root.keyboard = reason == FocusReason.tab-navigation;
+        }
+    }
+
+    FocusRing {
+        show: focus.has-focus && root.keyboard;
+    }
+}

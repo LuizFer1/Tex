@@ -1,0 +1,81 @@
+import { Tokens } from "../theme.slint";
+import { FocusRing } from "focus.slint";
+import { Icon, Icons } from "icon.slint";
+
+export component CheckBox inherits Rectangle {
+    in property <string> text;
+    in-out property <bool> checked;
+    in property <bool> enabled: true;
+    callback toggled();
+
+    property <bool> keyboard;
+
+    function flip() {
+        root.checked = !root.checked;
+        root.toggled();
+    }
+
+    opacity: root.enabled ? 1 : 0.45;
+    accessible-role: checkbox;
+    accessible-checked: root.checked;
+    accessible-label: root.text;
+    accessible-action-default => {
+        root.flip();
+    }
+
+    HorizontalLayout {
+        spacing: 8px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 16px;
+                height: 16px;
+                border-radius: 2px;
+                border-width: Tokens.border-strong;
+                border-color: root.checked ? Tokens.action : Tokens.control-off;
+                background: root.checked ? Tokens.action : transparent;
+                if root.checked: Icon {
+                    x: 3px;
+                    y: 3px;
+                    width: 10px;
+                    height: 10px;
+                    source: Icons.check;
+                    tint: Tokens.on-action;
+                }
+            }
+        }
+        Text {
+            text: root.text;
+            font-size: Tokens.size-check;
+            color: Tokens.ink;
+            vertical-alignment: center;
+        }
+    }
+
+    TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.flip();
+        }
+    }
+
+    focus := FocusScope {
+        focus-on-click: false;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == " " {
+                root.flip();
+                return accept;
+            }
+            reject
+        }
+        focus-gained(reason) => {
+            root.keyboard = reason == FocusReason.tab-navigation;
+        }
+    }
+
+    FocusRing {
+        show: focus.has-focus && root.keyboard;
+    }
+}

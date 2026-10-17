@@ -1,0 +1,71 @@
+import { Tokens } from "../theme.slint";
+import { Button, ButtonKind } from "button.slint";
+import { Icons } from "icon.slint";
+import { Keycap } from "keycap.slint";
+
+export component ShortcutField inherits HorizontalLayout {
+    in property <[string]> keys;
+    in property <bool> recording;
+    in property <bool> enabled: true;
+    in property <string> reset-tip;
+    callback record();
+    callback cancel();
+    callback reset();
+
+    spacing: 8px;
+    alignment: end;
+
+    if !root.recording: HorizontalLayout {
+        spacing: 4px;
+        for key in root.keys: Keycap {
+            text: key;
+        }
+    }
+    if root.recording: Rectangle {
+        height: 28px;
+        border-width: Tokens.border-strong;
+        border-color: Tokens.action;
+        border-radius: Tokens.radius-control;
+        HorizontalLayout {
+            padding-left: 10px;
+            padding-right: 10px;
+            spacing: 8px;
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 7px;
+                    height: 7px;
+                    background: Tokens.action;
+                }
+            }
+            Text {
+                text: @tr("recording… esc cancels");
+                font-family: Tokens.mono-font;
+                font-size: Tokens.size-path;
+                color: Tokens.action-strong;
+                vertical-alignment: center;
+            }
+        }
+    }
+    Button {
+        text: root.recording ? @tr("Cancel") : @tr("Record");
+        enabled: root.enabled;
+        clicked => {
+            if root.recording {
+                root.cancel();
+            } else {
+                root.record();
+            }
+        }
+    }
+    Button {
+        kind: ButtonKind.tertiary;
+        has-icon: true;
+        icon: Icons.reset;
+        tip: root.reset-tip;
+        enabled: root.enabled && !root.recording;
+        clicked => {
+            root.reset();
+        }
+    }
+}

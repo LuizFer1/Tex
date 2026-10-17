@@ -1,0 +1,122 @@
+import { Tokens } from "../theme.slint";
+import { FocusRing } from "focus.slint";
+import { Icon, Icons } from "icon.slint";
+
+export component Select inherits Rectangle {
+    in property <[string]> options;
+    in-out property <int> current-index;
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback selected(int);
+
+    property <bool> keyboard;
+
+    function choose(index: int) {
+        if index >= 0 && index < root.options.length && index != root.current-index {
+            root.current-index = index;
+            root.selected(index);
+        }
+    }
+
+    min-width: 180px;
+    height: 32px;
+    horizontal-stretch: 0;
+    background: Tokens.field;
+    border-width: Tokens.border-control;
+    border-color: Tokens.ink;
+    border-radius: Tokens.radius-control;
+    opacity: root.enabled ? 1 : 0.45;
+    accessible-role: combobox;
+    accessible-label: root.label;
+    accessible-value: root.options[root.current-index];
+
+    Text {
+        x: 10px;
+        width: parent.width - 42px;
+        height: parent.height;
+        text: root.options[root.current-index];
+        font-size: Tokens.size-body;
+        color: Tokens.ink;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    Icon {
+        x: parent.width - 22px;
+        y: (parent.height - self.height) / 2;
+        width: 12px;
+        height: 12px;
+        source: Icons.caret-down;
+        tint: Tokens.ink;
+    }
+
+    TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            focus.focus();
+            popup.show();
+        }
+    }
+
+    focus := FocusScope {
+        focus-on-click: false;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.UpArrow {
+                root.choose(root.current-index - 1);
+                return accept;
+            }
+            if event.text == Key.DownArrow {
+                root.choose(root.current-index + 1);
+                return accept;
+            }
+            if event.text == " " || event.text == Key.Return {
+                popup.show();
+                return accept;
+            }
+            reject
+        }
+        focus-gained(reason) => {
+            root.keyboard = reason == FocusReason.tab-navigation;
+        }
+    }
+
+    FocusRing {
+        show: focus.has-focus && root.keyboard;
+    }
+
+    popup := PopupWindow {
+        x: 0px;
+        y: root.height + 2px;
+        width: root.width;
+        Rectangle {
+            background: Tokens.field;
+            border-width: Tokens.border-control;
+            border-color: Tokens.ink;
+            border-radius: Tokens.radius-control;
+            VerticalLayout {
+                padding: 3px;
+                for option[index] in root.options: Rectangle {
+                    height: 28px;
+                    border-radius: 2px;
+                    background: index == root.current-index ? Tokens.paper-2 : item.has-hover ? Tokens.row-hover : transparent;
+                    Text {
+                        x: 8px;
+                        width: parent.width - 16px;
+                        text: option;
+                        font-size: Tokens.size-body;
+                        color: index == root.current-index ? Tokens.action-strong : Tokens.ink;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    item := TouchArea {
+                        clicked => {
+                            root.choose(index);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

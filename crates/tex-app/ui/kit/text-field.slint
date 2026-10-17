@@ -1,0 +1,119 @@
+import { Tokens } from "../theme.slint";
+import { ScrollBar } from "scrollbar.slint";
+
+export component TextField inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder;
+    in property <length> font-size: Tokens.size-label;
+    in property <int> font-weight: 400;
+    in property <bool> mono;
+    in property <bool> boxed;
+    out property <bool> has-focus: input.has-focus;
+    callback edited(string);
+    callback accepted(string);
+
+    public function select-all() {
+        input.select-all();
+    }
+
+    property <length> pad: root.boxed ? 8px : 0px;
+    property <length> inner: root.width - 2 * root.pad;
+
+    forward-focus: input;
+    min-height: root.font-size * 1.6;
+    background: root.boxed ? Tokens.field : transparent;
+    border-width: root.boxed ? Tokens.border-strong : 0px;
+    border-color: Tokens.ink;
+    border-radius: Tokens.radius-control;
+    clip: true;
+
+    if root.text == "": Text {
+        x: root.pad;
+        width: root.inner;
+        height: root.height;
+        text: root.placeholder;
+        font-size: root.font-size;
+        font-family: root.mono ? Tokens.mono-font : Tokens.ui-font;
+        color: Tokens.muted-2;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    input := TextInput {
+        property <length> computed-x;
+        property <length> margin: 4px;
+        x: root.pad + min(0px, max(root.inner - self.width - self.text-cursor-width, self.computed-x));
+        width: max(root.inner - self.text-cursor-width, self.preferred-width);
+        height: root.height;
+        single-line: true;
+        vertical-alignment: center;
+        text <=> root.text;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        font-family: root.mono ? Tokens.mono-font : Tokens.ui-font;
+        color: Tokens.ink;
+        selection-background-color: Tokens.selection;
+        selection-foreground-color: Tokens.ink;
+        accessible-label: root.placeholder;
+        edited => {
+            root.edited(self.text);
+        }
+        accepted => {
+            root.accepted(self.text);
+        }
+        cursor-position-changed(cpos) => {
+            if cpos.x + self.computed-x < self.margin {
+                self.computed-x = -cpos.x + self.margin;
+            } else if cpos.x + self.computed-x > root.inner - self.margin - self.text-cursor-width {
+                self.computed-x = root.inner - cpos.x - self.margin - self.text-cursor-width;
+            }
+        }
+    }
+}
+
+export component TextArea inherits Rectangle {
+    in-out property <string> text;
+
+    forward-focus: input;
+    background: Tokens.field;
+    border-width: Tokens.border-strong;
+    border-color: Tokens.ink;
+    border-radius: Tokens.radius-control;
+    clip: true;
+
+    flick := Flickable {
+        x: 8px;
+        y: 6px;
+        width: parent.width - 16px - Tokens.scrollbar-width;
+        height: parent.height - 12px;
+        content-height: max(self.height, input.preferred-height);
+        input := TextInput {
+            width: flick.width;
+            height: max(flick.height, self.preferred-height);
+            single-line: false;
+            wrap: word-wrap;
+            text <=> root.text;
+            font-family: Tokens.mono-font;
+            font-size: Tokens.size-body;
+            color: Tokens.ink;
+            selection-background-color: Tokens.selection;
+            selection-foreground-color: Tokens.ink;
+            cursor-position-changed(cpos) => {
+                if cpos.y + flick.content-y < 0px {
+                    flick.content-y = -cpos.y;
+                } else if cpos.y + flick.content-y + 2 * Tokens.size-body > flick.height {
+                    flick.content-y = flick.height - cpos.y - 2 * Tokens.size-body;
+                }
+            }
+        }
+    }
+
+    ScrollBar {
+        x: parent.width - self.width - 2px;
+        y: 2px;
+        height: parent.height - 4px;
+        viewport-y <=> flick.content-y;
+        viewport-height: flick.content-height;
+        visible-height: flick.height;
+    }
+}

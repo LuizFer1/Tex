@@ -1,0 +1,161 @@
+import { Tokens } from "../theme.slint";
+
+export component Kicker inherits Text {
+    font-family: Tokens.mono-font;
+    font-size: Tokens.size-kicker;
+    font-weight: 500;
+    letter-spacing: Tokens.size-kicker * 0.08;
+    color: Tokens.muted;
+}
+
+export component Section inherits VerticalLayout {
+    in property <string> title;
+    in property <bool> first;
+    padding-top: root.first ? 22px : 26px;
+    spacing: 0px;
+    Kicker {
+        text: root.title.to-uppercase();
+    }
+    Rectangle {
+        height: 6px;
+    }
+    @children
+}
+
+export component SettingRow inherits Rectangle {
+    in property <string> label;
+    in property <string> description;
+    in property <string> error;
+    in property <bool> separator: true;
+
+    VerticalLayout {
+        padding-top: 14px;
+        padding-bottom: 14px;
+        spacing: 6px;
+        HorizontalLayout {
+            spacing: 16px;
+            VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                spacing: 3px;
+                Text {
+                    text: root.label;
+                    font-size: Tokens.size-label;
+                    color: Tokens.ink;
+                    wrap: word-wrap;
+                }
+                if root.description != "": Text {
+                    text: root.description;
+                    font-size: Tokens.size-desc;
+                    color: Tokens.muted;
+                    wrap: word-wrap;
+                }
+            }
+            HorizontalLayout {
+                horizontal-stretch: 0;
+                alignment: end;
+                VerticalLayout {
+                    alignment: center;
+                    @children
+                }
+            }
+        }
+        if root.error != "": Text {
+            text: root.error;
+            font-size: Tokens.size-desc;
+            color: Tokens.danger;
+            wrap: word-wrap;
+        }
+    }
+
+    if root.separator: Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Tokens.border-2;
+    }
+}
+
+export component TextLink inherits Rectangle {
+    in property <string> text;
+    callback clicked();
+    horizontal-stretch: 0;
+    height: 22px;
+    border-radius: Tokens.radius-control;
+    background: touch.has-hover ? Tokens.danger-bg : transparent;
+    accessible-role: button;
+    accessible-label: root.text;
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 6px;
+        Text {
+            text: root.text;
+            font-family: Tokens.mono-font;
+            font-size: Tokens.size-kicker;
+            color: Tokens.danger;
+            vertical-alignment: center;
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+export component PathList inherits Rectangle {
+    in property <[StandardListViewItem]> items;
+    in property <string> empty-text;
+    in property <string> remove-text;
+    callback remove(int);
+
+    background: Tokens.field;
+    border-width: Tokens.border-control;
+    border-color: Tokens.border;
+    border-radius: Tokens.radius-control;
+
+    VerticalLayout {
+        if root.items.length == 0: HorizontalLayout {
+            padding-left: 12px;
+            height: 36px;
+            Text {
+                text: root.empty-text;
+                font-family: Tokens.mono-font;
+                font-size: Tokens.size-path;
+                color: Tokens.muted;
+                vertical-alignment: center;
+            }
+        }
+        for item[index] in root.items: Rectangle {
+            height: 34px;
+            if index > 0: Rectangle {
+                y: 0px;
+                height: 1px;
+                background: Tokens.border-2;
+            }
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 8px;
+                spacing: 8px;
+                Text {
+                    text: item.text;
+                    horizontal-stretch: 1;
+                    font-family: Tokens.mono-font;
+                    font-size: Tokens.size-button;
+                    color: Tokens.ink;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    TextLink {
+                        text: root.remove-text;
+                        clicked => {
+                            root.remove(index);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

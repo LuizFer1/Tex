@@ -1,0 +1,16 @@
+import { Tokens } from "../theme.slint";
+
+export component FocusRing inherits Rectangle {
+    in property <bool> show;
+    in property <length> radius: Tokens.radius-control;
+
+    Rectangle {
+        x: -2 * Tokens.focus-width;
+        y: -2 * Tokens.focus-width;
+        width: parent.width + 4 * Tokens.focus-width;
+        height: parent.height + 4 * Tokens.focus-width;
+        border-width: root.show ? Tokens.focus-width : 0px;
+        border-color: Tokens.action;
+        border-radius: root.radius + 2 * Tokens.focus-width;
+    }
+}
