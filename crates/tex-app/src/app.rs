@@ -23,6 +23,7 @@ pub struct AppState {
     pub capture_error: String,
     pub paste_target: isize,
     pub previous_foreground: isize,
+    pub title_pressed_at: Option<Instant>,
     hotkeys: GlobalHotKeyManager,
     hotkey: Option<HotKey>,
     history_hotkey: Option<HotKey>,
@@ -30,6 +31,7 @@ pub struct AppState {
 }
 
 const TRAY_CLICK_GRACE: Duration = Duration::from_millis(300);
+const DOUBLE_CLICK: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HotkeyError {
@@ -45,6 +47,11 @@ thread_local! {
 /// click arrives, so a popup that closed this recently still counts as open.
 pub fn tray_click_closes(closed_at: Option<Instant>, now: Instant) -> bool {
     closed_at.is_some_and(|closed_at| now.saturating_duration_since(closed_at) < TRAY_CLICK_GRACE)
+}
+
+/// Whether a press at `now` follows the previous one closely enough to be a double click.
+pub fn is_double_click(previous: Option<Instant>, now: Instant) -> bool {
+    previous.is_some_and(|previous| now.saturating_duration_since(previous) <= DOUBLE_CLICK)
 }
 
 pub fn init(state: AppState) {
@@ -68,6 +75,7 @@ impl AppState {
             capture_error: String::new(),
             paste_target: 0,
             previous_foreground: 0,
+            title_pressed_at: None,
             hotkeys,
             hotkey: None,
             history_hotkey: None,
@@ -263,6 +271,20 @@ mod tests {
             now + Duration::from_millis(100)
         ));
         assert!(!tray_click_closes(Some(now), now + Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn second_press_within_half_a_second_is_a_double_click() {
+        let start = Instant::now();
+        assert!(!is_double_click(None, start));
+        assert!(is_double_click(
+            Some(start),
+            start + Duration::from_millis(400)
+        ));
+        assert!(!is_double_click(
+            Some(start),
+            start + Duration::from_millis(600)
+        ));
     }
 
     #[test]

@@ -1,4 +1,6 @@
-import { Button, CheckBox, ComboBox, Palette, ScrollView, StandardListView, Switch, TabWidget, VerticalBox } from "std-widgets.slint";
+import { ComboBox, Palette, StandardListView, Switch, Button as StdButton, CheckBox as StdCheckBox } from "std-widgets.slint";
+import { Tokens } from "theme.slint";
+import { Icon, Icons, ScrollBar, TabItem, Toggle, Segmented, Select, Section, SettingRow, ShortcutField } from "kit/kit.slint";
 import { HistoryText } from "history.slint";
 
 export struct DriveRow {
@@ -27,19 +29,58 @@ component Row inherits HorizontalLayout {
     alignment: stretch;
 }
 
+component TitleButton inherits Rectangle {
+    in property <image> icon;
+    in property <bool> close;
+    in property <string> tip;
+    callback clicked();
+    width: 46px;
+    background: touch.has-hover ? (root.close ? Tokens.close-hover : Tokens.border-2) : transparent;
+    accessible-role: button;
+    accessible-label: root.tip;
+    Icon {
+        width: 12px;
+        height: 12px;
+        source: root.icon;
+        tint: touch.has-hover && root.close ? Tokens.close-hover-ink : Tokens.ink-2;
+    }
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+component ResizeEdge inherits TouchArea {
+    in property <int> direction;
+    callback resize(int);
+    pointer-event(event) => {
+        if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+            root.resize(root.direction);
+        }
+    }
+}
+
 export component SettingsWindow inherits Window {
     title: @tr("Tex Settings");
-    preferred-width: 560px;
-    preferred-height: 640px;
-    min-width: 460px;
-    background: Palette.background;
+    icon: Tokens.app-icon;
+    no-frame: true;
+    preferred-width: 740px;
+    preferred-height: 690px;
+    min-width: 640px;
+    min-height: 560px;
+    background: Tokens.paper;
+    default-font-family: Tokens.ui-font;
 
     in property <ColorScheme> scheme;
     in-out property <int> current-tab;
+    in property <string> version;
+    in property <bool> window-maximized;
 
     in-out property <int> language;
     in-out property <int> theme;
     in property <string> hotkey-text;
+    in property <[string]> hotkey-keys;
     in-out property <bool> recording;
     // 0 none, 1 could not register (previous kept), 2 conflict, 3 could not register at startup
     in property <int> hotkey-error;
@@ -61,6 +102,7 @@ export component SettingsWindow inherits Window {
     in property <bool> drives-unavailable;
 
     in property <string> history-hotkey-text;
+    in property <[string]> history-hotkey-keys;
     in-out property <bool> history-recording;
     // 0 none, 1 could not register (previous kept), 2 used to open Tex, 3 could not register at startup
     in property <int> history-hotkey-error;
@@ -104,7 +146,14 @@ export component SettingsWindow inherits Window {
     callback remove-app(int);
     callback clear-history();
 
+    callback drag();
+    callback resize(int);
+    callback minimize();
+    callback toggle-maximize();
+    callback close-window();
+
     changed current-tab => {
+        flick.content-y = 0;
         if self.current-tab == 1 {
             root.refresh-drives();
         }
@@ -136,311 +185,424 @@ export component SettingsWindow inherits Window {
             accept
         }
 
-        VerticalLayout {
-            padding: 12px;
-            spacing: 8px;
 
-            TabWidget {
-                current-index <=> root.current-tab;
-                Tab {
-                    title: @tr("General");
-                    VerticalBox {
-                        alignment: start;
-                        spacing: 14px;
+        Rectangle {
+            border-width: root.window-maximized ? 0px : Tokens.border-control;
+            border-color: Tokens.border;
 
-                        Row {
-                            Label {
-                                text: @tr("Language");
-                            }
+            VerticalLayout {
+                padding: root.window-maximized ? 0px : Tokens.border-control;
 
-                            ComboBox {
-                                width: 200px;
-                                model: [@tr("Follow system"), "Português", "English"];
-                                current-index <=> root.language;
-                                selected => {
-                                    root.edited();
-                                }
+                Rectangle {
+                    height: 36px;
+                    background: Tokens.paper-2;
+                    TouchArea {
+                        pointer-event(event) => {
+                            if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                                root.drag();
                             }
                         }
-
-                        Row {
-                            Label {
-                                text: @tr("Theme");
-                            }
-
-                            ComboBox {
-                                width: 200px;
-                                model: [@tr("Follow system"), @tr("Light"), @tr("Dark")];
-                                current-index <=> root.theme;
-                                selected => {
-                                    root.edited();
-                                }
-                            }
-                        }
-
+                    }
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        spacing: 8px;
                         VerticalLayout {
-                            spacing: 4px;
-                            Row {
-                                Label {
-                                    text: @tr("Shortcut to open Tex");
+                            alignment: center;
+                            Rectangle {
+                                width: 16px;
+                                height: 16px;
+                                border-radius: 4px;
+                                clip: true;
+                                Image {
+                                    width: 16px;
+                                    height: 16px;
+                                    source: Tokens.app-icon;
                                 }
-
-                                Text {
-                                    text: root.recording ? @tr("Press the new shortcut…") : root.hotkey-text;
-                                    vertical-alignment: center;
-                                    font-weight: 600;
-                                }
-
-                                Button {
-                                    text: root.recording ? @tr("Cancel") : @tr("Change");
-                                    enabled: !root.history-recording;
-                                    clicked => {
-                                        if root.recording {
-                                            root.cancel-recording();
-                                        } else {
-                                            root.change-hotkey();
-                                            recorder.focus();
-                                        }
-                                    }
-                                }
-
-                                Button {
-                                    text: @tr("Reset");
-                                    enabled: !root.recording && !root.history-recording;
-                                    clicked => {
-                                        root.reset-hotkey();
-                                    }
-                                }
-                            }
-
-                            if root.recording: Hint {
-                                text: @tr("Use at least one of Ctrl, Alt, Shift or Win plus a key. Esc cancels.");
-                            }
-                            if root.hotkey-error == 1: Hint {
-                                text: @tr("That shortcut is already used by another program. The previous one was kept.");
-                                color: #d13438;
-                                opacity: 1;
-                            }
-                            if root.hotkey-error == 3: Hint {
-                                text: @tr("That shortcut is already used by another program, so it is not active. Choose another one.");
-                                color: #d13438;
-                                opacity: 1;
-                            }
-                            if root.hotkey-error == 2: Hint {
-                                text: @tr("Already used to open the clipboard history");
-                                color: #d13438;
-                                opacity: 1;
                             }
                         }
-
-                        VerticalLayout {
-                            spacing: 4px;
-                            Switch {
-                                text: @tr("Open Tex with the Windows key");
-                                checked <=> root.windows-key;
-                                toggled => {
-                                    root.edited();
-                                }
-                            }
-
-                            Hint {
-                                text: @tr("Win plus other keys keeps working, and Ctrl+Esc opens the Start menu. Does not work while an administrator window has focus.");
-                            }
-
-                            if root.winkey-error != "": Hint {
-                                text: @tr("Could not watch the Windows key: {}", root.winkey-error);
-                                color: #d13438;
-                                opacity: 1;
+                        Text {
+                            horizontal-stretch: 1;
+                            text: @tr("Tex Settings");
+                            font-size: Tokens.size-path;
+                            color: Tokens.ink-2;
+                            vertical-alignment: center;
+                        }
+                        TitleButton {
+                            icon: Icons.minimize;
+                            tip: @tr("Minimize");
+                            clicked => {
+                                root.minimize();
                             }
                         }
-
-                        Switch {
-                            text: @tr("Start with Windows");
-                            checked <=> root.start-with-windows;
-                            toggled => {
-                                root.edited();
+                        TitleButton {
+                            icon: root.window-maximized ? Icons.restore : Icons.maximize;
+                            tip: root.window-maximized ? @tr("Restore") : @tr("Maximize");
+                            clicked => {
+                                root.toggle-maximize();
                             }
                         }
-
-                        Row {
-                            Label {
-                                text: @tr("Popup monitor");
-                            }
-
-                            ComboBox {
-                                width: 200px;
-                                model: [@tr("Under the cursor"), @tr("Primary monitor")];
-                                current-index <=> root.popup-monitor;
-                                selected => {
-                                    root.edited();
-                                }
+                        TitleButton {
+                            icon: Icons.close;
+                            close: true;
+                            tip: @tr("Close");
+                            clicked => {
+                                root.close-window();
                             }
                         }
                     }
                 }
 
-                Tab {
-                    title: @tr("Search");
-                    VerticalBox {
+                Rectangle {
+                    background: Tokens.paper-2;
+                    Rectangle {
+                        y: parent.height - 1px;
+                        height: 1px;
+                        background: Tokens.border;
+                    }
+                    HorizontalLayout {
+                        padding-top: 18px;
+                        padding-left: 32px;
+                        padding-right: 32px;
+                        spacing: 28px;
                         alignment: start;
-                        spacing: 12px;
-
-                        Row {
-                            Label {
-                                text: @tr("Keep the last search for");
+                        TabItem {
+                            number: "01";
+                            text: @tr("General");
+                            font-size: Tokens.size-tab;
+                            active: root.current-tab == 0;
+                            clicked => {
+                                root.current-tab = 0;
                             }
+                        }
+                        TabItem {
+                            number: "02";
+                            text: @tr("Search");
+                            font-size: Tokens.size-tab;
+                            active: root.current-tab == 1;
+                            clicked => {
+                                root.current-tab = 1;
+                            }
+                        }
+                        TabItem {
+                            number: "03";
+                            text: @tr("Clipboard");
+                            font-size: Tokens.size-tab;
+                            active: root.current-tab == 2;
+                            clicked => {
+                                root.current-tab = 2;
+                            }
+                        }
+                    }
+                }
 
-                            ComboBox {
-                                width: 200px;
-                                model: [@tr("Never"), @tr("30 seconds"), @tr("1 minute"), @tr("5 minutes"), @tr("Always")];
-                                current-index <=> root.keep-search;
-                                selected => {
-                                    root.edited();
+                Rectangle {
+                    vertical-stretch: 1;
+                    flick := Flickable {
+                        width: parent.width;
+                        height: parent.height;
+                        content-height: page.preferred-height;
+                        page := VerticalLayout {
+                            width: flick.width;
+                            padding-top: 8px;
+                            padding-left: 32px;
+                            padding-right: 32px;
+                            padding-bottom: 32px;
+
+                            if root.current-tab == 0: VerticalLayout {
+                                Rectangle {
+                                    height: 22px;
+                                }
+                                Rectangle {
+                                    height: 150px;
+                                    border-radius: Tokens.radius-window;
+                                    background: Tokens.banner;
+                                    clip: true;
+                                    HorizontalLayout {
+                                        spacing: 18px;
+                                        padding-right: 20px;
+                                        Image {
+                                            width: 132px;
+                                            source: Tokens.art-banner;
+                                            image-fit: cover;
+                                        }
+                                        VerticalLayout {
+                                            alignment: center;
+                                            spacing: 6px;
+                                            Text {
+                                                text: "TEX " + root.version + (root.paused ? " · " + @tr("Capture paused").to-uppercase() : "");
+                                                font-family: Tokens.mono-font;
+                                                font-size: Tokens.size-kicker;
+                                                font-weight: 600;
+                                                letter-spacing: Tokens.size-kicker * 0.08;
+                                                color: Tokens.banner-kicker;
+                                            }
+                                            Text {
+                                                text: @tr("Hi! I keep what you copy and find what you look for.");
+                                                font-size: Tokens.size-banner;
+                                                font-weight: 600;
+                                                color: Tokens.banner-ink;
+                                                wrap: word-wrap;
+                                            }
+                                            Text {
+                                                text: root.paused
+                                                    ? @tr("{0} searches · {1} opens the history · capture paused", root.hotkey-text, root.history-hotkey-text)
+                                                    : @tr("{0} searches · {1} opens the history · capture on", root.hotkey-text, root.history-hotkey-text);
+                                                font-size: Tokens.size-desc;
+                                                color: Tokens.banner-ink-2;
+                                                wrap: word-wrap;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Section {
+                                    title: @tr("Appearance");
+                                    SettingRow {
+                                        label: @tr("Language");
+                                        Select {
+                                            min-width: 220px;
+                                            label: @tr("Language");
+                                            options: [@tr("Follow system"), "Português (Brasil)", "English"];
+                                            current-index <=> root.language;
+                                            selected => {
+                                                root.edited();
+                                            }
+                                        }
+                                    }
+                                    SettingRow {
+                                        label: @tr("Theme");
+                                        separator: false;
+                                        Segmented {
+                                            label: @tr("Theme");
+                                            options: [@tr("System"), @tr("Light"), @tr("Dark")];
+                                            current-index <=> root.theme;
+                                            selected => {
+                                                root.edited();
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Section {
+                                    title: @tr("Open Tex");
+                                    SettingRow {
+                                        label: @tr("Shortcut to open Tex");
+                                        description: root.recording ? @tr("Use at least one of Ctrl, Alt, Shift or Win plus a key. Esc cancels.") : "";
+                                        error: root.hotkey-error == 1 ? @tr("That shortcut is already used by another program. The previous one was kept.") : root.hotkey-error == 3 ? @tr("That shortcut is already used by another program, so it is not active. Choose another one.") : root.hotkey-error == 2 ? @tr("Already used to open the clipboard history") : "";
+                                        ShortcutField {
+                                            keys: root.hotkey-keys;
+                                            recording: root.recording;
+                                            enabled: !root.history-recording;
+                                            reset-tip: @tr("Restore default ({0})", "Alt+Space");
+                                            record => {
+                                                root.change-hotkey();
+                                                recorder.focus();
+                                            }
+                                            cancel => {
+                                                root.cancel-recording();
+                                            }
+                                            reset => {
+                                                root.reset-hotkey();
+                                            }
+                                        }
+                                    }
+                                    SettingRow {
+                                        label: @tr("Open Tex with the Windows key");
+                                        description: @tr("Win plus other keys keeps working, and Ctrl+Esc opens the Start menu. Does not work while an administrator window has focus.");
+                                        error: root.winkey-error != "" ? @tr("Could not watch the Windows key: {}", root.winkey-error) : "";
+                                        Toggle {
+                                            label: @tr("Open Tex with the Windows key");
+                                            checked <=> root.windows-key;
+                                            toggled => {
+                                                root.edited();
+                                            }
+                                        }
+                                    }
+                                    SettingRow {
+                                        label: @tr("Popup monitor");
+                                        separator: false;
+                                        Select {
+                                            min-width: 220px;
+                                            label: @tr("Popup monitor");
+                                            options: [@tr("Under the cursor"), @tr("Primary monitor")];
+                                            current-index <=> root.popup-monitor;
+                                            selected => {
+                                                root.edited();
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Section {
+                                    title: @tr("System");
+                                    SettingRow {
+                                        label: @tr("Start with Windows");
+                                        separator: false;
+                                        Toggle {
+                                            label: @tr("Start with Windows");
+                                            checked <=> root.start-with-windows;
+                                            toggled => {
+                                                root.edited();
+                                            }
+                                        }
+                                    }
                                 }
                             }
-                        }
 
-                        Switch {
-                            text: @tr("Include hidden files and folders");
-                            checked <=> root.include-hidden;
-                            toggled => {
-                                root.edited();
-                            }
-                        }
-
-                        Switch {
-                            text: @tr("Include system files");
-                            checked <=> root.include-system;
-                            toggled => {
-                                root.edited();
-                            }
-                        }
-
-                        VerticalLayout {
-                            spacing: 6px;
-                            Text {
-                                text: @tr("Ignored folders");
-                            }
-
-                            StandardListView {
-                                height: 96px;
-                                model: root.excluded;
-                                current-item <=> root.selected-excluded;
-                            }
-
-                            HorizontalLayout {
-                                spacing: 8px;
+                            if root.current-tab == 1: VerticalLayout {
                                 alignment: start;
-                                Button {
-                                    text: @tr("Add…");
-                                    clicked => {
-                                        root.add-folder();
-                                    }
-                                }
-
-                                Button {
-                                    text: @tr("Remove");
-                                    enabled: root.selected-excluded >= 0 && root.selected-excluded < root.excluded.length;
-                                    clicked => {
-                                        root.remove-folder(root.selected-excluded);
-                                    }
-                                }
-                            }
-                        }
-
-                        VerticalLayout {
-                            spacing: 6px;
-                            Text {
-                                text: @tr("Categories shown");
-                            }
-
-                            HorizontalLayout {
-                                spacing: 16px;
-                                alignment: start;
-                                CheckBox {
-                                    text: @tr("Apps");
-                                    checked <=> root.show-apps;
-                                    enabled: !root.show-apps || root.show-files || root.show-folders;
-                                    toggled => {
-                                        root.edited();
-                                    }
-                                }
-
-                                CheckBox {
-                                    text: @tr("Files");
-                                    checked <=> root.show-files;
-                                    enabled: !root.show-files || root.show-apps || root.show-folders;
-                                    toggled => {
-                                        root.edited();
-                                    }
-                                }
-
-                                CheckBox {
-                                    text: @tr("Folders");
-                                    checked <=> root.show-folders;
-                                    enabled: !root.show-folders || root.show-apps || root.show-files;
-                                    toggled => {
-                                        root.edited();
-                                    }
-                                }
-                            }
-                        }
-
-                        VerticalLayout {
-                            spacing: 4px;
+                                spacing: 12px;
                             Row {
                                 Label {
-                                    text: @tr("Enter key");
+                                    text: @tr("Keep the last search for");
                                 }
 
                                 ComboBox {
                                     width: 200px;
-                                    model: [@tr("Open"), @tr("Show in folder")];
-                                    current-index <=> root.enter-action;
+                                    model: [@tr("Never"), @tr("30 seconds"), @tr("1 minute"), @tr("5 minutes"), @tr("Always")];
+                                    current-index <=> root.keep-search;
                                     selected => {
                                         root.edited();
                                     }
                                 }
                             }
 
-                            Hint {
-                                text: @tr("Ctrl+Enter does the other action.");
+                            Switch {
+                                text: @tr("Include hidden files and folders");
+                                checked <=> root.include-hidden;
+                                toggled => {
+                                    root.edited();
+                                }
                             }
-                        }
 
-                        VerticalLayout {
-                            spacing: 6px;
-                            Row {
-                                Label {
-                                    text: @tr("Indexed drives");
+                            Switch {
+                                text: @tr("Include system files");
+                                checked <=> root.include-system;
+                                toggled => {
+                                    root.edited();
+                                }
+                            }
+
+                            VerticalLayout {
+                                spacing: 6px;
+                                Text {
+                                    text: @tr("Ignored folders");
                                 }
 
-                                Button {
-                                    text: @tr("Refresh");
-                                    clicked => {
-                                        root.refresh-drives();
+                                StandardListView {
+                                    height: 96px;
+                                    model: root.excluded;
+                                    current-item <=> root.selected-excluded;
+                                }
+
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    alignment: start;
+                                    StdButton {
+                                        text: @tr("Add…");
+                                        clicked => {
+                                            root.add-folder();
+                                        }
+                                    }
+
+                                    StdButton {
+                                        text: @tr("Remove");
+                                        enabled: root.selected-excluded >= 0 && root.selected-excluded < root.excluded.length;
+                                        clicked => {
+                                            root.remove-folder(root.selected-excluded);
+                                        }
                                     }
                                 }
                             }
 
-                            if root.drives-unavailable: Hint {
-                                text: @tr("Search service is not running.");
-                            }
-                            for drive in root.drives: Text {
-                                text: drive.letter + ":  " + (drive.state == 1 ? @tr("Ready, {} items", drive.entries) : drive.state == 0 ? @tr("Indexing {}%", drive.percent) : @tr("Failed: {}", drive.reason));
-                                font-size: 12px;
-                            }
-                        }
-                    }
-                }
+                            VerticalLayout {
+                                spacing: 6px;
+                                Text {
+                                    text: @tr("Categories shown");
+                                }
 
-                Tab {
-                    title: @tr("Clipboard");
-                    ScrollView {
-                        VerticalBox {
-                            alignment: start;
-                            spacing: 14px;
+                                HorizontalLayout {
+                                    spacing: 16px;
+                                    alignment: start;
+                                    StdCheckBox {
+                                        text: @tr("Apps");
+                                        checked <=> root.show-apps;
+                                        enabled: !root.show-apps || root.show-files || root.show-folders;
+                                        toggled => {
+                                            root.edited();
+                                        }
+                                    }
 
+                                    StdCheckBox {
+                                        text: @tr("Files");
+                                        checked <=> root.show-files;
+                                        enabled: !root.show-files || root.show-apps || root.show-folders;
+                                        toggled => {
+                                            root.edited();
+                                        }
+                                    }
+
+                                    StdCheckBox {
+                                        text: @tr("Folders");
+                                        checked <=> root.show-folders;
+                                        enabled: !root.show-folders || root.show-apps || root.show-files;
+                                        toggled => {
+                                            root.edited();
+                                        }
+                                    }
+                                }
+                            }
+
+                            VerticalLayout {
+                                spacing: 4px;
+                                Row {
+                                    Label {
+                                        text: @tr("Enter key");
+                                    }
+
+                                    ComboBox {
+                                        width: 200px;
+                                        model: [@tr("Open"), @tr("Show in folder")];
+                                        current-index <=> root.enter-action;
+                                        selected => {
+                                            root.edited();
+                                        }
+                                    }
+                                }
+
+                                Hint {
+                                    text: @tr("Ctrl+Enter does the other action.");
+                                }
+                            }
+
+                            VerticalLayout {
+                                spacing: 6px;
+                                Row {
+                                    Label {
+                                        text: @tr("Indexed drives");
+                                    }
+
+                                    StdButton {
+                                        text: @tr("Refresh");
+                                        clicked => {
+                                            root.refresh-drives();
+                                        }
+                                    }
+                                }
+
+                                if root.drives-unavailable: Hint {
+                                    text: @tr("Search service is not running.");
+                                }
+                                for drive in root.drives: Text {
+                                    text: drive.letter + ":  " + (drive.state == 1 ? @tr("Ready, {} items", drive.entries) : drive.state == 0 ? @tr("Indexing {}%", drive.percent) : @tr("Failed: {}", drive.reason));
+                                    font-size: 12px;
+                                }
+                            }
+                            }
+
+                            if root.current-tab == 2: VerticalLayout {
+                                alignment: start;
+                                spacing: 14px;
                             VerticalLayout {
                                 spacing: 4px;
                                 Row {
@@ -454,7 +616,7 @@ export component SettingsWindow inherits Window {
                                         font-weight: 600;
                                     }
 
-                                    Button {
+                                    StdButton {
                                         text: root.history-recording ? @tr("Cancel") : @tr("Change");
                                         enabled: !root.recording;
                                         clicked => {
@@ -467,7 +629,7 @@ export component SettingsWindow inherits Window {
                                         }
                                     }
 
-                                    Button {
+                                    StdButton {
                                         text: @tr("Reset");
                                         enabled: !root.recording && !root.history-recording;
                                         clicked => {
@@ -513,7 +675,7 @@ export component SettingsWindow inherits Window {
                                 HorizontalLayout {
                                     spacing: 16px;
                                     alignment: start;
-                                    CheckBox {
+                                    StdCheckBox {
                                         text: @tr("Text");
                                         checked <=> root.capture-text;
                                         enabled: !root.capture-text || root.capture-images;
@@ -522,7 +684,7 @@ export component SettingsWindow inherits Window {
                                         }
                                     }
 
-                                    CheckBox {
+                                    StdCheckBox {
                                         text: @tr("Images");
                                         checked <=> root.capture-images;
                                         enabled: !root.capture-images || root.capture-text;
@@ -646,14 +808,14 @@ export component SettingsWindow inherits Window {
                                 HorizontalLayout {
                                     spacing: 8px;
                                     alignment: start;
-                                    Button {
+                                    StdButton {
                                         text: @tr("Add…");
                                         clicked => {
                                             root.add-app();
                                         }
                                     }
 
-                                    Button {
+                                    StdButton {
                                         text: @tr("Remove");
                                         enabled: root.selected-ignored >= 0 && root.selected-ignored < root.ignored-apps.length;
                                         clicked => {
@@ -665,7 +827,7 @@ export component SettingsWindow inherits Window {
 
                             if !root.confirm-clear: HorizontalLayout {
                                 alignment: start;
-                                Button {
+                                StdButton {
                                     text: @tr("Clear history");
                                     clicked => {
                                         root.confirm-clear = true;
@@ -677,7 +839,7 @@ export component SettingsWindow inherits Window {
                                     text: @tr("Delete all entries except favorites?");
                                 }
 
-                                Button {
+                                StdButton {
                                     text: @tr("Delete");
                                     clicked => {
                                         root.confirm-clear = false;
@@ -685,7 +847,7 @@ export component SettingsWindow inherits Window {
                                     }
                                 }
 
-                                Button {
+                                StdButton {
                                     text: @tr("Cancel");
                                     clicked => {
                                         root.confirm-clear = false;
@@ -703,17 +865,36 @@ export component SettingsWindow inherits Window {
                                 color: #d13438;
                                 opacity: 1;
                             }
+                            }
+
+                            if root.save-error != "": Text {
+                                text: @tr("Could not save the settings: {}", root.save-error);
+                                color: Tokens.danger;
+                                font-size: Tokens.size-desc;
+                                wrap: word-wrap;
+                            }
                         }
+                    }
+                    ScrollBar {
+                        x: parent.width - self.width - 2px;
+                        height: parent.height;
+                        viewport-y <=> flick.content-y;
+                        viewport-height: flick.content-height;
+                        visible-height: flick.height;
                     }
                 }
             }
+        }
 
-            if root.save-error != "": Text {
-                text: @tr("Could not save the settings: {}", root.save-error);
-                color: #d13438;
-                font-size: 12px;
-                wrap: word-wrap;
-            }
+        if !root.window-maximized: Rectangle {
+            ResizeEdge { x: 0px; y: 0px; width: parent.width; height: 6px; direction: 0; mouse-cursor: ns-resize; resize(d) => { root.resize(d); } }
+            ResizeEdge { x: 0px; y: parent.height - 6px; width: parent.width; height: 6px; direction: 1; mouse-cursor: ns-resize; resize(d) => { root.resize(d); } }
+            ResizeEdge { x: parent.width - 6px; y: 0px; width: 6px; height: parent.height; direction: 2; mouse-cursor: ew-resize; resize(d) => { root.resize(d); } }
+            ResizeEdge { x: 0px; y: 0px; width: 6px; height: parent.height; direction: 3; mouse-cursor: ew-resize; resize(d) => { root.resize(d); } }
+            ResizeEdge { x: parent.width - 10px; y: 0px; width: 10px; height: 10px; direction: 4; mouse-cursor: nesw-resize; resize(d) => { root.resize(d); } }
+            ResizeEdge { x: 0px; y: 0px; width: 10px; height: 10px; direction: 5; mouse-cursor: nwse-resize; resize(d) => { root.resize(d); } }
+            ResizeEdge { x: parent.width - 10px; y: parent.height - 10px; width: 10px; height: 10px; direction: 6; mouse-cursor: nwse-resize; resize(d) => { root.resize(d); } }
+            ResizeEdge { x: 0px; y: parent.height - 10px; width: 10px; height: 10px; direction: 7; mouse-cursor: nesw-resize; resize(d) => { root.resize(d); } }
         }
     }
 }

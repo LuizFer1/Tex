@@ -23,6 +23,7 @@ use slint::language::ColorScheme;
 use slint::winit_030::winit::event::WindowEvent;
 use slint::winit_030::winit::platform::windows::WindowExtWindows;
 use slint::winit_030::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+use slint::winit_030::winit::window::ResizeDirection;
 use slint::winit_030::{EventResult, WinitWindowAccessor};
 use slint::{
     CloseRequestResponse, ComponentHandle, Image, Model, ModelRc, PhysicalPosition, Rgba8Pixel,
@@ -35,7 +36,7 @@ use tex_ipc::{Filter, VolumeState, VolumeStatus};
 use tex_platform::{
     ClipboardWatcher, IconPixels, LocalTime, SingleInstance, catch_windows_key, foreground_window,
     local_time, lock_foreground, open_path, paste_into, pick_file, pick_folder, primary_work_area,
-    restore_foreground, reveal_in_folder, shape_tabbed_window, take_foreground,
+    restore_foreground, reveal_in_folder, round_corners, shape_tabbed_window, take_foreground,
     work_area_under_cursor, write_image, write_text,
 };
 
@@ -121,6 +122,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let history = HistoryWindow::new()?;
     let tray = TexTray::new()?;
     about.set_version(env!("CARGO_PKG_VERSION").into());
+    settings_window.set_version(env!("CARGO_PKG_VERSION").into());
     let windows = Windows {
         popup: popup.as_weak(),
         about: about.as_weak(),
@@ -241,9 +243,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     wire_history(&history, &windows, &client);
     for window in [about.window(), settings_window.window()] {
         let windows = windows.clone();
-        window.on_winit_window_event(move |_, event| {
+        window.on_winit_window_event(move |window, event| {
             if matches!(event, WindowEvent::ThemeChanged(_)) {
                 theme_changed(&windows);
+            }
+            if matches!(event, WindowEvent::Resized(_))
+                && let Some(settings) = windows.settings.upgrade()
+                && std::ptr::eq(settings.window(), window)
+            {
+                let maximized = window
+                    .with_winit_window(|w| w.is_maximized())
+                    .unwrap_or(false);
+                settings.set_window_maximized(maximized);
             }
             EventResult::Propagate
         });
@@ -397,6 +408,59 @@ fn wire_popup(popup: &Popup, windows: &Windows, client: &SearchClient) {
 }
 
 fn wire_settings(window: &SettingsWindow, windows: &Windows, client: &SearchClient) {
+    window.on_drag({
+        let weak = window.as_weak();
+        move || {
+            let Some(window) = weak.upgrade() else {
+                return;
+            };
+            let now = Instant::now();
+            if with_app(|app| app::is_double_click(app.title_pressed_at.take(), now)) {
+                toggle_maximized(&window);
+                return;
+            }
+            with_app(|app| app.title_pressed_at = Some(now));
+            window.window().with_winit_window(|window| {
+                let _ = window.drag_window();
+            });
+        }
+    });
+    window.on_resize({
+        let weak = window.as_weak();
+        move |direction| {
+            if let Some(window) = weak.upgrade() {
+                window.window().with_winit_window(|window| {
+                    let _ = window.drag_resize_window(resize_direction(direction));
+                });
+            }
+        }
+    });
+    window.on_minimize({
+        let weak = window.as_weak();
+        move || {
+            if let Some(window) = weak.upgrade() {
+                window.window().set_minimized(true);
+            }
+        }
+    });
+    window.on_toggle_maximize({
+        let weak = window.as_weak();
+        move || {
+            if let Some(window) = weak.upgrade() {
+                toggle_maximized(&window);
+            }
+        }
+    });
+    window.on_close_window({
+        let weak = window.as_weak();
+        move || {
+            if let Some(window) = weak.upgrade() {
+                window
+                    .window()
+                    .dispatch_event(slint::platform::WindowEvent::CloseRequested);
+            }
+        }
+    });
     window.on_edited({
         let windows = windows.clone();
         let client = client.clone();
@@ -611,6 +675,34 @@ fn hotkey_error(result: Result<(), HotkeyError>, previous_failed: bool) -> i32 {
     }
 }
 
+fn toggle_maximized(window: &SettingsWindow) {
+    let maximized = !window.window().is_maximized();
+    window.window().set_maximized(maximized);
+    window.set_window_maximized(maximized);
+}
+
+fn resize_direction(direction: i32) -> ResizeDirection {
+    match direction {
+        0 => ResizeDirection::North,
+        1 => ResizeDirection::South,
+        2 => ResizeDirection::East,
+        3 => ResizeDirection::West,
+        4 => ResizeDirection::NorthEast,
+        5 => ResizeDirection::NorthWest,
+        6 => ResizeDirection::SouthEast,
+        _ => ResizeDirection::SouthWest,
+    }
+}
+
+fn keys_model(shortcut: &Shortcut) -> ModelRc<SharedString> {
+    let keys: Vec<SharedString> = shortcut
+        .display_keys()
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    ModelRc::new(VecModel::from(keys))
+}
+
 fn change_history_hotkey(window: &SettingsWindow, shortcut: &Shortcut) {
     let result = with_app(|app| app.apply_history_hotkey(shortcut));
     resume_hotkeys();
@@ -620,6 +712,7 @@ fn change_history_hotkey(window: &SettingsWindow, shortcut: &Shortcut) {
         with_app(|app| app.history_hotkey_failed),
     ));
     window.set_history_hotkey_text(with_app(|app| app.history_shortcut().display()).into());
+    window.set_history_hotkey_keys(with_app(|app| keys_model(&app.history_shortcut())));
     if result.is_ok() {
         save_settings(window);
     }
@@ -664,6 +757,7 @@ fn change_hotkey(window: &SettingsWindow, shortcut: &Shortcut) {
     window.set_recording(false);
     window.set_hotkey_error(hotkey_error(result, with_app(|app| app.hotkey_failed)));
     window.set_hotkey_text(with_app(|app| app.shortcut().display()).into());
+    window.set_hotkey_keys(with_app(|app| keys_model(&app.shortcut())));
     if result.is_ok() {
         save_settings(window);
     }
@@ -884,6 +978,7 @@ fn fill_settings(window: &SettingsWindow, app: &AppState) {
         Theme::Dark => 2,
     });
     window.set_hotkey_text(app.shortcut().display().into());
+    window.set_hotkey_keys(keys_model(&app.shortcut()));
     window.set_hotkey_error(if app.hotkey_failed { 3 } else { 0 });
     window.set_recording(false);
     window.set_windows_key(general.windows_key);
@@ -913,6 +1008,7 @@ fn fill_settings(window: &SettingsWindow, app: &AppState) {
     fill_folders(window, &app.settings);
     let clipboard = &app.settings.clipboard;
     window.set_history_hotkey_text(app.history_shortcut().display().into());
+    window.set_history_hotkey_keys(keys_model(&app.history_shortcut()));
     window.set_history_hotkey_error(if app.history_hotkey_failed { 3 } else { 0 });
     window.set_history_recording(false);
     window.set_paused(clipboard.paused);
@@ -1055,6 +1151,9 @@ fn show_settings(windows: &Windows, client: &SearchClient, tab: Option<i32>) {
     }
     send_history(ClipboardCommand::Usage);
     let _ = window.show();
+    if let Some(hwnd) = window_hwnd(window.window()) {
+        round_corners(hwnd);
+    }
     window
         .window()
         .with_winit_window(|window| window.focus_window());

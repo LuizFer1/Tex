@@ -485,3 +485,36 @@ msgstr "salvando novas cópias"
 
 msgid "new copies are not saved"
 msgstr "novas cópias não são salvas"
+
+msgid "Minimize"
+msgstr "Minimizar"
+
+msgid "Maximize"
+msgstr "Maximizar"
+
+msgid "Restore"
+msgstr "Restaurar"
+
+msgid "Close"
+msgstr "Fechar"
+
+msgid "Capture paused"
+msgstr "Captura pausada"
+
+msgid "Hi! I keep what you copy and find what you look for."
+msgstr "Oi! Eu guardo o que você copia e acho o que você procura."
+
+msgid "{0} searches · {1} opens the history · capture on"
+msgstr "{0} pesquisa · {1} abre o histórico · captura ligada"
+
+msgid "{0} searches · {1} opens the history · capture paused"
+msgstr "{0} pesquisa · {1} abre o histórico · captura pausada"
+
+msgid "Appearance"
+msgstr "Aparência"
+
+msgid "System"
+msgstr "Sistema"
+
+msgid "Restore default ({0})"
+msgstr "Restaurar padrão ({0})"
