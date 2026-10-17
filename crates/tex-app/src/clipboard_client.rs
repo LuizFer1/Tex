@@ -170,8 +170,15 @@ fn run(
                 match receiver.recv_timeout(Duration::from_millis(wait)) {
                     Ok(command) => command,
                     Err(RecvTimeoutError::Timeout) => {
-                        report(worker.retain(on_event));
-                        continue;
+                        let result = worker.retain(on_event);
+                        if result.is_ok() {
+                            continue;
+                        }
+                        report(result);
+                        match receiver.recv() {
+                            Ok(command) => command,
+                            Err(_) => return,
+                        }
                     }
                     Err(RecvTimeoutError::Disconnected) => return,
                 }
