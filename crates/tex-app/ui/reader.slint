@@ -170,6 +170,8 @@ export component ReaderWindow inherits Window {
     // 0 loading, 1 ready, 2 indexing (first lines shown), 3 failed
     in property <int> state;
     in property <string> error;
+    // why the file could not be read: a reason code of `run-reason` for a viewer, 0 `error` as it is
+    in property <int> error-reason;
     in property <[ReaderBlock]> blocks;
     in property <[string]> lines;
     in property <int> line-count;
@@ -190,10 +192,11 @@ export component ReaderWindow inherits Window {
     in-out property <string> edit-original;
     // 0 none, 1 too large to edit, 2 changed outside, 3 deleted (Ctrl+S recreates it), 4 save failed,
     // 5 characters would be lost, 6 deleted (read-only file), 7 a tool is running (banner-detail: its
-    // title), 8 a tool failed (banner-title: its title, banner-detail: why)
+    // title), 8 a tool failed (banner-title: its title, banner-reason and banner-detail: why)
     in property <int> banner;
     in property <string> banner-title;
     in property <string> banner-detail;
+    in property <int> banner-reason;
     out property <int> sel-anchor: editor.anchor;
     out property <int> sel-cursor: editor.cursor;
     in-out property <bool> tools-open;
@@ -201,7 +204,8 @@ export component ReaderWindow inherits Window {
     in property <[ProblemRow]> problems;
     in-out property <bool> output-open;
     in property <string> output-title;
-    in property <string> output-text;
+    in property <[string]> output-lines;
+    in property <int> output-longest;
     in-out property <bool> asking-close;
     in-out property <bool> asking-reload;
     in-out property <bool> searching;
@@ -279,8 +283,44 @@ export component ReaderWindow inherits Window {
         }
     }
 
+    // 0 detail as it is, 1 exit code, 2 stopped, 3 took longer than detail seconds, 4 too much output,
+    // 5 not UTF-8, 6 cancelled, 7 the text changed while the tool ran, 8 no viewer for type detail
+    pure function run-reason(kind: int, detail: string, viewer: bool) -> string {
+        if kind == 1 {
+            return @tr("exit code {0}", detail);
+        }
+        if kind == 2 {
+            return @tr("the command stopped");
+        }
+        if kind == 3 {
+            return viewer ? @tr("the viewer took longer than {0} s", detail) : @tr("the tool took longer than {0} s", detail);
+        }
+        if kind == 4 {
+            return viewer ? @tr("the viewer wrote too much") : @tr("the tool wrote too much");
+        }
+        if kind == 5 {
+            return viewer ? @tr("the viewer did not write UTF-8") : @tr("the tool did not write UTF-8");
+        }
+        if kind == 6 {
+            return @tr("cancelled");
+        }
+        if kind == 7 {
+            return @tr("the text changed while the tool ran");
+        }
+        if kind == 8 {
+            return @tr("no viewer for .{0}", detail);
+        }
+        detail
+    }
+
     property <string> encoding-name: root.encoding == 0 ? "UTF-8" : root.encoding == 1 ? "UTF-8 BOM" : root.encoding == 2 ? "UTF-16 LE" : root.encoding == 3 ? "UTF-16 BE" : "Windows-1252";
     property <length> char-width: Tokens.size-body * 0.6;
+
+    property <length> output-height;
+
+    changed height => {
+        self.output-height = self.height * 0.3;
+    }
 
     changed scheme => {
         Palette.color-scheme = self.scheme;
@@ -326,11 +366,11 @@ export component ReaderWindow inherits Window {
                 }
                 return accept;
             }
-            if event.modifiers.control && (event.text == "s" || event.text == "S") {
+            if event.modifiers.control && !event.modifiers.alt && (event.text == "s" || event.text == "S") {
                 root.save-requested();
                 return accept;
             }
-            if event.modifiers.control && (event.text == "e" || event.text == "E") {
+            if event.modifiers.control && !event.modifiers.alt && (event.text == "e" || event.text == "E") {
                 if root.editing {
                     root.edit-finished();
                 } else {
@@ -410,7 +450,7 @@ export component ReaderWindow inherits Window {
             VerticalLayout {
                 padding: root.window-maximized ? 0px : Tokens.border-control;
 
-                Rectangle {
+                title-bar := Rectangle {
                     height: 44px;
                     background: Tokens.paper-2;
                     TouchArea {
@@ -473,6 +513,7 @@ export component ReaderWindow inherits Window {
                             Button {
                                 kind: ButtonKind.tertiary;
                                 text: @tr("Tools");
+                                tip: @tr("Extension tools for this file");
                                 clicked => {
                                     root.tools-requested();
                                 }
@@ -510,7 +551,7 @@ export component ReaderWindow inherits Window {
                         padding-left: 16px;
                         spacing: 8px;
                         Text {
-                            text: root.banner == 1 ? @tr("This file is too large to edit in Tex (more than {0} KB).", 128) : root.banner == 2 ? @tr("The file changed outside Tex.") : root.banner == 3 ? @tr("The file no longer exists. Ctrl+S saves it again.") : root.banner == 4 ? @tr("Could not save: {0}", root.banner-detail) : root.banner == 6 ? @tr("The file no longer exists.") : root.banner == 7 ? @tr("Running {0}…", root.banner-detail) : root.banner == 8 ? @tr("{0} failed: {1}", root.banner-title, root.banner-detail) : @tr("Some characters cannot be kept in {0}. They will be replaced.", root.encoding-name);
+                            text: root.banner == 1 ? @tr("This file is too large to edit in Tex (more than {0} KB).", 128) : root.banner == 2 ? @tr("The file changed outside Tex.") : root.banner == 3 ? @tr("The file no longer exists. Ctrl+S saves it again.") : root.banner == 4 ? @tr("Could not save: {0}", root.banner-detail) : root.banner == 6 ? @tr("The file no longer exists.") : root.banner == 7 ? @tr("Running {0}…", root.banner-detail) : root.banner == 8 ? @tr("{0} failed: {1}", root.banner-title, root.run-reason(root.banner-reason, root.banner-detail, false)) : @tr("Some characters cannot be kept in {0}. They will be replaced.", root.encoding-name);
                             color: Tokens.banner-ink;
                             font-size: Tokens.size-label;
                             wrap: word-wrap;
@@ -684,7 +725,7 @@ export component ReaderWindow inherits Window {
                             horizontal-alignment: center;
                         }
                         Text {
-                            text: root.error;
+                            text: root.run-reason(root.error-reason, root.error, true);
                             color: Tokens.muted;
                             font-size: Tokens.size-label;
                             horizontal-alignment: center;
@@ -694,7 +735,10 @@ export component ReaderWindow inherits Window {
                 }
 
                 if root.output-open: Rectangle {
-                    height: 200px;
+                    height: root.output-height;
+                    init => {
+                        root.output-height = root.height * 0.3;
+                    }
                     background: Tokens.paper-2;
                     VerticalLayout {
                         Rectangle {
@@ -732,16 +776,21 @@ export component ReaderWindow inherits Window {
                                 }
                             }
                         }
-                        output-scroll := ScrollView {
+                        output-list := ListView {
                             vertical-stretch: 1;
-                            Text {
-                                x: 16px;
-                                width: output-scroll.visible-width - 32px;
-                                text: root.output-text;
-                                font-family: Tokens.mono-font;
-                                font-size: Tokens.size-body;
-                                color: Tokens.ink;
-                                wrap: word-wrap;
+                            content-width: max(self.visible-width, root.output-longest * root.char-width + 32px);
+                            for line in root.output-lines: Rectangle {
+                                width: output-list.content-width;
+                                height: output-line.preferred-height;
+                                output-line := Text {
+                                    x: 16px;
+                                    width: parent.width - 32px;
+                                    text: line;
+                                    font-family: Tokens.mono-font;
+                                    font-size: Tokens.size-body;
+                                    color: Tokens.ink;
+                                    wrap: no-wrap;
+                                }
                             }
                         }
                     }
@@ -849,7 +898,7 @@ export component ReaderWindow inherits Window {
             }
             Rectangle {
                 x: parent.width - self.width - 8px;
-                y: 48px;
+                y: title-bar.absolute-position.y + title-bar.height + 4px;
                 width: 320px;
                 height: menu.preferred-height;
                 background: Tokens.paper;
@@ -861,6 +910,15 @@ export component ReaderWindow inherits Window {
                     padding: 6px;
                     for tool[index] in root.tools: Rectangle {
                         height: tool-row.preferred-height;
+                        accessible-role: button;
+                        accessible-label: tool.title;
+                        accessible-enabled: tool.enabled;
+                        accessible-action-default => {
+                            if tool.enabled {
+                                root.tools-open = false;
+                                root.tool-chosen(index);
+                            }
+                        }
                         background: tool-touch.has-hover && tool.enabled ? Tokens.row-hover : transparent;
                         border-radius: Tokens.radius-control;
                         tool-row := VerticalLayout {
@@ -886,7 +944,7 @@ export component ReaderWindow inherits Window {
                                 }
                             }
                             if tool.note-kind != 0: Text {
-                                text: tool.note-kind == 1 ? @tr("needs a selection in edit mode") : tool.note-kind == 2 ? @tr("this file can't be edited here") : tool.note-kind == 3 ? @tr("shortcut ignored: not a valid shortcut") : tool.note-kind == 4 ? @tr("shortcut ignored: reserved by the reader") : tool.note-kind == 5 ? @tr("shortcut ignored: used by {0}", tool.note-arg) : @tr("this file is too large for tools");
+                                text: tool.note-kind == 1 ? @tr("needs a selection in edit mode") : tool.note-kind == 2 ? @tr("this file can't be edited here") : tool.note-kind == 3 ? @tr("shortcut ignored: not a valid shortcut") : tool.note-kind == 4 ? @tr("shortcut ignored: reserved by the reader") : tool.note-kind == 5 ? @tr("shortcut ignored: used by {0}", tool.note-arg) : tool.note-kind == 7 ? @tr("this file is not text") : @tr("this file is too large for tools");
                                 font-size: Tokens.size-meta;
                                 color: Tokens.muted;
                                 wrap: word-wrap;
@@ -916,6 +974,12 @@ export component ReaderWindow inherits Window {
                         height: 34px;
                         background: open-touch.has-hover ? Tokens.row-hover : transparent;
                         border-radius: Tokens.radius-control;
+                        accessible-role: button;
+                        accessible-label: @tr("Open extensions folder");
+                        accessible-action-default => {
+                            root.tools-open = false;
+                            root.open-extensions();
+                        }
                         Text {
                             x: 10px;
                             text: @tr("Open extensions folder");

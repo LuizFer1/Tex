@@ -5,13 +5,32 @@ use tex_reader::{Input, RunError, ToolOutput};
 use crate::shortcut::Shortcut;
 
 /// The reader's own keys, which a tool can never take.
-pub const READER_KEYS: [&str; 5] = ["ctrl+e", "ctrl+s", "ctrl+f", "shift+f3", "alt+z"];
+pub const READER_KEYS: [&str; 7] = [
+    "ctrl+e",
+    "ctrl+s",
+    "ctrl+shift+e",
+    "ctrl+shift+s",
+    "ctrl+f",
+    "shift+f3",
+    "alt+z",
+];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KeyProblem {
     Invalid,
     Reserved,
     Taken(String),
+}
+
+/// Whether a key can follow Ctrl+Alt: AltGr arrives as Ctrl+Alt on Windows, so with any other key
+/// the shortcut would fire while typing a character such as `@` or `€`.
+fn fits_ctrl_alt(shortcut: &Shortcut) -> bool {
+    let name = shortcut.key.name;
+    let letter = name.len() == 1 && name.as_bytes()[0].is_ascii_alphabetic();
+    let function = name.len() > 1
+        && name.starts_with('f')
+        && name[1..].bytes().all(|byte| byte.is_ascii_digit());
+    !(shortcut.ctrl && shortcut.alt) || letter || function
 }
 
 /// The shortcut each tool gets, in order: a later tool asking for a key already taken loses it.
@@ -23,7 +42,9 @@ pub fn resolve(
         .iter()
         .map(|(title, text)| {
             let Some(text) = text else { return Ok(None) };
-            let shortcut = Shortcut::parse(text).ok_or(KeyProblem::Invalid)?;
+            let shortcut = Shortcut::parse(text)
+                .filter(fits_ctrl_alt)
+                .ok_or(KeyProblem::Invalid)?;
             let key = shortcut.canonical();
             if READER_KEYS.contains(&key.as_str()) {
                 return Err(KeyProblem::Reserved);
@@ -39,7 +60,8 @@ pub fn resolve(
 
 /// Why a tool is off or has no shortcut, as the code `reader.slint` turns into a sentence:
 /// 0 none, 1 needs a selection, 2 cannot replace here, 3 invalid shortcut, 4 reserved shortcut,
-/// 5 shortcut used by another tool (`arg` names it), 6 the file is not loaded as text.
+/// 5 shortcut used by another tool (`arg` names it), 6 the file is too large for tools, 7 the file
+/// is not text.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Note {
     pub enabled: bool,
@@ -47,12 +69,20 @@ pub struct Note {
     pub arg: String,
 }
 
+/// How the open file's raw content is held.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Loaded {
+    Text,
+    TooLarge,
+    NotText,
+}
+
 /// What the reader can offer a tool right now.
 #[derive(Clone, Copy)]
 pub struct Context {
     pub editing: bool,
     pub selection: bool,
-    pub text: bool,
+    pub loaded: Loaded,
     pub replaceable: bool,
 }
 
@@ -71,8 +101,12 @@ pub fn note(
     if input == Input::Selection && !(context.editing && context.selection) {
         return off(1);
     }
-    if input == Input::Document && !context.editing && !context.text {
-        return off(6);
+    if input == Input::Document && !context.editing {
+        match context.loaded {
+            Loaded::Text => {}
+            Loaded::TooLarge => return off(6),
+            Loaded::NotText => return off(7),
+        }
     }
     if output == ToolOutput::Replace && !context.editing && !context.replaceable {
         return off(2);
@@ -110,19 +144,53 @@ pub fn splice(text: &str, range: Range<usize>, replacement: &str) -> String {
     )
 }
 
-/// The short sentence for a run that did not produce output; `what` is "tool" or "viewer".
-pub fn describe(error: &RunError, what: &str, seconds: u64) -> String {
+/// Why a run gave nothing to show, as the code `reader.slint` turns into a sentence (`run-reason`):
+/// 0 `detail` as it is (the command's error or the system's), 1 exit code `detail`, 2 the command
+/// stopped, 3 took longer than `detail` seconds, 4 wrote too much, 5 did not write UTF-8,
+/// 6 cancelled, 7 the text changed while the tool ran, 8 no viewer for the type `detail`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Reason {
+    pub kind: i32,
+    pub detail: String,
+}
+
+impl Reason {
+    pub fn new(kind: i32, detail: impl Into<String>) -> Reason {
+        Reason {
+            kind,
+            detail: detail.into(),
+        }
+    }
+}
+
+/// How much of the command's error a banner shows.
+const ERROR_CHARS: usize = 300;
+
+/// The reason for a run that ended without output; a command's error is its first non-empty line.
+pub fn describe(error: &RunError, seconds: u64) -> Reason {
     match error {
-        RunError::Failed { stderr, code } if stderr.is_empty() => match code {
-            Some(code) => format!("exit code {code}"),
-            None => "the command stopped".into(),
-        },
-        RunError::Failed { stderr, .. } => stderr.clone(),
-        RunError::Timeout => format!("the {what} took longer than {seconds} s"),
-        RunError::Spawn(error) => error.to_string(),
-        RunError::TooMuchOutput => format!("the {what} wrote too much"),
-        RunError::InvalidUtf8 => format!("the {what} did not write UTF-8"),
-        RunError::Cancelled => "cancelled".into(),
+        RunError::Failed { stderr, code } => {
+            match stderr.lines().find(|line| !line.trim().is_empty()) {
+                Some(line) => Reason::new(0, shortened(line.trim(), ERROR_CHARS)),
+                None => match code {
+                    Some(code) => Reason::new(1, code.to_string()),
+                    None => Reason::new(2, ""),
+                },
+            }
+        }
+        RunError::Spawn(error) => Reason::new(0, error.to_string()),
+        RunError::Timeout => Reason::new(3, seconds.to_string()),
+        RunError::TooMuchOutput => Reason::new(4, ""),
+        RunError::InvalidUtf8 => Reason::new(5, ""),
+        RunError::Cancelled => Reason::new(6, ""),
+    }
+}
+
+/// `text` cut to `limit` characters, with an ellipsis when cut.
+fn shortened(text: &str, limit: usize) -> String {
+    match text.char_indices().nth(limit) {
+        Some((end, _)) => format!("{}…", &text[..end]),
+        None => text.to_string(),
     }
 }
 
@@ -154,7 +222,15 @@ mod tests {
 
     #[test]
     fn the_readers_keys_are_reserved() {
-        for key in ["Ctrl+E", "ctrl+s", "Ctrl+F", "Shift+F3", "Alt+Z"] {
+        for key in [
+            "Ctrl+E",
+            "ctrl+s",
+            "Ctrl+Shift+S",
+            "shift+ctrl+e",
+            "Ctrl+F",
+            "Shift+F3",
+            "Alt+Z",
+        ] {
             assert_eq!(
                 ask(&[("A", Some(key))]),
                 [Err(KeyProblem::Reserved)],
@@ -179,10 +255,30 @@ mod tests {
         assert_eq!(ask(&[("A", Some("f"))]), [Err(KeyProblem::Invalid)]);
     }
 
+    #[test]
+    fn ctrl_alt_takes_only_letters_and_function_keys() {
+        assert!(matches!(ask(&[("A", Some("Ctrl+Alt+K"))])[0], Ok(Some(_))));
+        assert!(matches!(ask(&[("A", Some("Ctrl+Alt+F5"))])[0], Ok(Some(_))));
+        assert!(matches!(ask(&[("A", Some("Alt+2"))])[0], Ok(Some(_))));
+        assert!(matches!(ask(&[("A", Some("Ctrl+2"))])[0], Ok(Some(_))));
+        for key in [
+            "Ctrl+Alt+2",
+            "Ctrl+Alt+Shift+Minus",
+            "ctrl+alt+bracketleft",
+            "Ctrl+Alt+Space",
+        ] {
+            assert_eq!(
+                ask(&[("A", Some(key))]),
+                [Err(KeyProblem::Invalid)],
+                "{key}"
+            );
+        }
+    }
+
     const EDITING: Context = Context {
         editing: true,
         selection: true,
-        text: true,
+        loaded: Loaded::Text,
         replaceable: true,
     };
 
@@ -214,15 +310,17 @@ mod tests {
         assert!(!note_.enabled);
         assert_eq!(note_.kind, 2);
         assert!(note(Input::Document, ToolOutput::Show, locked, &ok).enabled);
-        let unloaded = Context {
+        let large = Context {
             editing: false,
-            text: false,
+            loaded: Loaded::TooLarge,
             ..EDITING
         };
-        assert_eq!(
-            note(Input::Document, ToolOutput::Show, unloaded, &ok).kind,
-            6
-        );
+        assert_eq!(note(Input::Document, ToolOutput::Show, large, &ok).kind, 6);
+        let binary = Context {
+            loaded: Loaded::NotText,
+            ..large
+        };
+        assert_eq!(note(Input::Document, ToolOutput::Show, binary, &ok).kind, 7);
     }
 
     #[test]
@@ -264,11 +362,33 @@ mod tests {
             code,
             stderr: stderr.into(),
         };
-        assert_eq!(describe(&failed("boom", Some(1)), "tool", 10), "boom");
-        assert_eq!(describe(&failed("", Some(3)), "tool", 10), "exit code 3");
         assert_eq!(
-            describe(&RunError::Timeout, "viewer", 10),
-            "the viewer took longer than 10 s"
+            describe(&failed("boom", Some(1)), 10),
+            Reason::new(0, "boom")
         );
+        assert_eq!(
+            describe(&failed("\n  \nfirst line\nsecond", Some(1)), 10),
+            Reason::new(0, "first line")
+        );
+        assert_eq!(describe(&failed("", Some(3)), 10), Reason::new(1, "3"));
+        assert_eq!(describe(&failed(" \n", None), 10), Reason::new(2, ""));
+        assert_eq!(describe(&RunError::Timeout, 10), Reason::new(3, "10"));
+        assert_eq!(describe(&RunError::TooMuchOutput, 10).kind, 4);
+        assert_eq!(describe(&RunError::InvalidUtf8, 10).kind, 5);
+    }
+
+    #[test]
+    fn a_long_error_line_is_cut() {
+        let long = "é".repeat(1000);
+        let reason = describe(
+            &RunError::Failed {
+                code: Some(1),
+                stderr: long,
+            },
+            10,
+        );
+        assert_eq!(reason.detail.chars().count(), ERROR_CHARS + 1);
+        assert!(reason.detail.ends_with('…'));
+        assert_eq!(shortened("abc", 3), "abc");
     }
 }

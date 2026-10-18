@@ -824,3 +824,42 @@ msgstr "este arquivo é grande demais para ferramentas"
 
 msgid "{0} also opens .{1}; the first folder wins"
 msgstr "{0} também abre .{1}; vale a primeira pasta"
+
+msgid "exit code {0}"
+msgstr "código de saída {0}"
+
+msgid "the command stopped"
+msgstr "o comando parou"
+
+msgid "the viewer took longer than {0} s"
+msgstr "o visualizador levou mais de {0} s"
+
+msgid "the tool took longer than {0} s"
+msgstr "a ferramenta levou mais de {0} s"
+
+msgid "the viewer wrote too much"
+msgstr "o visualizador escreveu demais"
+
+msgid "the tool wrote too much"
+msgstr "a ferramenta escreveu demais"
+
+msgid "the viewer did not write UTF-8"
+msgstr "o visualizador não escreveu UTF-8"
+
+msgid "the tool did not write UTF-8"
+msgstr "a ferramenta não escreveu UTF-8"
+
+msgid "cancelled"
+msgstr "cancelado"
+
+msgid "the text changed while the tool ran"
+msgstr "o texto mudou enquanto a ferramenta rodava"
+
+msgid "no viewer for .{0}"
+msgstr "nenhum visualizador para .{0}"
+
+msgid "this file is not text"
+msgstr "este arquivo não é texto"
+
+msgid "Extension tools for this file"
+msgstr "Ferramentas de extensões para este arquivo"

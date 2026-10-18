@@ -31,6 +31,7 @@ use crate::reader::{
     link_target, longest, reader_size, same_file, search_text, wrap_by_default,
 };
 use crate::settings::extensions_dir;
+use crate::tools::{Reason, describe};
 use crate::{ReaderBlock, ReaderWindow, Windows, placement};
 
 use edit::{check_outside, finish_edit, reload, save, start_edit, unsaved};
@@ -91,6 +92,7 @@ struct Reader {
     tools: Option<Vec<ToolEntry>>,
     run: u64,
     tool_cancel: Option<Cancel>,
+    output: String,
 }
 
 impl Drop for Reader {
@@ -110,7 +112,7 @@ impl Drop for Reader {
 
 enum Event {
     Binary,
-    Failed(String),
+    Failed(Reason),
     Preview {
         lines: Vec<String>,
         encoding: Encoding,
@@ -225,6 +227,7 @@ fn create(windows: &Windows, path: &Path) -> Option<ReaderWindow> {
             tools: None,
             run: 0,
             tool_cancel: None,
+            output: String::new(),
         })
     });
     Some(window)
@@ -402,7 +405,9 @@ fn spawn(
         };
         let probed = match probe(&path, &viewers) {
             Ok(probed) => probed,
-            Err(LoadError::Io(error)) => return send(Event::Failed(error.to_string())),
+            Err(LoadError::Io(error)) => {
+                return send(Event::Failed(Reason::new(0, error.to_string())));
+            }
             Err(LoadError::Binary | LoadError::Unsupported) => return send(Event::Binary),
         };
         if let Kind::Viewer(ext) = &probed.kind {
@@ -423,7 +428,9 @@ fn spawn(
         let document = match probed.load(&cancel) {
             Ok(Some(document)) => document,
             Ok(None) => return,
-            Err(LoadError::Io(error)) => return send(Event::Failed(error.to_string())),
+            Err(LoadError::Io(error)) => {
+                return send(Event::Failed(Reason::new(0, error.to_string())));
+            }
             Err(LoadError::Binary | LoadError::Unsupported) => return send(Event::Binary),
         };
         let built = match &document.body {
@@ -469,7 +476,7 @@ fn view(
     send: &impl Fn(Event),
 ) {
     let Some((extension, viewer)) = catalog.viewer_for(ext) else {
-        return send(Event::Failed(format!("no viewer for .{ext}")));
+        return send(Event::Failed(Reason::new(8, ext)));
     };
     let (stamp, encoding) = (probed.stamp, probed.encoding);
     let text = sniff(&probed.head) == Sniff::Text && probed.stamp.len <= TEXT_LIMIT;
@@ -493,11 +500,7 @@ fn view(
             });
         }
         Err(tex_reader::RunError::Cancelled) => {}
-        Err(error) => send(Event::Failed(crate::tools::describe(
-            &error,
-            "viewer",
-            LIMITS.time.as_secs(),
-        ))),
+        Err(error) => send(Event::Failed(describe(&error, LIMITS.time.as_secs()))),
     }
 }
 
@@ -546,7 +549,7 @@ fn show_built(window: &ReaderWindow, built: Built) {
 fn serve_pages(path: &Path, index: Arc<LineIndex>, stamp: Stamp, send: &impl Fn(Event)) {
     let mut file = match File::open(path) {
         Ok(file) => file,
-        Err(error) => return send(Event::Failed(error.to_string())),
+        Err(error) => return send(Event::Failed(Reason::new(0, error.to_string()))),
     };
     let (pages, requests) = mpsc::channel();
     send(Event::Indexed {
@@ -577,7 +580,8 @@ fn deliver(id: u64, load: u64, event: Event) {
     match event {
         Event::Binary => close(id),
         Event::Failed(reason) => {
-            window.set_error(reason.into());
+            window.set_error_reason(reason.kind);
+            window.set_error(reason.detail.into());
             window.set_state(3);
         }
         Event::Preview { lines, encoding } => {

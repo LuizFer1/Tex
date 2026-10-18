@@ -2,14 +2,18 @@ use std::ops::Range;
 
 use slint::{ModelRc, VecModel};
 use tex_platform::{open_path, write_text};
-use tex_reader::{Body, channel, job, run};
+use tex_reader::{Body, TEXT_LIMIT, channel, job, run};
 use tex_reader::{Catalog, Document, Extension, Input, LIMITS, RunError, Tool, ToolOutput};
 
 use super::edit::apply_text;
+use super::model::strings;
 use super::{Banner, reload_catalog, show_banner, window_of, with_reader};
+use crate::reader::{display_lines, longest};
 use crate::settings::extensions_dir;
 use crate::shortcut::Shortcut;
-use crate::tools::{Context, KeyProblem, describe, note, resolve, selection_range, splice};
+use crate::tools::{
+    Context, KeyProblem, Loaded, Reason, describe, note, resolve, selection_range, splice,
+};
 use crate::{ProblemRow, ReaderWindow, ToolRow};
 
 /// A tool of the catalog that applies to the open file, with the shortcut it got.
@@ -51,18 +55,24 @@ fn context(id: u64, window: &ReaderWindow) -> Context {
             window.get_sel_cursor(),
         )
         .is_some();
-    let (text, replaceable) = with_reader(id, |reader| match &reader.document {
+    let (loaded, replaceable) = with_reader(id, |reader| match &reader.document {
         Some(document) => (
-            matches!(document.body, Body::Text(_)),
+            match document.body {
+                Body::Text(_) => Loaded::Text,
+                Body::Lines(_) => Loaded::TooLarge,
+            },
             document.editable() || document.dirty,
         ),
-        None => (false, false),
+        None if reader.viewer && reader.stamp.is_some_and(|stamp| stamp.len <= TEXT_LIMIT) => {
+            (Loaded::NotText, false)
+        }
+        None => (Loaded::TooLarge, false),
     })
-    .unwrap_or((false, false));
+    .unwrap_or((Loaded::TooLarge, false));
     Context {
         editing,
         selection,
-        text,
+        loaded,
         replaceable,
     }
 }
@@ -227,9 +237,10 @@ fn clear_running(window: &ReaderWindow) {
     }
 }
 
-fn failed(window: &ReaderWindow, title: &str, reason: String) {
+fn failed(window: &ReaderWindow, title: &str, reason: Reason) {
     window.set_banner_title(title.into());
-    window.set_banner_detail(reason.into());
+    window.set_banner_reason(reason.kind);
+    window.set_banner_detail(reason.detail.into());
     show_banner(window, Banner::ToolFailed);
 }
 
@@ -258,19 +269,16 @@ fn finished(
     let output = match result {
         Ok(output) => output,
         Err(RunError::Cancelled) => return clear_running(&window),
-        Err(error) => {
-            return failed(
-                &window,
-                title,
-                describe(&error, "tool", LIMITS.time.as_secs()),
-            );
-        }
+        Err(error) => return failed(&window, title, describe(&error, LIMITS.time.as_secs())),
     };
     match entry.tool.output {
         ToolOutput::Replace => replace(id, &window, title, &base, range, &output),
         ToolOutput::Show => {
+            let lines = display_lines(&output);
+            with_reader(id, |reader| reader.output = output);
             window.set_output_title(title.into());
-            window.set_output_text(output.into());
+            window.set_output_longest(longest(&lines) as i32);
+            window.set_output_lines(strings(lines));
             window.set_output_open(true);
             clear_running(&window);
         }
@@ -304,7 +312,7 @@ fn replace(
         .flatten()
     };
     if current.as_deref() != Some(base) {
-        return failed(window, title, "the text changed while it ran".into());
+        return failed(window, title, Reason::new(7, ""));
     }
     let text = splice(base, range, output);
     clear_running(window);
@@ -322,11 +330,13 @@ pub(super) fn open_extensions() {
     let _ = open_path(&dir.to_string_lossy());
 }
 
+/// Copies the whole output of the last tool, not only the lines the panel shows.
 pub(super) fn output_copy(id: u64) {
     let Some(window) = window_of(id) else {
         return;
     };
-    if write_text(&window.get_output_text()).is_ok() {
+    let copied = with_reader(id, |reader| write_text(&reader.output).is_ok());
+    if copied == Some(true) {
         window.invoke_copied();
     }
 }
@@ -335,6 +345,7 @@ pub(super) fn output_closed(id: u64) {
     let Some(window) = window_of(id) else {
         return;
     };
+    with_reader(id, |reader| reader.output = String::new());
     window.set_output_open(false);
-    window.set_output_text("".into());
+    window.set_output_lines(ModelRc::default());
 }
