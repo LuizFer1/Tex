@@ -2,6 +2,8 @@
 pub mod account;
 pub mod engine;
 pub mod events;
+#[cfg(target_os = "linux")]
+pub mod linux;
 pub mod log;
 pub mod mounts;
 #[cfg(windows)]

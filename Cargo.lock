@@ -4654,6 +4654,7 @@ dependencies = [
 name = "tex-indexer"
 version = "0.4.2"
 dependencies = [
+ "libc",
  "tex-index",
  "tex-ipc",
  "windows-service",
