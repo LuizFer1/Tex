@@ -48,6 +48,10 @@ export component SettingsWindow inherits Window {
     in-out property <bool> windows-key;
     in property <string> winkey-error;
     in-out property <bool> start-with-windows;
+    in-out property <bool> auto-update;
+    // 0 idle, 1 checking, 2 up to date, 3 downloading, 4 ready, 5 failed, 6 installing
+    in property <int> update-state;
+    in property <string> update-version;
     in-out property <int> popup-monitor;
 
     in-out property <int> keep-search;
@@ -106,6 +110,8 @@ export component SettingsWindow inherits Window {
     callback add-app();
     callback remove-app(int);
     callback clear-history();
+    callback check-updates();
+    callback install-update();
 
     callback drag();
     callback resize(int);
@@ -404,6 +410,48 @@ export component SettingsWindow inherits Window {
                                             checked <=> root.start-with-windows;
                                             toggled => {
                                                 root.edited();
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Section {
+                                    title: @tr("Updates");
+                                    SettingRow {
+                                        label: @tr("Check for updates automatically");
+                                        description: @tr("Only asks Tex's page on GitHub for new versions. Nothing about you is sent.");
+                                        Toggle {
+                                            label: @tr("Check for updates automatically");
+                                            checked <=> root.auto-update;
+                                            toggled => {
+                                                root.edited();
+                                            }
+                                        }
+                                    }
+                                    SettingRow {
+                                        label: root.update-state == 1 ? @tr("Checking for updates…")
+                                            : root.update-state == 2 ? @tr("Tex is up to date.")
+                                            : root.update-state == 3 ? @tr("Downloading version {0}…", root.update-version)
+                                            : root.update-state == 4 ? @tr("Version {0} is ready to install.", root.update-version)
+                                            : root.update-state == 5 ? @tr("Could not check for updates.")
+                                            : root.update-state == 6 ? @tr("Installing version {0}…", root.update-version)
+                                            : @tr("Version {0}", root.version);
+                                        separator: false;
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            if root.update-state == 4: Button {
+                                                kind: ButtonKind.primary;
+                                                text: @tr("Update and restart");
+                                                clicked => {
+                                                    root.install-update();
+                                                }
+                                            }
+                                            Button {
+                                                text: @tr("Check now");
+                                                enabled: root.update-state != 1 && root.update-state != 3 && root.update-state != 6;
+                                                clicked => {
+                                                    root.check-updates();
+                                                }
                                             }
                                         }
                                     }

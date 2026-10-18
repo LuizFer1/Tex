@@ -2,6 +2,7 @@ import { Artwork } from "artwork.slint";
 
 export component TexTray inherits SystemTrayIcon {
     in property <bool> paused;
+    in property <string> update-version;
     icon: Artwork.mascot-tray;
     tooltip: "Tex";
 
@@ -11,6 +12,7 @@ export component TexTray inherits SystemTrayIcon {
     callback settings();
     callback about();
     callback toggle-pause();
+    callback install-update();
     callback quit();
 
     clicked => {
@@ -50,6 +52,13 @@ export component TexTray inherits SystemTrayIcon {
             title: root.paused ? @tr("Resume capture") : @tr("Pause capture");
             activated => {
                 root.toggle-pause();
+            }
+        }
+
+        if root.update-version != "": MenuItem {
+            title: @tr("Update to {0}", root.update-version);
+            activated => {
+                root.install-update();
             }
         }
 

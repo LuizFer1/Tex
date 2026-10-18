@@ -656,3 +656,42 @@ msgstr "Concluir"
 
 msgid "Open search"
 msgstr "Abrir a pesquisa"
+
+msgid "Updates"
+msgstr "Atualizações"
+
+msgid "Check for updates automatically"
+msgstr "Procurar atualizações automaticamente"
+
+msgid "Only asks Tex's page on GitHub for new versions. Nothing about you is sent."
+msgstr "Só consulta a página do Tex no GitHub. Nada sobre você é enviado."
+
+msgid "Checking for updates…"
+msgstr "Procurando…"
+
+msgid "Tex is up to date."
+msgstr "O Tex está atualizado."
+
+msgid "Downloading version {0}…"
+msgstr "Baixando a versão {0}…"
+
+msgid "Version {0} is ready to install."
+msgstr "Versão {0} pronta para instalar."
+
+msgid "Could not check for updates."
+msgstr "Não foi possível procurar atualizações."
+
+msgid "Installing version {0}…"
+msgstr "Instalando a versão {0}…"
+
+msgid "Version {0}"
+msgstr "Versão {0}"
+
+msgid "Update and restart"
+msgstr "Atualizar e reiniciar"
+
+msgid "Check now"
+msgstr "Procurar agora"
+
+msgid "Update to {0}"
+msgstr "Atualizar para {0}"
