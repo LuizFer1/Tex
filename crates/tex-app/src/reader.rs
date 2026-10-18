@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::{MAIN_SEPARATOR_STR, Path, PathBuf};
+use std::path::{Component, MAIN_SEPARATOR_STR, Path, PathBuf};
 
 use tex_platform::WorkArea;
 use tex_reader::{Block, Encoding, Kind, MAX_LINE_BYTES};
@@ -40,12 +40,54 @@ pub fn display_lines(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// How many lines `display_lines` gives, without building them.
+pub fn line_count(text: &str) -> usize {
+    text.strip_suffix('\n')
+        .unwrap_or(text)
+        .bytes()
+        .filter(|&byte| byte == b'\n')
+        .count()
+        + 1
+}
+
+/// The widest line in columns, a tab counting as four.
 pub fn longest(lines: &[String]) -> usize {
     lines
         .iter()
-        .map(|line| line.chars().count())
+        .map(|line| line.chars().map(|c| if c == '\t' { 4 } else { 1 }).sum())
         .max()
         .unwrap_or(0)
+}
+
+/// Whether two paths name the same file once `.` and `..` are resolved, ignoring case on Windows.
+pub fn same_file(a: &Path, b: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        normalized(a).to_string_lossy().to_lowercase()
+            == normalized(b).to_string_lossy().to_lowercase()
+    }
+    #[cfg(not(windows))]
+    {
+        normalized(a) == normalized(b)
+    }
+}
+
+fn normalized(path: &Path) -> PathBuf {
+    let mut parts: Vec<Component> = Vec::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => match parts.last() {
+                Some(Component::Normal(_)) => {
+                    parts.pop();
+                }
+                Some(Component::RootDir) => {}
+                _ => parts.push(part),
+            },
+            _ => parts.push(part),
+        }
+    }
+    parts.iter().collect()
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -323,6 +365,42 @@ mod tests {
         assert!(shown.ends_with('…'));
         assert!(shown.len() <= MAX_LINE_BYTES + '…'.len_utf8());
         assert_eq!(longest(&["ab".into(), "éée".into()]), 3);
+    }
+
+    #[test]
+    fn tabs_count_as_four_columns() {
+        assert_eq!(longest(&["\tab".into(), "abcde".into()]), 6);
+    }
+
+    #[test]
+    fn line_count_matches_the_displayed_lines() {
+        for text in ["", "a", "a\nb\n", "a\n\n", "\n", "a\nb"] {
+            assert_eq!(line_count(text), display_lines(text).len(), "{text:?}");
+        }
+        assert_eq!(line_count(""), 1);
+        assert_eq!(line_count("a\nb\n"), 2);
+    }
+
+    #[test]
+    fn same_file_ignores_dots_and_parent_steps() {
+        let readme = Path::new("notas").join("README.md");
+        assert!(same_file(
+            &Path::new("notas").join("docs").join("..").join("README.md"),
+            &readme
+        ));
+        assert!(same_file(
+            &Path::new(".").join("notas").join("README.md"),
+            &readme
+        ));
+        assert!(!same_file(&Path::new("notas").join("LEIAME.md"), &readme));
+        assert!(!same_file(&Path::new("docs").join("README.md"), &readme));
+    }
+
+    #[test]
+    fn same_file_follows_the_case_rule_of_the_system() {
+        let readme = Path::new("notas").join("README.md");
+        let lower = Path::new("Notas").join("readme.MD");
+        assert_eq!(same_file(&lower, &readme), cfg!(windows));
     }
 
     #[test]

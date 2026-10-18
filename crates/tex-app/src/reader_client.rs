@@ -21,7 +21,8 @@ use tex_reader::{Body, Document, Encoding, Kind, LineIndex, LoadError, blocks, p
 use crate::app::{self, with_app};
 use crate::reader::{
     BlockRow, CACHED_PAGES, LinkTarget, Lookup, PAGE_LINES, PageCache, block_rows, display_line,
-    display_lines, encoding_index, link_target, longest, reader_size, wrap_by_default,
+    display_lines, encoding_index, line_count, link_target, longest, reader_size, same_file,
+    wrap_by_default,
 };
 use crate::{ReaderBlock, ReaderWindow, Windows, placement};
 
@@ -78,7 +79,7 @@ pub fn open(windows: &Windows, path: &Path) {
     let existing = READERS.with_borrow(|readers| {
         readers
             .iter()
-            .find(|reader| reader.path == path)
+            .find(|reader| same_file(&reader.path, path))
             .map(|reader| reader.window.clone_strong())
     });
     let is_new = existing.is_none();
@@ -239,8 +240,8 @@ fn follow_link(windows: &Windows, file: &Path, url: &str) {
         LinkTarget::Web(url) => {
             let _ = open_path(&url);
         }
-        LinkTarget::Read(path) => open(windows, &path),
-        LinkTarget::Reveal(path) => {
+        LinkTarget::Read(path) if !path.is_dir() => open(windows, &path),
+        LinkTarget::Read(path) | LinkTarget::Reveal(path) => {
             let _ = reveal_in_folder(&path.to_string_lossy());
         }
         LinkTarget::Ignore => {}
@@ -278,7 +279,7 @@ fn spawn(id: u64, path: PathBuf, cancel: Arc<AtomicBool>) {
         match body {
             Body::Text(text) if markdown => send(Event::Markdown {
                 rows: block_rows(&blocks(&text)),
-                count: display_lines(&text).len(),
+                count: line_count(&text),
                 encoding,
             }),
             Body::Text(text) => send(Event::Text {

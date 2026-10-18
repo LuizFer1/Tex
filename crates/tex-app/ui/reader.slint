@@ -312,10 +312,12 @@ export component ReaderWindow inherits Window {
                     lines-list := ListView {
                         visible: !root.markdown && (root.state == 1 || root.state == 2);
                         content-width: root.wrap ? self.visible-width : max(self.visible-width, root.longest * root.char-width + 64px);
-                        for line in root.lines: HorizontalLayout {
-                            padding-left: 24px;
-                            padding-right: 24px;
-                            Text {
+                        for line in root.lines: Rectangle {
+                            width: lines-list.content-width;
+                            height: line-text.preferred-height;
+                            line-text := Text {
+                                x: 24px;
+                                width: parent.width - 48px;
                                 text: line;
                                 font-family: Tokens.mono-font;
                                 font-size: Tokens.size-body;
