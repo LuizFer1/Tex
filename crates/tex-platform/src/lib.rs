@@ -38,6 +38,11 @@ mod winkey;
 #[cfg(windows)]
 pub use winkey::{WinKeyHook, catch_windows_key};
 
+#[cfg(windows)]
+mod save;
+#[cfg(windows)]
+pub use save::replace_file;
+
 #[cfg(not(windows))]
 compile_error!("tex-platform only supports Windows for now");
 
