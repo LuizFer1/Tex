@@ -175,6 +175,7 @@ export component ReaderWindow inherits Window {
     in property <int> banner;
     in property <string> banner-detail;
     in-out property <bool> asking-close;
+    in-out property <bool> asking-reload;
     in-out property <bool> searching;
     in-out property <string> query;
     in property <int> hit-count;
@@ -192,6 +193,7 @@ export component ReaderWindow inherits Window {
     callback banner-dismissed();
     // 0 save, 1 discard, 2 cancel
     callback close-choice(int);
+    callback reload-choice(bool);
     callback search-edited(string);
     callback search-step(bool);
     callback search-closed();
@@ -243,6 +245,20 @@ export component ReaderWindow inherits Window {
 
     keys := FocusScope {
         capture-key-pressed(event) => {
+            if root.asking-close {
+                if event.text == Key.Escape {
+                    root.close-choice(2);
+                } else if event.text == Key.Return {
+                    root.close-choice(0);
+                }
+                return accept;
+            }
+            if root.asking-reload {
+                if event.text == Key.Escape || event.text == Key.Return {
+                    root.reload-choice(false);
+                }
+                return accept;
+            }
             if event.modifiers.control && (event.text == "s" || event.text == "S") {
                 root.save-requested();
                 return accept;
@@ -254,13 +270,6 @@ export component ReaderWindow inherits Window {
                     root.edit-requested();
                 }
                 return accept;
-            }
-            if root.asking-close {
-                if event.text == Key.Escape {
-                    root.close-choice(2);
-                    return accept;
-                }
-                return reject;
             }
             if root.editing {
                 if event.text == Key.Escape {
@@ -640,6 +649,46 @@ export component ReaderWindow inherits Window {
                             text: @tr("Save");
                             clicked => {
                                 root.close-choice(0);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if root.asking-reload: Rectangle {
+            background: Tokens.shadow;
+            TouchArea {}
+            Rectangle {
+                width: 420px;
+                height: reload-dialog.preferred-height;
+                background: Tokens.paper;
+                border-radius: Tokens.radius-card;
+                border-width: Tokens.border-control;
+                border-color: Tokens.border;
+                reload-dialog := VerticalLayout {
+                    padding: 20px;
+                    spacing: 16px;
+                    Text {
+                        text: @tr("Reload and discard the changes to {0}?", root.file-name);
+                        wrap: word-wrap;
+                        color: Tokens.ink;
+                        font-size: Tokens.size-label;
+                    }
+                    HorizontalLayout {
+                        alignment: end;
+                        spacing: 8px;
+                        Button {
+                            text: @tr("Cancel");
+                            clicked => {
+                                root.reload-choice(false);
+                            }
+                        }
+                        Button {
+                            kind: ButtonKind.danger;
+                            text: @tr("Reload");
+                            clicked => {
+                                root.reload-choice(true);
                             }
                         }
                     }

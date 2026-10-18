@@ -7,6 +7,7 @@ use tex_reader::{Body, Stamp};
 
 use super::search::{clear_search_view, reset_search};
 use super::{Banner, Reader, build, show_banner, show_built, spawn, window_of, with_reader};
+use crate::ReaderWindow;
 use crate::reader::{Outside, SaveCheck, outside_change, save_check};
 
 /// Records what the editor holds in the document, remembering that the view no longer shows it.
@@ -18,18 +19,17 @@ fn record_text(reader: &mut Reader, text: String) {
     }
 }
 
-pub(super) fn set_document_text(id: u64, text: String) {
-    with_reader(id, |reader| record_text(reader, text));
-}
-
-pub(super) fn document_dirty(id: u64) -> bool {
-    with_reader(id, |reader| {
-        reader
-            .document
-            .as_ref()
-            .is_some_and(|document| document.dirty)
-    })
-    .unwrap_or(false)
+/// Whether the window holds changes that are not saved, recorded in the document or still in the editor.
+pub(super) fn unsaved(id: u64, window: &ReaderWindow) -> bool {
+    let typing = window.get_editing() && window.get_edit_text() != window.get_edit_original();
+    typing
+        || with_reader(id, |reader| {
+            reader
+                .document
+                .as_ref()
+                .is_some_and(|document| document.dirty)
+        })
+        .unwrap_or(false)
 }
 
 /// Starts editing: the raw text goes to the editor, or a banner says why it cannot.
@@ -186,6 +186,7 @@ pub(super) fn reload(id: u64) {
     window.set_state(0);
     window.set_editing(false);
     window.set_dirty(false);
+    window.set_asking_reload(false);
     show_banner(&window, Banner::None);
     window.set_searching(false);
     clear_search_view(&window);
@@ -199,7 +200,7 @@ pub(super) fn check_outside(id: u64) {
     let Some(window) = window_of(id) else {
         return;
     };
-    let typing = window.get_editing() && window.get_edit_text() != window.get_edit_original();
+    let dirty = unsaved(id, &window);
     let verdict = with_reader(id, |reader| {
         let known = reader.stamp?;
         let current = match Stamp::read(&reader.path) {
@@ -207,11 +208,6 @@ pub(super) fn check_outside(id: u64) {
             Err(error) if error.kind() == ErrorKind::NotFound => None,
             Err(_) => return None,
         };
-        let dirty = typing
-            || reader
-                .document
-                .as_ref()
-                .is_some_and(|document| document.dirty);
         Some(outside_change(known, current, dirty))
     })
     .flatten();

@@ -28,9 +28,7 @@ use crate::reader::{
 };
 use crate::{ReaderBlock, ReaderWindow, Windows, placement};
 
-use edit::{
-    check_outside, document_dirty, finish_edit, reload, save, set_document_text, start_edit,
-};
+use edit::{check_outside, finish_edit, reload, save, start_edit, unsaved};
 use model::{LinesModel, StyledRow, reader_block, strings};
 use search::{search, search_closed, search_step};
 
@@ -199,10 +197,7 @@ fn wire(window: &ReaderWindow, windows: &Windows, id: u64, path: &Path) {
             let Some(window) = window.upgrade() else {
                 return CloseRequestResponse::HideWindow;
             };
-            if window.get_editing() {
-                set_document_text(id, window.get_edit_text().to_string());
-            }
-            if document_dirty(id) {
+            if unsaved(id, &window) {
                 window.set_asking_close(true);
                 return CloseRequestResponse::KeepWindowShown;
             }
@@ -221,15 +216,32 @@ fn wire(window: &ReaderWindow, windows: &Windows, id: u64, path: &Path) {
     window.on_save_requested(move || {
         save(id, false, false);
     });
-    window.on_banner_action(move |action| match action {
-        1 => {
-            save(id, true, false);
+    window.on_banner_action({
+        let window = window.as_weak();
+        move |action| match action {
+            1 => {
+                save(id, true, false);
+            }
+            2 => match window.upgrade() {
+                Some(window) if unsaved(id, &window) => window.set_asking_reload(true),
+                _ => reload(id),
+            },
+            3 => {
+                save(id, true, true);
+            }
+            _ => {}
         }
-        2 => reload(id),
-        3 => {
-            save(id, true, true);
+    });
+    window.on_reload_choice({
+        let window = window.as_weak();
+        move |yes| {
+            if let Some(window) = window.upgrade() {
+                window.set_asking_reload(false);
+            }
+            if yes {
+                reload(id);
+            }
         }
-        _ => {}
     });
     window.on_banner_dismissed({
         let window = window.as_weak();

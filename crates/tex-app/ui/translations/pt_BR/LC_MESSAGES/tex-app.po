@@ -773,3 +773,6 @@ msgstr "ctrl s salvar · ctrl e ou esc parar de editar"
 
 msgid "esc close · ctrl e edit · ctrl f find · alt z wrap lines"
 msgstr "esc fechar · ctrl e editar · ctrl f buscar · alt z quebrar linhas"
+
+msgid "Reload and discard the changes to {0}?"
+msgstr "Recarregar e descartar as mudanças em {0}?"
