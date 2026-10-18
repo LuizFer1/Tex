@@ -4678,6 +4678,7 @@ dependencies = [
  "png",
  "raw-window-handle",
  "resvg",
+ "tex-ipc",
  "wayland-client",
  "wayland-protocols",
  "wayland-protocols-wlr",

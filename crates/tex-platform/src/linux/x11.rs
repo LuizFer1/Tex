@@ -188,6 +188,19 @@ fn resources(display: &Display) -> String {
         .unwrap_or_default()
 }
 
+/// The window the window manager says is active (`_NET_ACTIVE_WINDOW`), when there is one.
+pub(crate) fn active_window() -> Option<u32> {
+    let display = display()?;
+    let atom = atom(display, b"_NET_ACTIVE_WINDOW")?;
+    let reply = display
+        .connection
+        .get_property(false, display.root, atom, AtomEnum::WINDOW, 0, 1)
+        .ok()?
+        .reply()
+        .ok()?;
+    reply.value32()?.next().filter(|&window| window != 0)
+}
+
 /// Asks the window manager to activate `window` as a pager would (source 2), which window
 /// managers honor even when they refuse requests from applications.
 pub(crate) fn activate(window: u32) -> bool {

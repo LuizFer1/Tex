@@ -3,6 +3,7 @@ mod clipboard;
 mod dbus;
 mod hotkeys;
 mod keys;
+mod paste;
 mod portal;
 mod secret;
 mod service;
@@ -254,11 +255,20 @@ pub fn skip_taskbar(window: WindowRef) {
 
 pub fn restore_foreground(_window: WindowRef) {}
 
+/// The active X11 window (`_NET_ACTIVE_WINDOW`), to give the focus back to; none on Wayland.
 pub fn foreground_window() -> WindowRef {
-    WindowRef::default()
+    WindowRef(x11::active_window().map_or(0, |window| window as isize))
 }
 
-pub fn paste_into(_window: WindowRef) {}
+/// Gives `window` the focus back on X11 (on Wayland the compositor does it when the history
+/// hides) and asks the search service to press Ctrl+V. Without the service the content is
+/// only on the clipboard.
+pub fn paste_into(window: WindowRef) {
+    if window != WindowRef::default() {
+        x11::activate(window.0 as u32);
+    }
+    paste::request();
+}
 
 pub fn http_get(_url: &str, _max_bytes: u64) -> io::Result<Vec<u8>> {
     Err(unsupported())
