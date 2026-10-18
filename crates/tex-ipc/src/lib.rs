@@ -27,6 +27,8 @@ pub fn socket_path() -> String {
 pub enum Request {
     Search(SearchQuery),
     Status,
+    /// Press Ctrl+V for the user who asks (the Linux service, through its virtual keyboard).
+    Paste,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,6 +60,18 @@ pub enum Filter {
 pub enum Response {
     Results(Results),
     Status(Vec<VolumeStatus>),
+    Paste(PasteOutcome),
+}
+
+/// What the service did with a [`Request::Paste`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PasteOutcome {
+    /// Ctrl+V went out through the virtual keyboard.
+    Sent,
+    /// The user who asked is not the one at the active session of seat0.
+    Refused,
+    /// The service has no virtual keyboard (no root, no `/dev/uinput`, or Windows).
+    Unavailable,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -154,6 +168,28 @@ mod tests {
     fn requests_round_trip() {
         round_trip(search());
         round_trip(Request::Status);
+        round_trip(Request::Paste);
+    }
+
+    #[test]
+    fn paste_answers_round_trip() {
+        round_trip(Response::Paste(PasteOutcome::Sent));
+        round_trip(Response::Paste(PasteOutcome::Refused));
+        round_trip(Response::Paste(PasteOutcome::Unavailable));
+    }
+
+    #[test]
+    fn older_messages_keep_their_encoding() {
+        assert_eq!(postcard::to_stdvec(&Request::Status).unwrap(), [1]);
+        assert_eq!(postcard::to_stdvec(&Request::Paste).unwrap(), [2]);
+        assert_eq!(
+            postcard::to_stdvec(&Response::Status(Vec::new())).unwrap(),
+            [1, 0]
+        );
+        assert_eq!(
+            postcard::to_stdvec(&Response::Paste(PasteOutcome::Unavailable)).unwrap(),
+            [2, 2]
+        );
     }
 
     #[test]

@@ -122,7 +122,7 @@ fn run(receiver: &Receiver<Command>, home: &str, language: &str, on_event: &dyn 
             on_event(match exchange(&mut connection, &request) {
                 Ok(Response::Results(results)) => Event::Results(results),
                 Ok(Response::Status(volumes)) => Event::Status(volumes),
-                Err(_) => Event::Unavailable,
+                Ok(Response::Paste(_)) | Err(_) => Event::Unavailable,
             });
         }
     }

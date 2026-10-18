@@ -1,7 +1,9 @@
 use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use tex_index::{AppCatalog, Categories, Query, SearchRequest, Viewer, VolumeIndex};
-use tex_ipc::{Filter, Hit, Request, Response, Results, SearchQuery, VolumeState, VolumeStatus};
+use tex_ipc::{
+    Filter, Hit, PasteOutcome, Request, Response, Results, SearchQuery, VolumeState, VolumeStatus,
+};
 
 pub trait Handler: Send + Sync {
     fn handle(&self, request: Request) -> Response;
@@ -210,6 +212,7 @@ impl Handler for Engine {
         match request {
             Request::Search(query) => Response::Results(self.search_as(&query, viewer)),
             Request::Status => Response::Status(self.status()),
+            Request::Paste => Response::Paste(PasteOutcome::Unavailable),
         }
     }
 }
@@ -436,6 +439,10 @@ mod tests {
             Response::Status(volumes) => assert_eq!(volumes.len(), 1),
             other => panic!("unexpected {other:?}"),
         }
+        assert_eq!(
+            engine.handle(Request::Paste),
+            Response::Paste(PasteOutcome::Unavailable)
+        );
     }
 
     #[test]
