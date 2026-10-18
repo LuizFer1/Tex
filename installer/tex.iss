@@ -136,7 +136,7 @@ var
 begin
   if (CurStep = ssDone) and IsUpdate then
   begin
-    ExecAsOriginalUser(ExpandConstant('{app}	ex.exe'), '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+    ExecAsOriginalUser(ExpandConstant('{app}\tex.exe'), '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
     Exit;
   end;
   if CurStep <> ssPostInstall then
