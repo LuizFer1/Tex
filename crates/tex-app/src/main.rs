@@ -866,6 +866,23 @@ fn apply_design(tokens: &Tokens<'_>, artwork: &Artwork<'_>, design: &Design, dar
     tokens.set_banner_kicker(rgb(c.banner_kicker));
     tokens.set_close_hover(rgb(c.close_hover));
     tokens.set_close_hover_ink(rgb(c.close_hover_ink));
+    tokens.set_action_tint(rgb(c.action_tint));
+    let shadow = rgb(c.shadow);
+    tokens.set_shadow(slint::Color::from_argb_u8(
+        46,
+        shadow.red(),
+        shadow.green(),
+        shadow.blue(),
+    ));
+    let (light, dark_colors) = (&design.light, &design.dark);
+    tokens.set_preview_light_box(rgb(light.paper));
+    tokens.set_preview_light_ink(rgb(light.ink));
+    tokens.set_preview_light_line(rgb(light.border));
+    tokens.set_preview_light_background(rgb(light.paper_2));
+    tokens.set_preview_dark_box(rgb(dark_colors.paper));
+    tokens.set_preview_dark_ink(rgb(dark_colors.ink));
+    tokens.set_preview_dark_line(rgb(dark_colors.border));
+    tokens.set_preview_dark_background(rgb(dark_colors.paper_2));
 
     let s = &design.shape;
     tokens.set_radius_control(s.radius_control);
@@ -896,6 +913,9 @@ fn apply_design(tokens: &Tokens<'_>, artwork: &Artwork<'_>, design: &Design, dar
     tokens.set_size_meta(t.size_meta);
     tokens.set_size_kicker(t.size_kicker);
     tokens.set_size_key(t.size_key);
+    tokens.set_size_hero(t.size_hero);
+    tokens.set_size_question(t.size_question);
+    tokens.set_size_badge(t.size_badge);
 
     match design.art {
         Art::Mascot => {
@@ -903,6 +923,8 @@ fn apply_design(tokens: &Tokens<'_>, artwork: &Artwork<'_>, design: &Design, dar
             tokens.set_art_search(artwork.get_mascot_search());
             tokens.set_art_clipboard(artwork.get_mascot_clipboard());
             tokens.set_art_banner(artwork.get_mascot_banner());
+            tokens.set_art_welcome(artwork.get_mascot_welcome());
+            tokens.set_art_done(artwork.get_mascot_done());
         }
     }
 }

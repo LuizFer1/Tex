@@ -47,6 +47,8 @@ pub struct Colors {
     pub banner_kicker: u32,
     pub close_hover: u32,
     pub close_hover_ink: u32,
+    pub action_tint: u32,
+    pub shadow: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -81,6 +83,9 @@ pub struct Typography {
     pub size_meta: f32,
     pub size_kicker: f32,
     pub size_key: f32,
+    pub size_hero: f32,
+    pub size_question: f32,
+    pub size_badge: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,6 +133,8 @@ pub const MASCOT: Design = Design {
         banner_kicker: 0x6A5410,
         close_hover: 0xC42B1C,
         close_hover_ink: 0xFFFFFF,
+        action_tint: 0xE6F2DC,
+        shadow: 0x000000,
     },
     dark: Colors {
         action: 0x2E9E3F,
@@ -165,6 +172,8 @@ pub const MASCOT: Design = Design {
         banner_kicker: 0x3A2E08,
         close_hover: 0xC42B1C,
         close_hover_ink: 0xFFFFFF,
+        action_tint: 0x243A22,
+        shadow: 0x000000,
     },
     shape: Shape {
         radius_control: 3.0,
@@ -195,6 +204,9 @@ pub const MASCOT: Design = Design {
         size_meta: 11.5,
         size_kicker: 11.0,
         size_key: 10.5,
+        size_hero: 26.0,
+        size_question: 22.0,
+        size_badge: 10.0,
     },
     art: Art::Mascot,
 };
@@ -216,6 +228,16 @@ pub fn colors(design: &Design, dark: bool) -> &Colors {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn onboarding_colors_and_sizes_exist() {
+        assert_eq!(MASCOT.light.action_tint, 0xE6F2DC);
+        assert_ne!(MASCOT.dark.action_tint, MASCOT.light.action_tint);
+        assert_eq!(MASCOT.light.shadow, 0x000000);
+        assert_eq!(MASCOT.typography.size_hero, 26.0);
+        assert_eq!(MASCOT.typography.size_question, 22.0);
+        assert_eq!(MASCOT.typography.size_badge, 10.0);
+    }
 
     #[test]
     fn unknown_id_falls_back_to_the_mascot() {
