@@ -197,6 +197,16 @@ impl VolumeIndex {
         }
     }
 
+    /// The directory that holds `record`; `None` when it is not indexed.
+    pub fn parent(&self, record: Record) -> Option<Record> {
+        self.entry(record).map(|entry| entry.parent)
+    }
+
+    /// Whether `record` is an indexed directory.
+    pub fn is_dir(&self, record: Record) -> bool {
+        self.entry(record).is_some_and(|entry| entry.is_dir())
+    }
+
     pub fn name(&self, record: Record) -> Option<&str> {
         self.entry(record).map(|entry| self.entry_str(entry))
     }

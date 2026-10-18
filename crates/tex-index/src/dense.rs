@@ -16,6 +16,7 @@ pub struct DenseIds {
     overflow: HashMap<(Record, String), Record>,
     dirs: HashMap<Box<[u8]>, Record>,
     handles: HashMap<Record, Box<[u8]>>,
+    kids: HashMap<Record, u32>,
 }
 
 impl Default for DenseIds {
@@ -38,6 +39,7 @@ impl DenseIds {
             overflow: HashMap::new(),
             dirs: HashMap::new(),
             handles: HashMap::new(),
+            kids: HashMap::new(),
         }
     }
 
@@ -120,8 +122,8 @@ impl DenseIds {
         Some(record)
     }
 
-    /// Removes `name` from `parent`. A file's record goes to the next new entry; a directory's
-    /// record is never handed out again.
+    /// Removes `name` from `parent` with everything below it. A file's record goes to a later
+    /// new entry; a directory's record is never handed out again.
     pub fn remove(
         &mut self,
         index: &mut VolumeIndex,
@@ -129,38 +131,107 @@ impl DenseIds {
         name: &str,
     ) -> Option<Record> {
         let record = self.child(index, parent, name)?;
-        let is_dir = index.entry(record).is_some_and(|entry| entry.is_dir());
+        if self.kids.contains_key(&record) {
+            for inner in descendants(index, record) {
+                let (Some(inner_parent), Some(inner_name)) =
+                    (index.parent(inner), index.name(inner).map(str::to_owned))
+                else {
+                    continue;
+                };
+                self.drop_record(index, inner_parent, &inner_name, inner);
+            }
+        }
+        self.drop_record(index, parent, name, record);
+        Some(record)
+    }
+
+    fn drop_record(&mut self, index: &mut VolumeIndex, parent: Record, name: &str, record: Record) {
+        let is_dir = index.is_dir(record);
         self.forget(parent, name, record);
         index.remove(record);
         if let Some(handle) = self.handles.remove(&record) {
             self.dirs.remove(&handle);
         }
+        self.kids.remove(&record);
         if !is_dir {
             self.free.push(record);
         }
-        Some(record)
     }
 
     fn remember(&mut self, parent: Record, name: &str, record: Record) {
-        match self.children.entry((self.hash)(parent, name)) {
+        let added = match self.children.entry((self.hash)(parent, name)) {
             Slot::Vacant(slot) => {
                 slot.insert(record);
+                true
             }
-            Slot::Occupied(slot) if *slot.get() == record => {}
-            Slot::Occupied(_) => {
-                self.overflow.insert((parent, name.to_owned()), record);
-            }
+            Slot::Occupied(slot) if *slot.get() == record => false,
+            Slot::Occupied(_) => self
+                .overflow
+                .insert((parent, name.to_owned()), record)
+                .is_none(),
+        };
+        if added {
+            *self.kids.entry(parent).or_default() += 1;
         }
     }
 
     fn forget(&mut self, parent: Record, name: &str, record: Record) {
         let key = (self.hash)(parent, name);
-        if self.children.get(&key) == Some(&record) {
-            self.children.remove(&key);
+        let removed = if self.children.get(&key) == Some(&record) {
+            self.children.remove(&key).is_some()
         } else {
-            self.overflow.remove(&(parent, name.to_owned()));
+            self.overflow.remove(&(parent, name.to_owned())).is_some()
+        };
+        if removed && let Slot::Occupied(mut count) = self.kids.entry(parent) {
+            *count.get_mut() -= 1;
+            if *count.get() == 0 {
+                count.remove();
+            }
         }
     }
+}
+
+/// Every record whose chain of parents reaches `top`, found in one pass over the index.
+fn descendants(index: &VolumeIndex, top: Record) -> Vec<Record> {
+    const UNKNOWN: u8 = 0;
+    const INSIDE: u8 = 1;
+    const OUTSIDE: u8 = 2;
+    let count = index.entries().len();
+    let mut state = vec![UNKNOWN; count];
+    if let Some(slot) = state.get_mut(top as usize) {
+        *slot = INSIDE;
+    }
+    let mut chain = Vec::new();
+    let mut found = Vec::new();
+    for start in 0..count as Record {
+        if start == top || index.entry(start).is_none() {
+            continue;
+        }
+        chain.clear();
+        let mut current = start;
+        let verdict = loop {
+            match state.get(current as usize).copied() {
+                Some(INSIDE) => break INSIDE,
+                Some(OUTSIDE) => break OUTSIDE,
+                _ => {}
+            }
+            if current == ROOT || chain.len() > 512 {
+                break OUTSIDE;
+            }
+            let Some(parent) = index.parent(current) else {
+                break OUTSIDE;
+            };
+            chain.push(current);
+            current = parent;
+        };
+        for &record in &chain {
+            state[record as usize] = verdict;
+        }
+        if verdict == INSIDE {
+            found.push(start);
+        }
+    }
+    found
 }
 
 fn child_key(parent: Record, name: &str) -> u64 {
@@ -280,6 +351,50 @@ mod tests {
     }
 
     #[test]
+    fn removing_a_directory_removes_its_subtree() {
+        let (mut index, mut ids) = setup();
+        let docs = ids.upsert(&mut index, ROOT, "docs", DIR);
+        ids.set_dir(b"docs", docs);
+        let inner = ids.upsert(&mut index, docs, "inner", DIR);
+        ids.set_dir(b"inner", inner);
+        let deep = ids.upsert(&mut index, inner, "deep.txt", FILE);
+        let top = ids.upsert(&mut index, docs, "top.txt", FILE);
+        let other = ids.upsert(&mut index, ROOT, "other.txt", FILE);
+        assert_eq!(index.parent(deep), Some(inner));
+        assert!(index.is_dir(inner));
+        assert!(!index.is_dir(deep));
+        assert_eq!(ids.remove(&mut index, ROOT, "docs"), Some(docs));
+        assert_eq!(index.len(), 1);
+        assert_eq!(index.path(other).as_deref(), Some("/other.txt"));
+        for record in [docs, inner, deep, top] {
+            assert_eq!(index.name(record), None);
+        }
+        assert_eq!(ids.child(&index, docs, "top.txt"), None);
+        assert_eq!(ids.child(&index, inner, "deep.txt"), None);
+        assert_eq!(ids.dir(b"docs"), None);
+        assert_eq!(ids.dir(b"inner"), None);
+        let again = ids.upsert(&mut index, ROOT, "docs", DIR);
+        assert_eq!(ids.child(&index, ROOT, "docs"), Some(again));
+        assert_eq!(index.len(), 2);
+    }
+
+    #[test]
+    fn a_moved_directory_takes_its_subtree_when_removed() {
+        let (mut index, mut ids) = setup();
+        let a = ids.upsert(&mut index, ROOT, "a", DIR);
+        let b = ids.upsert(&mut index, ROOT, "b", DIR);
+        let docs = ids.upsert(&mut index, a, "docs", DIR);
+        let file = ids.upsert(&mut index, docs, "x.txt", FILE);
+        ids.rename(&mut index, (a, "docs"), (b, "papers"));
+        assert_eq!(ids.remove(&mut index, a, "docs"), None);
+        assert_eq!(ids.remove(&mut index, b, "papers"), Some(docs));
+        assert_eq!(index.name(file), None);
+        assert_eq!(index.len(), 2);
+        assert_eq!(ids.remove(&mut index, ROOT, "a"), Some(a));
+        assert_eq!(index.len(), 1);
+    }
+
+    #[test]
     fn colliding_keys_still_find_every_entry() {
         let mut index = VolumeIndex::new("/");
         let mut ids = DenseIds::with_hash(|_, _| 7);
@@ -291,7 +406,7 @@ mod tests {
         assert_eq!(ids.child(&index, a, "c"), Some(c));
         assert_eq!(ids.remove(&mut index, ROOT, "a"), Some(a));
         assert_eq!(ids.child(&index, ROOT, "b"), Some(b));
-        assert_eq!(ids.child(&index, a, "c"), Some(c));
+        assert_eq!(ids.child(&index, a, "c"), None);
         assert_eq!(ids.rename(&mut index, (ROOT, "b"), (ROOT, "d")), Some(b));
         assert_eq!(ids.child(&index, ROOT, "d"), Some(b));
         assert_eq!(ids.child(&index, ROOT, "b"), None);
