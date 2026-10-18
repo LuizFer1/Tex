@@ -225,16 +225,21 @@ pub fn http_get(_url: &str, _max_bytes: u64) -> io::Result<Vec<u8>> {
     Err(unsupported())
 }
 
+/// Asks the desktop portal for a file on a thread and calls `on_done` there with its path
+/// (`None` when cancelled or without a portal). Any file goes: Linux programs have no extension.
 pub fn pick_file(
-    _title: &str,
+    title: &str,
     _filter_name: &str,
     on_done: impl FnOnce(Option<String>) + Send + 'static,
 ) {
-    thread::spawn(move || on_done(None));
+    let title = title.to_owned();
+    thread::spawn(move || on_done(dbus::choose(&title, false)));
 }
 
-pub fn pick_folder(_title: &str, on_done: impl FnOnce(Option<String>) + Send + 'static) {
-    thread::spawn(move || on_done(None));
+/// Asks the desktop portal for a folder on a thread and calls `on_done` there with its path.
+pub fn pick_folder(title: &str, on_done: impl FnOnce(Option<String>) + Send + 'static) {
+    let title = title.to_owned();
+    thread::spawn(move || on_done(dbus::choose(&title, true)));
 }
 
 pub fn init_icon_thread() {}

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -6,7 +7,7 @@ use std::time::Duration;
 use zbus::MatchRule;
 use zbus::blocking::{Connection, MessageIterator, Proxy, connection};
 use zbus::message::Type;
-use zbus::zvariant::{OwnedValue, Value};
+use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 
 const DESKTOP: &str = "org.freedesktop.portal.Desktop";
 const DESKTOP_PATH: &str = "/org/freedesktop/portal/desktop";
@@ -86,10 +87,75 @@ fn set_dark(dark: bool, on_change: &impl Fn()) {
     }
 }
 
+/// Asks the portal's file chooser for one file, or one folder when `directory` is set, and
+/// waits for the answer. `None` when cancelled or without a portal.
+pub(crate) fn choose(title: &str, directory: bool) -> Option<String> {
+    let bus = session_bus()?;
+    let rule = MatchRule::builder()
+        .msg_type(Type::Signal)
+        .interface("org.freedesktop.portal.Request")
+        .ok()?
+        .member("Response")
+        .ok()?
+        .build();
+    let responses = MessageIterator::for_match_rule(rule, &bus, None).ok()?;
+    let chooser = Proxy::new(
+        &bus,
+        DESKTOP,
+        DESKTOP_PATH,
+        "org.freedesktop.portal.FileChooser",
+    )
+    .ok()?;
+    let mut options: HashMap<&str, Value<'_>> = HashMap::new();
+    options.insert("directory", Value::from(directory));
+    let request: OwnedObjectPath = chooser.call("OpenFile", &("", title, options)).ok()?;
+    for message in responses.flatten() {
+        let header = message.header();
+        if header.path().map(|path| path.as_str()) != Some(request.as_str()) {
+            continue;
+        }
+        let (response, mut results) = message
+            .body()
+            .deserialize::<(u32, HashMap<String, OwnedValue>)>()
+            .ok()?;
+        if response != 0 {
+            return None;
+        }
+        let uris = Vec::<String>::try_from(results.remove("uris")?).ok()?;
+        return uris.first().and_then(|uri| uri_to_path(uri));
+    }
+    None
+}
+
 /// `color-scheme` 1 means "prefer dark"; 0 (no preference) and 2 (prefer light) are light.
 /// The older `Read` wraps the number in one more variant.
 pub(crate) fn is_dark(value: &Value<'_>) -> bool {
     matches!(value.downcast_ref::<u32>(), Ok(1))
+}
+
+/// The local path of a `file://` URI, percent-decoded. `None` for other schemes.
+pub(crate) fn uri_to_path(uri: &str) -> Option<String> {
+    let rest = uri.strip_prefix("file://")?;
+    let raw = &rest.as_bytes()[rest.find('/')?..];
+    let hex = |byte: Option<&u8>| byte.and_then(|byte| (*byte as char).to_digit(16));
+    let mut bytes = Vec::with_capacity(raw.len());
+    let mut index = 0;
+    while index < raw.len() {
+        let decoded = (raw[index] == b'%')
+            .then(|| Some(hex(raw.get(index + 1))? * 16 + hex(raw.get(index + 2))?))
+            .flatten();
+        match decoded {
+            Some(byte) => {
+                bytes.push(byte as u8);
+                index += 3;
+            }
+            None => {
+                bytes.push(raw[index]);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8(bytes).ok()
 }
 
 #[cfg(test)]
@@ -103,5 +169,20 @@ mod tests {
         assert!(!is_dark(&Value::from(0u32)));
         assert!(!is_dark(&Value::from(2u32)));
         assert!(!is_dark(&Value::from("dark")));
+    }
+
+    #[test]
+    fn file_uris_become_paths() {
+        assert_eq!(
+            uri_to_path("file:///home/ana/My%20File.txt").as_deref(),
+            Some("/home/ana/My File.txt")
+        );
+        assert_eq!(
+            uri_to_path("file://localhost/tmp/a%C3%A7").as_deref(),
+            Some("/tmp/aç")
+        );
+        assert_eq!(uri_to_path("file:///bad%zz").as_deref(), Some("/bad%zz"));
+        assert_eq!(uri_to_path("https://example.com/a"), None);
+        assert_eq!(uri_to_path("file:///x%FF"), None);
     }
 }
