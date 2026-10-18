@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::iter;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -254,15 +254,28 @@ pub fn now_ms() -> i64 {
         })
 }
 
-/// The key in `clipboard.key`, protected by DPAPI. A key that does not unprotect to 32 bytes,
-/// or a history without a key, sets the old files aside as `.bad` and makes a new key.
+/// The key in `clipboard.key`, protected by DPAPI (Windows) or kept in the Secret Service
+/// (Linux). A key that does not unprotect to 32 bytes, or a history without a key, sets the old
+/// files aside as `.bad` and makes a new key. A keyring that cannot be reached right now
+/// (`NotConnected`) leaves everything in place and the history unavailable.
 fn load_key(folder: &Path) -> Result<Key, String> {
     fs::create_dir_all(folder).map_err(|error| error.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(folder, fs::Permissions::from_mode(0o700))
+            .map_err(|error| error.to_string())?;
+    }
     match fs::read(folder.join(KEY)) {
         Ok(protected) => {
-            let bytes = unprotect(&protected)
-                .ok()
-                .and_then(|bytes| <[u8; KEY_LEN]>::try_from(bytes.as_slice()).ok());
+            let bytes = match unprotect(&protected) {
+                Err(error) if error.kind() == io::ErrorKind::NotConnected => {
+                    return Err(error.to_string());
+                }
+                result => result
+                    .ok()
+                    .and_then(|bytes| <[u8; KEY_LEN]>::try_from(bytes.as_slice()).ok()),
+            };
             if let Some(bytes) = bytes {
                 return Ok(Key::from_bytes(bytes));
             }
@@ -281,9 +294,19 @@ fn load_key(folder: &Path) -> Result<Key, String> {
 fn create_key(folder: &Path) -> io::Result<Key> {
     let key = new_key();
     let temporary = folder.join("clipboard.key.tmp");
-    fs::write(&temporary, protect(key.as_bytes())?)?;
+    write_private(&temporary, &protect(key.as_bytes())?)?;
     fs::rename(&temporary, folder.join(KEY))?;
     Ok(key)
+}
+
+/// Writes a new file only this user can read (mode 0600 on Unix).
+fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let _ = fs::remove_file(path);
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(path)?.write_all(bytes)
 }
 
 fn set_aside(folder: &Path) {
@@ -523,8 +546,6 @@ fn apply(
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
-    #[cfg(windows)]
-    use std::fs;
 
     use tex_clipboard::{DAY_MS, Kind, Preview, REPEAT_WINDOW_MS, rgba_to_dib};
     #[cfg(windows)]
@@ -691,6 +712,21 @@ mod tests {
         assert!(folder.join("clipboard.key.bad").exists());
         drop(store);
         assert_ne!(load_key(&folder.0).unwrap().as_bytes(), other.as_bytes());
+    }
+
+    #[test]
+    fn private_files_replace_what_was_there() {
+        let path = std::env::temp_dir().join(format!("tex-private-{}", std::process::id()));
+        fs::write(&path, b"old and longer").unwrap();
+        write_private(&path, b"new").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"new");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        fs::remove_file(&path).unwrap();
     }
 
     #[test]

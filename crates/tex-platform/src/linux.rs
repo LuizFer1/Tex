@@ -4,12 +4,14 @@ mod dbus;
 mod hotkeys;
 mod keys;
 mod portal;
+mod secret;
 mod service;
 mod shell;
 mod x11;
 
 pub use clipboard::{ClipboardWatcher, write_image, write_text};
 pub use hotkeys::Hotkeys;
+pub use secret::{protect, unprotect};
 pub use service::{AppBus, send_command};
 
 use std::ffi::OsString;
@@ -257,14 +259,6 @@ pub fn foreground_window() -> WindowRef {
 }
 
 pub fn paste_into(_window: WindowRef) {}
-
-pub fn protect(_data: &[u8]) -> io::Result<Vec<u8>> {
-    Err(unsupported())
-}
-
-pub fn unprotect(_data: &[u8]) -> io::Result<Vec<u8>> {
-    Err(unsupported())
-}
 
 pub fn http_get(_url: &str, _max_bytes: u64) -> io::Result<Vec<u8>> {
     Err(unsupported())
