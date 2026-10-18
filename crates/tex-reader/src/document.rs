@@ -11,6 +11,7 @@ use crate::kind::{Kind, Sniff, sniff};
 use crate::lines::LineIndex;
 
 pub const TEXT_LIMIT: u64 = 2 * 1024 * 1024;
+/// The largest text that enters edit mode; it does not limit saving, so an edit may grow past it.
 pub const EDIT_LIMIT: u64 = 128 * 1024;
 pub const PREVIEW_BYTES: usize = 64 * 1024;
 
@@ -155,6 +156,7 @@ pub struct Document {
 }
 
 impl Document {
+    /// Whether the text may enter edit mode (see `EDIT_LIMIT`).
     pub fn editable(&self) -> bool {
         matches!(&self.body, Body::Text(text) if text.len() as u64 <= EDIT_LIMIT)
     }
@@ -358,6 +360,17 @@ mod tests {
         assert!(open(&at.path).editable());
         let over = temp("o.txt", &vec![b'x'; EDIT_LIMIT as usize + 1]);
         assert!(!open(&over.path).editable());
+    }
+
+    #[test]
+    fn an_edit_that_grows_past_the_edit_limit_still_saves() {
+        let file = temp("g.txt", b"x");
+        let mut document = open(&file.path);
+        let grown = "y".repeat(EDIT_LIMIT as usize + 1);
+        assert!(document.set_text(grown.clone()));
+        assert!(!document.editable());
+        assert!(document.dirty);
+        assert_eq!(document.save_bytes().unwrap(), grown.as_bytes());
     }
 
     #[test]

@@ -42,7 +42,7 @@ pub(super) fn start_edit(id: u64) {
     }
     let target = with_reader(id, |reader| match (&reader.document, &reader.index) {
         (Some(document), _) => match &document.body {
-            Body::Text(text) if document.editable() => Some(Some(text.clone())),
+            Body::Text(text) if document.editable() || document.dirty => Some(Some(text.clone())),
             _ => Some(None),
         },
         (None, Some(_)) => Some(None),
@@ -116,9 +116,6 @@ pub(super) fn save(id: u64, overwrite: bool, lossy: bool) -> bool {
         let Some(document) = reader.document.as_mut() else {
             return SaveOutcome::Skip;
         };
-        if !document.editable() {
-            return SaveOutcome::Skip;
-        }
         let changed = match Stamp::read(&reader.path) {
             Ok(stamp) => document.changed(stamp),
             Err(_) => false,
