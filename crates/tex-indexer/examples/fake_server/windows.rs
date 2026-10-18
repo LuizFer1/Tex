@@ -1,7 +1,3 @@
-//! Development tool: indexes one folder with a plain directory walk and serves it on the real
-//! Tex pipe, so the app can be tried without administrator rights or the service.
-//! Usage: cargo run --release -p tex-indexer --example fake_server -- C:\Users\you
-
 use std::fs;
 use std::os::windows::fs::MetadataExt;
 use std::path::{Component, Path};
@@ -17,7 +13,7 @@ const HIDDEN: u32 = 0x2;
 const SYSTEM: u32 = 0x4;
 const REPARSE_POINT: u32 = 0x400;
 
-fn main() {
+pub fn main() {
     let root = std::env::args()
         .nth(1)
         .expect("usage: fake_server <absolute folder>");

@@ -85,8 +85,10 @@ fn parse_record(bytes: &[u8]) -> Option<Parsed> {
     let name_offset = u16_at(bytes, name_at + 2)? as usize;
     let units: Vec<u16> = bytes
         .get(name_offset..name_offset + name_len)?
-        .chunks_exact(2)
-        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| u16::from_le_bytes(*pair))
         .collect();
     let attributes = u32_at(bytes, attributes_at)?;
     let (Some(record), Some(parent)) = (record_from_frn(frn), record_from_frn(parent)) else {

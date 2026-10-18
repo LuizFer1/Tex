@@ -1,3 +1,5 @@
+#![cfg(windows)]
+
 use std::fs::{File, OpenOptions};
 use std::sync::Arc;
 use std::thread;
