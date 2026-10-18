@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::iter;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -11,8 +11,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tex_clipboard::{
     CaptureSettings, ClipFacts, Content, Decision, EditError, HistoryFilter, KEY_LEN, Key,
-    LastCopy, NewEntry, OpenError, Retention, Store, Summary, dib_to_rgba, encode_png, fits,
-    image_fingerprint, is_repeat, new_key, should_capture, text_fingerprint, thumbnail,
+    LastCopy, NewEntry, OpenError, Retention, Rgba, Store, Summary, decode_png, dib_to_rgba,
+    encode_png, fits, image_fingerprint, is_repeat, new_key, should_capture, text_fingerprint,
+    thumbnail,
 };
 use tex_platform::{Clip, ClipFormats, Payload, protect, unprotect};
 
@@ -253,15 +254,28 @@ pub fn now_ms() -> i64 {
         })
 }
 
-/// The key in `clipboard.key`, protected by DPAPI. A key that does not unprotect to 32 bytes,
-/// or a history without a key, sets the old files aside as `.bad` and makes a new key.
+/// The key in `clipboard.key`, protected by DPAPI (Windows) or kept in the Secret Service
+/// (Linux). A key that does not unprotect to 32 bytes, or a history without a key, sets the old
+/// files aside as `.bad` and makes a new key. A keyring that cannot be reached right now
+/// (`NotConnected`) leaves everything in place and the history unavailable.
 fn load_key(folder: &Path) -> Result<Key, String> {
     fs::create_dir_all(folder).map_err(|error| error.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(folder, fs::Permissions::from_mode(0o700))
+            .map_err(|error| error.to_string())?;
+    }
     match fs::read(folder.join(KEY)) {
         Ok(protected) => {
-            let bytes = unprotect(&protected)
-                .ok()
-                .and_then(|bytes| <[u8; KEY_LEN]>::try_from(bytes.as_slice()).ok());
+            let bytes = match unprotect(&protected) {
+                Err(error) if error.kind() == io::ErrorKind::NotConnected => {
+                    return Err(error.to_string());
+                }
+                result => result
+                    .ok()
+                    .and_then(|bytes| <[u8; KEY_LEN]>::try_from(bytes.as_slice()).ok()),
+            };
             if let Some(bytes) = bytes {
                 return Ok(Key::from_bytes(bytes));
             }
@@ -280,9 +294,19 @@ fn load_key(folder: &Path) -> Result<Key, String> {
 fn create_key(folder: &Path) -> io::Result<Key> {
     let key = new_key();
     let temporary = folder.join("clipboard.key.tmp");
-    fs::write(&temporary, protect(key.as_bytes())?)?;
+    write_private(&temporary, &protect(key.as_bytes())?)?;
     fs::rename(&temporary, folder.join(KEY))?;
     Ok(key)
+}
+
+/// Writes a new file only this user can read (mode 0600 on Unix).
+fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let _ = fs::remove_file(path);
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(path)?.write_all(bytes)
 }
 
 fn set_aside(folder: &Path) {
@@ -328,7 +352,18 @@ fn facts_from_clip(clip: &Clip) -> ClipFacts<'_> {
         history_disallowed: clip.history_disallowed,
         owner_exe: clip.owner_exe.as_deref(),
         has_text: clip.text.as_deref().is_some_and(|text| !text.is_empty()),
-        has_image: clip.dib.as_deref().is_some_and(|dib| !dib.is_empty()),
+        has_image: [&clip.dib, &clip.png]
+            .iter()
+            .any(|image| image.as_deref().is_some_and(|bytes| !bytes.is_empty())),
+    }
+}
+
+/// The copied image as pixels: a DIB on Windows, a PNG on Linux.
+fn clip_image(clip: &Clip) -> Option<Rgba> {
+    match (&clip.dib, &clip.png) {
+        (Some(dib), _) => dib_to_rgba(dib),
+        (None, Some(png)) => decode_png(png),
+        (None, None) => None,
     }
 }
 
@@ -371,7 +406,7 @@ fn entry_from_clip(
             Some((NewEntry::Text(text), fingerprint))
         }
         Decision::Image => {
-            let image = dib_to_rgba(clip.dib.as_deref()?)?;
+            let image = clip_image(&clip)?;
             let fingerprint = image_fingerprint(&image);
             if is_repeat(last, fingerprint, now) {
                 return None;
@@ -511,10 +546,8 @@ fn apply(
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
-    #[cfg(windows)]
-    use std::fs;
 
-    use tex_clipboard::{DAY_MS, Kind, Preview, REPEAT_WINDOW_MS, Rgba, decode_png, rgba_to_dib};
+    use tex_clipboard::{DAY_MS, Kind, Preview, REPEAT_WINDOW_MS, rgba_to_dib};
     #[cfg(windows)]
     use tex_platform::protect;
 
@@ -682,6 +715,21 @@ mod tests {
     }
 
     #[test]
+    fn private_files_replace_what_was_there() {
+        let path = std::env::temp_dir().join(format!("tex-private-{}", std::process::id()));
+        fs::write(&path, b"old and longer").unwrap();
+        write_private(&path, b"new").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"new");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
     fn coalesce_keeps_the_last_search_and_the_order_of_the_rest() {
         let commands = vec![
             search("a", 1),
@@ -709,6 +757,7 @@ mod tests {
         let clip = Clip {
             text: Some("hello".into()),
             dib: Some(vec![1, 2, 3]),
+            png: None,
             excluded: true,
             history_disallowed: true,
             from_tex: true,
@@ -732,6 +781,12 @@ mod tests {
         assert_eq!(facts.owner_exe, None);
         assert!(!facts.has_text);
         assert!(!facts.has_image);
+
+        let png = Clip {
+            png: Some(vec![1]),
+            ..Clip::default()
+        };
+        assert!(facts_from_clip(&png).has_image);
     }
 
     fn client(settings: ClientSettings) -> (ClipboardClient, Receiver<Command>) {
@@ -926,6 +981,39 @@ mod tests {
             panic!("image content expected");
         };
         assert_eq!(decode_png(&png), Some(image));
+    }
+
+    #[test]
+    fn captured_png_is_added_like_a_dib() {
+        let image = Rgba {
+            width: 3,
+            height: 2,
+            pixels: (0..24).collect(),
+        };
+        let clip = Clip {
+            png: Some(encode_png(&image)),
+            ..Clip::default()
+        };
+        let mut worker = worker(settings());
+        let events = run(&mut worker, Command::Captured(clip.clone()));
+        let rows = added(&events);
+        assert_eq!(rows.len(), 1);
+        assert_eq!((rows[0].width, rows[0].height), (Some(3), Some(2)));
+        let Some(Content::Image { png, .. }) = worker.store.content(rows[0].id).unwrap() else {
+            panic!("image content expected");
+        };
+        assert_eq!(decode_png(&png), Some(image));
+        assert!(run(&mut worker, Command::Captured(clip)).is_empty());
+    }
+
+    #[test]
+    fn broken_png_is_not_captured() {
+        let clip = Clip {
+            png: Some(b"not a png".to_vec()),
+            ..Clip::default()
+        };
+        let mut worker = worker(settings());
+        assert!(run(&mut worker, Command::Captured(clip)).is_empty());
     }
 
     #[test]

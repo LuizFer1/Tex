@@ -120,6 +120,8 @@ export component HistoryWindow inherits Window {
     in property <[HistoryRow]> rows;
     in-out property <int> selected: -1;
     in property <bool> paused;
+    // 0 capture works, 1 waits for the GNOME extension, 2 the desktop gives no access
+    in property <int> capture-missing;
     in property <string> unavailable;
     in property <bool> searching;
     in property <bool> paste-by-default;
@@ -748,14 +750,14 @@ export component HistoryWindow inherits Window {
                     height: parent.height;
                     art: Tokens.art-clipboard;
                     title: root.unavailable != "" ? @tr("Clipboard history unavailable: {0}", root.unavailable) : root.query != "" ? @tr("nothing for “{0}”", root.query) : @tr("nothing here.");
-                    hint: root.unavailable != "" || root.query != "" ? "" : root.filter == 1 ? @tr("Mark entries with the star to keep them here.") : root.paused ? @tr("Capture is paused. Resume it with the PAUSED button.") : @tr("Copy anything and I'll keep it here.");
+                    hint: root.unavailable != "" || root.query != "" ? "" : root.filter == 1 ? @tr("Mark entries with the star to keep them here.") : root.capture-missing == 1 ? @tr("New copies are saved once the Tex extension for GNOME is active. Log out and back in after installing Tex.") : root.capture-missing == 2 ? @tr("This desktop does not let apps read the clipboard, so new copies are not saved.") : root.paused ? @tr("Capture is paused. Resume it with the PAUSED button.") : @tr("Copy anything and I'll keep it here.");
                 }
             }
 
             footer := Footer {
                 hints: @tr("enter {0} · ctrl enter {1} · del delete", root.primary-action-short, root.other-action-short);
-                status: root.action-error == 1 ? @tr("Too large to save") : root.action-error == 2 ? @tr("Could not write to the clipboard") : root.paused ? @tr("new copies are not saved") : @tr("saving new copies");
-                status-color: root.action-error != 0 ? Tokens.danger : root.paused ? Tokens.warn-text : Tokens.muted;
+                status: root.action-error == 1 ? @tr("Too large to save") : root.action-error == 2 ? @tr("Could not write to the clipboard") : root.capture-missing == 1 ? @tr("capture needs the GNOME extension") : root.capture-missing == 2 ? @tr("this desktop does not allow capture") : root.paused ? @tr("new copies are not saved") : @tr("saving new copies");
+                status-color: root.action-error != 0 ? Tokens.danger : root.paused || root.capture-missing != 0 ? Tokens.warn-text : Tokens.muted;
             }
         }
     }

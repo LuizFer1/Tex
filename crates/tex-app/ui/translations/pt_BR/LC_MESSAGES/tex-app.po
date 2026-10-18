@@ -743,3 +743,21 @@ msgstr "O sistema escolhe as teclas e pode pedir sua confirmação."
 
 msgid "The system did not accept this shortcut."
 msgstr "O sistema não aceitou este atalho."
+
+msgid "The Tex extension for GNOME is not active, so new copies are not saved."
+msgstr "A extensão do Tex para o GNOME não está ativa, então as novas cópias não são salvas."
+
+msgid "This desktop does not let apps read the clipboard, so new copies are not saved."
+msgstr "Esta área de trabalho não deixa apps lerem o clipboard, então as novas cópias não são salvas."
+
+msgid "This desktop does not say which app copied, so ignored apps have no effect here."
+msgstr "Esta área de trabalho não informa qual app copiou, então os apps ignorados não têm efeito aqui."
+
+msgid "New copies are saved once the Tex extension for GNOME is active. Log out and back in after installing Tex."
+msgstr "As novas cópias são salvas quando a extensão do Tex para o GNOME estiver ativa. Saia e entre de novo depois de instalar o Tex."
+
+msgid "capture needs the GNOME extension"
+msgstr "a captura precisa da extensão do GNOME"
+
+msgid "this desktop does not allow capture"
+msgstr "esta área de trabalho não permite a captura"

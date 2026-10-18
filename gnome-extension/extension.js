@@ -62,6 +62,20 @@ const SHELL_XML = `<node>
     <signal name="ShortcutActivated">
       <arg type="s" name="id"/>
     </signal>
+    <method name="Deliver">
+      <arg type="u" direction="in" name="serial"/>
+      <arg type="s" direction="in" name="mime"/>
+      <arg type="ay" direction="out" name="data"/>
+    </method>
+    <method name="SetClipboard">
+      <arg type="s" direction="in" name="mime"/>
+      <arg type="ay" direction="in" name="data"/>
+    </method>
+    <signal name="Offer">
+      <arg type="u" name="serial"/>
+      <arg type="as" name="mimes"/>
+      <arg type="s" name="owner"/>
+    </signal>
   </interface>
 </node>`;
 
@@ -99,6 +113,9 @@ class Bridge {
         this._pendingTimeout = 0;
         this._app = null;
         this._button = null;
+        this._clipboard = St.Clipboard.get_default();
+        this._serial = 0;
+        this._writing = false;
 
         this._exported = Gio.DBusExportedObject.wrapJSObject(SHELL_XML, this);
         this._exported.export(Gio.DBus.session, SHELL_PATH);
@@ -109,6 +126,9 @@ class Bridge {
             (_display, action) => this._acceleratorActivated(action));
         this._windowCreatedId = global.display.connect('window-created',
             (_display, window) => this._windowCreated(window));
+        this._selection = global.display.get_selection();
+        this._ownerChangedId = this._selection.connect('owner-changed',
+            (_selection, type, source) => this._ownerChanged(type, source));
         this._watchId = Gio.bus_watch_name(Gio.BusType.SESSION, APP_ID,
             Gio.BusNameWatcherFlags.NONE,
             () => this._appAppeared(),
@@ -120,6 +140,7 @@ class Bridge {
         this._appVanished();
         global.display.disconnect(this._acceleratorId);
         global.display.disconnect(this._windowCreatedId);
+        this._selection.disconnect(this._ownerChangedId);
         this._ungrabAll();
         if (this._pendingTimeout)
             GLib.source_remove(this._pendingTimeout);
@@ -164,6 +185,48 @@ class Bridge {
     SetShortcuts(tex, history) {
         this._ungrabAll();
         return [this._grab('tex', tex), this._grab('history', history)];
+    }
+
+    DeliverAsync([serial, mime], invocation) {
+        if (serial !== this._serial) {
+            invocation.return_value(new GLib.Variant('(ay)', [new Uint8Array()]));
+            return;
+        }
+        this._clipboard.get_content(St.ClipboardType.CLIPBOARD, mime, (_clipboard, bytes) => {
+            const data = bytes?.get_data() ?? new Uint8Array();
+            invocation.return_value(new GLib.Variant('(ay)', [data]));
+        });
+    }
+
+    SetClipboard(mime, data) {
+        this._writing = true;
+        try {
+            this._clipboard.set_content(St.ClipboardType.CLIPBOARD, mime, new GLib.Bytes(data));
+        } finally {
+            this._writing = false;
+        }
+    }
+
+    _ownerChanged(type, source) {
+        if (type !== Meta.SelectionType.SELECTION_CLIPBOARD)
+            return;
+        this._serial += 1;
+        if (this._writing || !source)
+            return;
+        this._exported.emit_signal('Offer', new GLib.Variant('(uass)',
+            [this._serial, source.get_mimetypes(), this._focusedExe()]));
+    }
+
+    _focusedExe() {
+        const pid = global.display.focus_window?.get_pid() ?? -1;
+        if (pid <= 0)
+            return '';
+        try {
+            const path = GLib.file_read_link(`/proc/${pid}/exe`);
+            return GLib.path_get_basename(path).replace(/ \(deleted\)$/, '');
+        } catch {
+            return '';
+        }
     }
 
     _workArea(index) {

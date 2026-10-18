@@ -95,6 +95,9 @@ export component SettingsWindow inherits Window {
     in-out property <int> selected-ignored: -1;
     in-out property <bool> confirm-clear;
     in property <string> capture-error;
+    // 0 capture works, 1 waits for the GNOME extension, 2 the desktop gives no access
+    in property <int> capture-missing;
+    in property <bool> owner-unknown;
     in property <string> history-unavailable;
 
     in property <string> save-error;
@@ -669,7 +672,7 @@ export component SettingsWindow inherits Window {
                                     }
                                     SettingRow {
                                         label: @tr("Pause capture");
-                                        error: root.capture-error != "" ? @tr("Could not watch the clipboard: {0}", root.capture-error) : "";
+                                        error: root.capture-missing == 1 ? @tr("The Tex extension for GNOME is not active, so new copies are not saved.") : root.capture-missing == 2 ? @tr("This desktop does not let apps read the clipboard, so new copies are not saved.") : root.capture-error != "" ? @tr("Could not watch the clipboard: {0}", root.capture-error) : "";
                                         Toggle {
                                             label: @tr("Pause capture");
                                             checked <=> root.paused;
@@ -781,6 +784,7 @@ export component SettingsWindow inherits Window {
                                     }
                                     SettingRow {
                                         label: @tr("Ignored apps");
+                                        description: root.owner-unknown ? @tr("This desktop does not say which app copied, so ignored apps have no effect here.") : "";
                                         separator: false;
                                         Button {
                                             text: @tr("+ Add");

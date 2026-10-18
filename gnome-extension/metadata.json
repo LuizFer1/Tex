@@ -1,8 +1,8 @@
 {
   "uuid": "tex@luizfer1.github.io",
   "name": "Tex",
-  "description": "Panel button, global shortcuts and window placement for Tex.",
+  "description": "Panel button, global shortcuts, window placement and clipboard history for Tex.",
   "shell-version": ["45", "46", "47", "48", "49"],
   "url": "https://github.com/LuizFer1/Tex",
-  "version": 1
+  "version": 2
 }

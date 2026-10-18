@@ -262,7 +262,17 @@ fn main() -> Result<(), Box<dyn Error>> {
             move |clip| clipboard.send(ClipboardCommand::Captured(clip))
         },
     ) {
-        Ok(watcher) => Some(watcher),
+        Ok(watcher) => {
+            with_app(|app| {
+                app.capture_via_shell = watcher.through_shell();
+                app.owner_unknown = !watcher.knows_owner();
+            });
+            Some(watcher)
+        }
+        Err(error) if error.kind() == io::ErrorKind::Unsupported => {
+            with_app(|app| app.capture_unsupported = true);
+            None
+        }
         Err(error) => {
             with_app(|app| app.capture_error = error.to_string());
             None
@@ -438,9 +448,14 @@ fn shell_changed(windows: &Windows, active: bool) {
     if let Some(tray) = windows.tray.upgrade() {
         let _ = if active { tray.hide() } else { tray.show() };
     }
+    let missing = with_app(|app| app.capture_missing());
     if let Some(window) = windows.settings.upgrade() {
         window.set_can_place(can_place_windows());
         window.set_shell_missing(!active);
+        window.set_capture_missing(missing);
+    }
+    if let Some(history) = windows.history.upgrade() {
+        history.set_capture_missing(missing);
     }
     refresh_onboarding(windows);
 }
@@ -1418,6 +1433,8 @@ fn fill_settings(window: &SettingsWindow, app: &AppState) {
     fill_ignored_apps(window, &app.settings);
     window.set_confirm_clear(false);
     window.set_capture_error(app.capture_error.as_str().into());
+    window.set_capture_missing(app.capture_missing());
+    window.set_owner_unknown(app.owner_unknown);
 }
 
 fn preset_index(presets: &[u32], value: u32) -> i32 {
@@ -2341,17 +2358,19 @@ fn show_history(windows: &Windows) {
     };
     let target = foreground_window();
     apply_theme(windows);
-    let (monitor, paused, paste) = with_app(|app| {
+    let (monitor, paused, paste, missing) = with_app(|app| {
         app.paste_target = target;
         app.history_focused = false;
         (
             app.settings.general.popup_monitor,
             app::capture_paused(&app.settings),
             app.settings.clipboard.on_pick == OnPick::CopyAndPaste,
+            app.capture_missing(),
         )
     });
     window.invoke_reset();
     window.set_paused(paused);
+    window.set_capture_missing(missing);
     window.set_paste_by_default(paste);
     window.set_unavailable(with_history(|history| history.unavailable.clone()).into());
     window.set_current_year(i32::from(local_time(now_ms()).year));

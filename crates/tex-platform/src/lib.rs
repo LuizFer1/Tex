@@ -112,8 +112,10 @@ pub struct IconPixels {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Clip {
     pub text: Option<String>,
-    /// `CF_DIBV5`, or `CF_DIB` when there is no V5 header.
+    /// `CF_DIBV5`, or `CF_DIB` when there is no V5 header (Windows).
     pub dib: Option<Vec<u8>>,
+    /// `image/png` (Linux).
+    pub png: Option<Vec<u8>>,
     /// `ExcludeClipboardContentFromMonitorProcessing` is present.
     pub excluded: bool,
     /// `CanIncludeInClipboardHistory` is present with the value 0.
