@@ -359,11 +359,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Flips the saved pause; until the onboarding is done the capture stays paused anyway.
+/// Flips the pause the tray shows; until the onboarding is done that is always "paused", so it saves "resumed".
 fn toggle_pause(windows: &Windows) {
     let (old, new) = with_app(|app| {
         let old = app.settings.clone();
-        app.settings.clipboard.paused = !old.clipboard.paused;
+        app.settings.clipboard.paused = !app::capture_paused(&old);
         (old, app.settings.clone())
     });
     if let Some(window) = windows.settings.upgrade() {
