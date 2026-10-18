@@ -285,6 +285,10 @@ pub fn system_uses_dark_theme() -> bool {
     status == 0 && light == 0
 }
 
+/// Windows tells each window when the theme changes (`WindowEvent::ThemeChanged`), so there is
+/// nothing to watch.
+pub fn watch_theme(_on_change: impl Fn() + Send + 'static) {}
+
 /// Converts a Unix time in milliseconds to the user's local time.
 pub fn local_time(unix_ms: i64) -> LocalTime {
     let ticks = unix_ms_to_filetime(unix_ms);

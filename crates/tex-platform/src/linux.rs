@@ -1,3 +1,4 @@
+mod dbus;
 mod x11;
 
 use std::ffi::OsString;
@@ -140,8 +141,14 @@ pub fn transparent_windows() -> bool {
     x11::compositor_running()
 }
 
+/// Whether the desktop prefers dark, as the portal last said ([`watch_theme`]). Light until known.
 pub fn system_uses_dark_theme() -> bool {
-    false
+    dbus::system_uses_dark_theme()
+}
+
+/// Follows the portal's color scheme on a thread and calls `on_change` when dark turns on or off.
+pub fn watch_theme(on_change: impl Fn() + Send + 'static) {
+    dbus::watch_theme(on_change);
 }
 
 /// Work area of the monitor under the pointer on X11. `None` on Wayland, where the compositor

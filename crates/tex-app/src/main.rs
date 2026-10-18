@@ -38,7 +38,8 @@ use tex_platform::{
     ClipboardWatcher, IconPixels, LocalTime, SingleInstance, WindowRef, catch_windows_key,
     foreground_window, local_time, lock_foreground, open_path, paste_into, pick_file, pick_folder,
     primary_work_area, restore_foreground, reveal_in_folder, round_corners, shape_tabbed_window,
-    take_foreground, transparent_windows, work_area_under_cursor, write_image, write_text,
+    take_foreground, transparent_windows, watch_theme, work_area_under_cursor, write_image,
+    write_text,
 };
 
 use crate::app::{AppState, HotkeyError, with_app};
@@ -161,6 +162,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let language = with_app(|app| app.settings.general.language);
     app::apply_language(language);
     apply_theme(&windows);
+    watch_theme({
+        let windows = windows.clone();
+        move || theme_changed(&windows)
+    });
     with_app(|app| apply_categories(&popup, &app.settings));
 
     let clipboard = ClipboardClient::start(
