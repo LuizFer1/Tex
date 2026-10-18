@@ -44,8 +44,8 @@ pub use linux::{
     config_dir, data_dir, foreground_window, http_get, init_icon_thread, local_time,
     lock_foreground, open_locked, open_path, paste_into, pick_file, pick_folder, primary_work_area,
     protect, restore_foreground, reveal_in_folder, round_corners, shape_tabbed_window,
-    system_uses_dark_theme, take_foreground, unprotect, user_language, work_area_under_cursor,
-    write_image, write_text,
+    skip_taskbar, system_uses_dark_theme, take_foreground, unprotect, user_language,
+    work_area_under_cursor, write_image, write_text,
 };
 
 #[cfg(not(any(windows, target_os = "linux")))]

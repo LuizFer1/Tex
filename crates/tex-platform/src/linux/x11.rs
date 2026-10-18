@@ -3,7 +3,9 @@ use std::sync::OnceLock;
 
 use x11rb::connection::Connection;
 use x11rb::protocol::randr::ConnectionExt as _;
-use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _, Window};
+use x11rb::protocol::xproto::{
+    AtomEnum, ClientMessageEvent, ConnectionExt as _, EventMask, Window,
+};
 use x11rb::rust_connection::RustConnection;
 
 use crate::WorkArea;
@@ -164,6 +166,43 @@ fn resources(display: &Display) -> String {
         .and_then(|cookie| cookie.reply().ok())
         .map(|reply| String::from_utf8_lossy(&reply.value).into_owned())
         .unwrap_or_default()
+}
+
+/// Asks the window manager to activate `window` as a pager would (source 2), which window
+/// managers honor even when they refuse requests from applications.
+pub(crate) fn activate(window: u32) -> bool {
+    display().is_some_and(|display| {
+        send_to_root(display, window, b"_NET_ACTIVE_WINDOW", [2, 0, 0, 0, 0]).is_some()
+    })
+}
+
+/// Keeps `window` out of the taskbar and the pager (`_NET_WM_STATE`, action 1 = add).
+pub(crate) fn skip_taskbar(window: u32) {
+    let Some(display) = display() else {
+        return;
+    };
+    let (Some(taskbar), Some(pager)) = (
+        atom(display, b"_NET_WM_STATE_SKIP_TASKBAR"),
+        atom(display, b"_NET_WM_STATE_SKIP_PAGER"),
+    ) else {
+        return;
+    };
+    send_to_root(display, window, b"_NET_WM_STATE", [1, taskbar, pager, 1, 0]);
+}
+
+fn send_to_root(display: &Display, window: u32, kind: &[u8], data: [u32; 5]) -> Option<()> {
+    let kind = atom(display, kind)?;
+    let event = ClientMessageEvent::new(32, window, kind, data);
+    display
+        .connection
+        .send_event(
+            false,
+            display.root,
+            EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+            event,
+        )
+        .ok()?;
+    display.connection.flush().ok()
 }
 
 fn atom(display: &Display, name: &[u8]) -> Option<u32> {

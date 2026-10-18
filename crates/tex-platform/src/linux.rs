@@ -163,8 +163,14 @@ pub fn round_corners(_window: WindowRef) {}
 
 pub fn lock_foreground(_lock: bool) {}
 
-pub fn take_foreground(_window: WindowRef) -> bool {
-    false
+/// Activates `window` on X11 through the window manager. Wayland windows have no [`WindowRef`].
+pub fn take_foreground(window: WindowRef) -> bool {
+    x11::activate(window.0 as u32)
+}
+
+/// Keeps `window` out of the taskbar on X11.
+pub fn skip_taskbar(window: WindowRef) {
+    x11::skip_taskbar(window.0 as u32);
 }
 
 pub fn restore_foreground(_window: WindowRef) {}

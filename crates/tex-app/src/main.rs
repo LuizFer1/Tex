@@ -1607,7 +1607,11 @@ fn skip_taskbar(window: &WinitWindow) {
 }
 
 #[cfg(not(windows))]
-fn skip_taskbar(_window: &WinitWindow) {}
+fn skip_taskbar(window: &WinitWindow) {
+    if let Some(target) = WindowRef::of(window) {
+        tex_platform::skip_taskbar(target);
+    }
+}
 
 fn window_ref(window: &slint::Window) -> Option<WindowRef> {
     window.with_winit_window(WindowRef::of).flatten()
