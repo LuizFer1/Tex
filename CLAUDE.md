@@ -22,9 +22,9 @@ cargo run -p tex-indexer -- console        # admin terminal: index and serve in 
 cargo run -p tex-indexer -- install        # admin terminal: register and start the service from this exe
 cargo run -p tex-indexer -- install --all-users   # admin terminal: same, but every signed-in user may search
 cargo run -p tex-indexer -- uninstall      # admin terminal: stop and remove the service
-"%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.4.1 installer\tex.iss   # run from PowerShell (Git Bash rewrites /DAppVersion); after cargo build --release; AppVersion = workspace version; output target\installer\Tex-Setup-0.4.1.exe
+"%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.4.2 installer\tex.iss   # run from PowerShell (Git Bash rewrites /DAppVersion); after cargo build --release; AppVersion = workspace version; output target\installer\Tex-Setup-0.4.2.exe
 cargo run -p tex-app --example update_key -- C:\outside\repo\update.key   # once: makes update.pub and writes the private key to the file; put it in the TEX_UPDATE_KEY secret
-cargo run --release -p tex-app --example sign_update -- target\installer\Tex-Setup-0.4.1.exe 0.4.1   # TEX_UPDATE_KEY (hex) in the environment; writes the .sig beside the installer
+cargo run --release -p tex-app --example sign_update -- target\installer\Tex-Setup-0.4.2.exe 0.4.2   # TEX_UPDATE_KEY (hex) in the environment; writes the .sig beside the installer
 cargo run --release -p tex-indexer --example fake_server -- C:\some\folder   # no admin: serve one folder for app testing
 ```
 
