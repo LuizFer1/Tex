@@ -336,13 +336,10 @@ pub fn wrap_by_default(path: &Path) -> bool {
     )
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 pub const MAX_HITS: usize = 10_000;
-#[cfg_attr(not(test), allow(dead_code))]
 const CANCEL_EVERY: usize = 4096;
 
 /// The text a reader sees in a block's markup: escapes resolved, emphasis, code and link syntax dropped.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn plain_text(markup: &str) -> String {
     let mut out = String::with_capacity(markup.len());
     let mut chars = markup.chars().peekable();
@@ -377,7 +374,6 @@ pub fn plain_text(markup: &str) -> String {
 }
 
 /// What the search compares for one Markdown row.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn search_text(row: &BlockRow) -> String {
     match row.kind {
         BlockKind::Code | BlockKind::Image => row.plain.clone(),
@@ -393,7 +389,6 @@ pub fn search_text(row: &BlockRow) -> String {
 
 /// Indexes (plus `offset`) of the rows containing `query`, ignoring case and accents, at most
 /// `MAX_HITS`; `None` when `cancel` was set.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn find_rows(
     rows: &[String],
     query: &str,
@@ -420,7 +415,6 @@ pub fn find_rows(
 }
 
 /// The next (or previous) hit, wrapping around; the first (or last) when none is current.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn step_hit(count: usize, current: Option<usize>, forward: bool) -> Option<usize> {
     if count == 0 {
         return None;
@@ -434,7 +428,6 @@ pub fn step_hit(count: usize, current: Option<usize>, forward: bool) -> Option<u
 }
 
 #[derive(Debug, PartialEq, Eq)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub enum SaveCheck {
     Write,
     AskOutside,
@@ -442,7 +435,6 @@ pub enum SaveCheck {
 }
 
 /// Whether a save can go ahead, or must first ask about an outside change or lost characters.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn save_check(changed_outside: bool, fits: bool, overwrite: bool, lossy: bool) -> SaveCheck {
     if changed_outside && !overwrite {
         SaveCheck::AskOutside
@@ -454,7 +446,6 @@ pub fn save_check(changed_outside: bool, fits: bool, overwrite: bool, lossy: boo
 }
 
 #[derive(Debug, PartialEq, Eq)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub enum Outside {
     Nothing,
     Reload,
@@ -463,7 +454,6 @@ pub enum Outside {
 }
 
 /// What to do when the window comes back and the file's stamp is `current` (`None`: it is gone).
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn outside_change(known: Stamp, current: Option<Stamp>, dirty: bool) -> Outside {
     match current {
         None => Outside::Deleted,
