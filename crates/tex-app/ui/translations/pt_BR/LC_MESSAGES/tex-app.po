@@ -512,3 +512,147 @@ msgstr "Limpar…"
 
 msgid "Delete now"
 msgstr "Apagar agora"
+
+msgid "Welcome to Tex"
+msgstr "Bem-vindo ao Tex"
+
+msgid "Hi! I'm Tex."
+msgstr "Oi! Eu sou o Tex."
+
+msgid "Nine quick questions and we're ready. The default option is already selected — if it looks good, just press Enter."
+msgstr "Nove perguntas rápidas e estamos prontos. A opção padrão já vem marcada — se estiver bom, é só apertar Enter."
+
+msgid "Nine quick questions to review your choices. What you already use is selected — if it looks good, just press Enter."
+msgstr "Nove perguntas rápidas para revisar suas escolhas. O que você já usa vem marcado — se estiver bom, é só apertar Enter."
+
+msgid "{0} of {1}"
+msgstr "{0} de {1}"
+
+msgid "DEFAULT"
+msgstr "PADRÃO"
+
+msgid "or"
+msgstr "ou"
+
+msgid "Light or dark?"
+msgstr "Claro ou escuro?"
+
+msgid "Following the system is also available in Settings › General."
+msgstr "Seguir o sistema também está disponível em Configurações › Geral."
+
+msgid "Also open search with the Windows key?"
+msgstr "Abrir a pesquisa também com a tecla Windows?"
+
+msgid "Yes, {0} or Win"
+msgstr "Sim, {0} ou Win"
+
+msgid "Only {0}"
+msgstr "Só {0}"
+
+msgid "{0} always works. Win + other keys keep working as usual."
+msgstr "{0} funciona sempre. Win + outras teclas continua normal."
+
+msgid "Open Tex when Windows starts?"
+msgstr "Abrir o Tex junto com o Windows?"
+
+msgid "Yes, start with Windows"
+msgstr "Sim, iniciar junto"
+
+msgid "No, I'll open it when I need it"
+msgstr "Não, eu abro quando precisar"
+
+msgid "I stay in the tray, with no window, waiting for the shortcut."
+msgstr "Fico na bandeja, sem janela, esperando o atalho."
+
+msgid "Check for updates automatically?"
+msgstr "Procurar atualizações automaticamente?"
+
+msgid "Yes, keep me up to date"
+msgstr "Sim, manter atualizado"
+
+msgid "No, I'll check when I want"
+msgstr "Não, eu procuro quando quiser"
+
+msgid "It only asks Tex's GitHub. Nothing about you is sent."
+msgstr "Só consulta o GitHub do Tex. Nada sobre você é enviado."
+
+msgid "What does Enter do on a result?"
+msgstr "O que o Enter faz num resultado?"
+
+msgid "Open the item"
+msgstr "Abrir o item"
+
+msgid "Show in Explorer"
+msgstr "Mostrar no Explorer"
+
+msgid "Include hidden files and folders?"
+msgstr "Incluir arquivos e pastas ocultos?"
+
+msgid "Include hidden"
+msgstr "Incluir ocultos"
+
+msgid "Only what is visible"
+msgstr "Só o que é visível"
+
+msgid "System files stay out either way."
+msgstr "Arquivos de sistema ficam de fora nos dois casos."
+
+msgid "Can I keep what you copy?"
+msgstr "Posso guardar o que você copia?"
+
+msgid "Yes, keep it"
+msgstr "Sim, guardar"
+
+msgid "Leave it paused"
+msgstr "Deixar pausado"
+
+msgid "It stays on this computer only. Open the history with {0}."
+msgstr "Fica só neste computador. Abra o histórico com {0}."
+
+msgid "When you pick a history item…"
+msgstr "Ao escolher um item do histórico…"
+
+msgid "Applies to Enter and click. Ctrl+Enter does the other action."
+msgstr "Vale para Enter e clique. Ctrl+Enter faz a outra ação."
+
+msgid "When should old history be deleted?"
+msgstr "Quando apagar o histórico antigo?"
+
+msgid "After 1 week"
+msgstr "Depois de 1 semana"
+
+msgid "Over 1 GB"
+msgstr "Ao passar de 1 GB"
+
+msgid "Favorites are never deleted."
+msgstr "Favoritos nunca são apagados."
+
+msgid "All set!"
+msgstr "Tudo pronto!"
+
+msgid "to call me"
+msgstr "para me chamar"
+
+msgid "I stay in the tray. Everything can be changed in Settings."
+msgstr "Fico na bandeja. Tudo pode ser mudado em Configurações."
+
+msgid "Use defaults for everything"
+msgstr "Usar padrão em tudo"
+
+msgid "Keep the rest as it is"
+msgstr "Manter o resto como está"
+
+msgid "Back"
+msgstr "Voltar"
+
+msgid "Start"
+msgstr "Começar"
+
+msgid "Continue"
+msgstr "Continuar"
+
+msgid "Finish"
+msgstr "Concluir"
+
+msgid "Open search"
+msgstr "Abrir a pesquisa"
