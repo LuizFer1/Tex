@@ -82,6 +82,13 @@ impl Engine {
         Some(volume)
     }
 
+    /// Stops tracking the volume at `root`, whose file system is no longer mounted.
+    pub fn remove(&self, root: &str) -> Option<Arc<Volume>> {
+        let mut volumes = self.volumes.lock().unwrap_or_else(|e| e.into_inner());
+        let position = volumes.iter().position(|volume| volume.root == root)?;
+        Some(volumes.remove(position))
+    }
+
     pub fn volumes(&self) -> Vec<Arc<Volume>> {
         self.volumes
             .lock()
@@ -401,6 +408,20 @@ mod tests {
         assert!(engine.add("C:", 9).is_some());
         assert_eq!(engine.volumes().len(), 1);
         assert_eq!(engine.volumes()[0].serial, 9);
+    }
+
+    #[test]
+    fn removed_volumes_leave_the_status() {
+        let engine = Engine::new();
+        engine.add("/", 1).unwrap();
+        engine.add("/media/usb", 2).unwrap();
+        assert_eq!(
+            engine.remove("/media/usb").map(|volume| volume.serial),
+            Some(2)
+        );
+        assert!(engine.remove("/media/usb").is_none());
+        assert_eq!(engine.status().len(), 1);
+        assert!(engine.add("/media/usb", 2).is_some());
     }
 
     #[test]
