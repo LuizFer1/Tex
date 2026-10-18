@@ -207,11 +207,25 @@ fn wire(window: &ReaderWindow, windows: &Windows, id: u64, path: &Path) {
             CloseRequestResponse::HideWindow
         }
     });
-    window.window().on_winit_window_event(move |_, event| {
-        if matches!(event, WindowEvent::Focused(true)) {
-            let _ = slint::invoke_from_event_loop(move || check_outside(id));
+    window.window().on_winit_window_event({
+        let reader = window.as_weak();
+        move |window, event| {
+            match event {
+                WindowEvent::Focused(true) => {
+                    let _ = slint::invoke_from_event_loop(move || check_outside(id));
+                }
+                WindowEvent::Resized(_) => {
+                    let maximized = window
+                        .with_winit_window(|window| window.is_maximized())
+                        .unwrap_or(false);
+                    if let Some(reader) = reader.upgrade() {
+                        reader.set_window_maximized(maximized);
+                    }
+                }
+                _ => {}
+            }
+            EventResult::Propagate
         }
-        EventResult::Propagate
     });
     window.on_edit_requested(move || start_edit(id));
     window.on_edit_finished(move || finish_edit(id));
