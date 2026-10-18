@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project state
 
-Tex is a personal desktop assistant: universal search (files, folders, installed apps) plus clipboard history. Implemented: tray icon, global hotkeys, popup, file/folder/app search (service + results UI), the clipboard history (capture of text and images, encrypted storage, retention, the history window opened by Alt+V) the settings window (General, Search and Clipboard tabs) and the first-run onboarding (`Local/specs/2026-10-17-onboarding-design.md`). The clipboard design is in `Local/specs/2026-10-16-clipboard-design.md`.
+Tex is a personal desktop assistant: universal search (files, folders, installed apps) plus clipboard history. Implemented: tray icon, global hotkeys, popup, file/folder/app search (service + results UI), the clipboard history (capture of text and images, encrypted storage, retention, the history window opened by Alt+V), the settings window (General, Search and Clipboard tabs), the first-run onboarding (`Local/specs/2026-10-17-onboarding-design.md`) and automatic updates (`Local/specs/2026-10-17-atualizacao-design.md`). The clipboard design is in `Local/specs/2026-10-16-clipboard-design.md`.
 
 The full functional requirements document (in Portuguese) is `Local/Tex_Documento_Requisitos_Funcionais.md`. `README.md` is the public English summary of it. Design specs live in `Local/specs/`.
 

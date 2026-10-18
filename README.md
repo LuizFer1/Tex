@@ -122,7 +122,9 @@ What you copy can be anything: notes, addresses, links, private messages. Tex tr
 
 ## Install
 
-Download `Tex-Setup-<version>.exe` from [Releases](https://github.com/LuizFer1/Tex/releases) and run it. It asks for administrator rights because the search service reads the NTFS file tables, and it asks whether only your account or everyone who signs in to the computer can search. Tex then starts with Windows; you can turn that off in Settings (tray menu, or Ctrl+, in the search box), along with the shortcuts, theme, language, what search includes, and how the clipboard history works. From then on Tex downloads new versions in the background and installs them when you click "Update and restart" in the tray menu or in Settings.
+Download `Tex-Setup-<version>.exe` from [Releases](https://github.com/LuizFer1/Tex/releases) and run it. It asks for administrator rights because the search service reads the NTFS file tables, and it asks whether only your account or everyone who signs in to the computer can search.
+
+On first run Tex asks a few questions, each with the usual choice already selected: light or dark theme, whether the Windows key also opens search, whether Tex starts with Windows, whether it checks for updates, what Enter does on a result, whether search includes hidden files, and, for the clipboard history, whether Tex may keep what you copy, whether picking an entry also pastes it, and when old entries are deleted. Nothing is captured until you finish or close the questions. Every answer can be changed later in Settings (tray menu, or Ctrl+, in the search box), along with the shortcuts, language, what search includes, and how the clipboard history works. With updates on, Tex downloads new versions in the background and installs them when you click "Update to <version>" in the tray menu or "Update and restart" in Settings.
 
 ---
 
