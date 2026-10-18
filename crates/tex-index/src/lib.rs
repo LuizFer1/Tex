@@ -7,7 +7,7 @@ mod search;
 mod snapshot;
 mod volume;
 
-pub use apps::DesktopApp;
+pub use apps::{AppCatalog, DesktopApp};
 pub use dense::DenseIds;
 pub use entry::{Attributes, ROOT, Record, record_from_frn};
 pub use matcher::{MatchKind, Query};

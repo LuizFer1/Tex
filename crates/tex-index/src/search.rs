@@ -4,6 +4,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 
+use crate::apps::AppCatalog;
 use crate::entry::{ROOT, Record};
 use crate::matcher::{MatchKind, Query};
 use crate::normalize::fold_into;
@@ -32,6 +33,10 @@ pub struct SearchRequest<'a> {
     pub excluded_folders: &'a [&'a str],
     pub categories: Categories,
     pub app_roots: &'a [&'a str],
+    /// Apps from `.desktop` files (Linux); `None` where apps come from the index (Windows).
+    pub apps: Option<&'a AppCatalog>,
+    /// The user's language ("pt-BR"), for the apps' localized names.
+    pub language: &'a str,
 }
 
 /// Which kinds of results a search may return.
@@ -55,6 +60,8 @@ pub struct Hit {
     pub path: String,
     pub is_dir: bool,
     pub is_app: bool,
+    /// The app's display name, for apps from the catalog.
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -91,6 +98,12 @@ pub fn search(
     cancelled: &(dyn Fn() -> bool + Sync),
 ) -> Option<SearchOutcome> {
     let query = request.query;
+    let app_hits = match request.apps {
+        Some(apps) if offers_catalog_apps(request) => {
+            apps.search(query, request.language, request.home)
+        }
+        _ => Vec::new(),
+    };
     let volumes: Vec<&VolumeIndex> = volumes
         .iter()
         .copied()
@@ -158,7 +171,7 @@ pub fn search(
             .collect()
     });
 
-    let mut total = 0;
+    let mut total = app_hits.len() as u32;
     let mut candidates = Vec::new();
     for worker in results {
         let worker = worker?;
@@ -166,18 +179,26 @@ pub fn search(
         candidates.extend(worker.heap.into_vec());
     }
     candidates.sort();
-    candidates.truncate(request.limit);
-    let hits = candidates
-        .into_iter()
-        .filter_map(|c| {
-            Some(Hit {
-                path: prepared[c.volume].volume.path(c.record)?,
-                is_dir: c.is_dir,
-                is_app: c.is_app,
-            })
+    candidates.truncate(request.limit.saturating_sub(app_hits.len()));
+    let mut hits = app_hits;
+    hits.truncate(request.limit);
+    hits.extend(candidates.into_iter().filter_map(|c| {
+        Some(Hit {
+            path: prepared[c.volume].volume.path(c.record)?,
+            is_dir: c.is_dir,
+            is_app: c.is_app,
+            label: None,
         })
-        .collect();
+    }));
     Some(SearchOutcome { hits, total })
+}
+
+/// Catalog apps answer queries for a name alone, when apps may be returned.
+fn offers_catalog_apps(request: &SearchRequest) -> bool {
+    request.categories.apps
+        && matches!(request.filter, Filter::All | Filter::Apps)
+        && request.query.folder_count() == 0
+        && request.query.drive().is_none()
 }
 
 /// For each volume, one byte per entry with bit `i` set on directories matching folder `i` of
@@ -406,6 +427,7 @@ fn has_extension(name: &[u8], extension: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::apps::{AppCatalog, DesktopApp};
     use crate::entry::{Attributes, ROOT};
 
     const FILE: Attributes = Attributes {
@@ -487,6 +509,8 @@ mod tests {
             excluded_folders: &[],
             categories: Categories::ALL,
             app_roots: &[],
+            apps: None,
+            language: "",
         }
     }
 
@@ -909,5 +933,108 @@ mod tests {
         let outcome = search(&[&root], &base(&tool), &|| false).unwrap();
         assert_eq!(paths(&outcome), ["/home/luis/tool.exe"]);
         assert!(!outcome.hits[0].is_app);
+    }
+
+    fn catalog() -> AppCatalog {
+        let mut catalog = AppCatalog::new();
+        catalog.set_system(vec![
+            DesktopApp::parse(
+                "relatorio.desktop",
+                "/usr/share/applications/relatorio.desktop",
+                "[Desktop Entry]\nType=Application\nName=Relatorio Studio\nName[pt_BR]=Estúdio de Relatórios\n",
+            )
+            .unwrap(),
+        ]);
+        catalog
+    }
+
+    fn unix_root() -> VolumeIndex {
+        let mut root = VolumeIndex::new("/");
+        root.upsert(20, ROOT, "home", DIR);
+        root.upsert(21, 20, "luis", DIR);
+        root.upsert(22, 21, "relatorio.txt", FILE);
+        root.upsert(23, 21, "relatorio", DIR);
+        root
+    }
+
+    fn app_count(volume: &VolumeIndex, request: &SearchRequest) -> usize {
+        search(&[volume], request, &|| false)
+            .unwrap()
+            .hits
+            .iter()
+            .filter(|hit| hit.is_app)
+            .count()
+    }
+
+    #[test]
+    fn catalog_apps_come_first_with_their_label() {
+        let root = unix_root();
+        let apps = catalog();
+        let query = Query::parse_for("relatorio", false).unwrap();
+        let request = SearchRequest {
+            apps: Some(&apps),
+            language: "pt-BR",
+            ..base(&query)
+        };
+        let outcome = search(&[&root], &request, &|| false).unwrap();
+        assert_eq!(
+            paths(&outcome),
+            [
+                "/usr/share/applications/relatorio.desktop",
+                "/home/luis/relatorio",
+                "/home/luis/relatorio.txt",
+            ]
+        );
+        assert_eq!(
+            outcome.hits[0].label.as_deref(),
+            Some("Estúdio de Relatórios")
+        );
+        assert!(outcome.hits[0].is_app);
+        assert_eq!(outcome.hits[1].label, None);
+        assert_eq!(outcome.total, 3);
+        let one = SearchRequest {
+            limit: 1,
+            ..request
+        };
+        let outcome = search(&[&root], &one, &|| false).unwrap();
+        assert_eq!(
+            paths(&outcome),
+            ["/usr/share/applications/relatorio.desktop"]
+        );
+        assert_eq!(outcome.total, 3);
+    }
+
+    #[test]
+    fn catalog_apps_only_answer_app_searches() {
+        let root = unix_root();
+        let apps = catalog();
+        let query = Query::parse_for("relatorio", false).unwrap();
+        let only_apps = SearchRequest {
+            apps: Some(&apps),
+            filter: Filter::Apps,
+            ..base(&query)
+        };
+        assert_eq!(app_count(&root, &only_apps), 1);
+        let files = SearchRequest {
+            apps: Some(&apps),
+            filter: Filter::Files,
+            ..base(&query)
+        };
+        assert_eq!(app_count(&root, &files), 0);
+        let no_apps = SearchRequest {
+            apps: Some(&apps),
+            categories: Categories {
+                apps: false,
+                ..Categories::ALL
+            },
+            ..base(&query)
+        };
+        assert_eq!(app_count(&root, &no_apps), 0);
+        let folder = Query::parse_for("luis/relatorio", false).unwrap();
+        let in_folder = SearchRequest {
+            apps: Some(&apps),
+            ..base(&folder)
+        };
+        assert_eq!(app_count(&root, &in_folder), 0);
     }
 }

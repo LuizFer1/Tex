@@ -133,6 +133,8 @@ impl Engine {
                 folders: request.show_folders,
             },
             app_roots: &app_roots,
+            apps: None,
+            language: "",
         };
         let Some(outcome) = tex_index::search(&indexes, &search_request, &|| false) else {
             return empty;

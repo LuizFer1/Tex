@@ -1,4 +1,9 @@
+use std::cmp::Reverse;
+use std::collections::{HashMap, HashSet};
+
 use crate::matcher::{MatchKind, Query};
+use crate::normalize::fold;
+use crate::search::Hit;
 
 /// An app from a `.desktop` file (freedesktop Desktop Entry).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,6 +88,74 @@ impl DesktopApp {
         let others = [self.generic_name.get(language), self.keywords.get(language)];
         best(query, others, scratch).map(|kind| (1, kind))
     }
+}
+
+type AppKey = (u8, Reverse<MatchKind>, usize, String);
+
+/// The apps the search offers: the system's `.desktop` files and each user's own.
+#[derive(Debug, Clone, Default)]
+pub struct AppCatalog {
+    system: Vec<DesktopApp>,
+    users: HashMap<String, Vec<DesktopApp>>,
+}
+
+impl AppCatalog {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Apps from the system folders, the most important folder first: the first app with an id wins.
+    pub fn set_system(&mut self, apps: Vec<DesktopApp>) {
+        self.system = first_of_each_id(apps);
+    }
+
+    /// The apps of the user whose home is `home`; they hide system apps with the same id.
+    pub fn set_user(&mut self, home: &str, apps: Vec<DesktopApp>) {
+        self.users.insert(home.to_owned(), first_of_each_id(apps));
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.system.is_empty() && self.users.values().all(Vec::is_empty)
+    }
+
+    /// Shown apps of the user at `home` that match `query`, best first, labeled in `language`.
+    pub(crate) fn search(&self, query: &Query, language: &str, home: Option<&str>) -> Vec<Hit> {
+        let user = home
+            .and_then(|home| self.users.get(home))
+            .map_or(&[][..], Vec::as_slice);
+        let mine: HashSet<&str> = user.iter().map(|app| app.id.as_str()).collect();
+        let system = self
+            .system
+            .iter()
+            .filter(|app| !mine.contains(app.id.as_str()));
+        let mut scratch = String::new();
+        let mut found: Vec<(AppKey, Hit)> = user
+            .iter()
+            .chain(system)
+            .filter(|app| app.shown)
+            .filter_map(|app| {
+                let (field, kind) = app.rank(query, language, &mut scratch)?;
+                let label = app.name(language).to_owned();
+                let key = (field, Reverse(kind), label.len(), fold(&label));
+                let hit = Hit {
+                    path: app.path.clone(),
+                    is_dir: false,
+                    is_app: true,
+                    label: Some(label),
+                };
+                Some((key, hit))
+            })
+            .collect();
+        found.sort_by(|a, b| a.0.cmp(&b.0));
+        found.into_iter().map(|(_, hit)| hit).collect()
+    }
+}
+
+fn first_of_each_id(apps: Vec<DesktopApp>) -> Vec<DesktopApp> {
+    let mut seen = HashSet::new();
+    apps.into_iter()
+        .filter(|app| seen.insert(app.id.clone()))
+        .collect()
 }
 
 fn best(query: &Query, texts: [Option<&str>; 2], scratch: &mut String) -> Option<MatchKind> {
@@ -230,5 +303,87 @@ mod tests {
         assert_eq!(rank("navegador", "pt-BR"), Some((0, MatchKind::Prefix)));
         assert_eq!(rank("www", ""), Some((1, MatchKind::WordStart)));
         assert_eq!(rank("chrome", ""), None);
+    }
+
+    fn app(id: &str, text: &str) -> DesktopApp {
+        DesktopApp::parse(id, &format!("/usr/share/applications/{id}"), text).unwrap()
+    }
+
+    fn entry(name: &str, extra: &str) -> String {
+        format!("[Desktop Entry]\nType=Application\nName={name}\n{extra}")
+    }
+
+    fn labels(catalog: &AppCatalog, text: &str, language: &str, home: Option<&str>) -> Vec<String> {
+        let query = Query::parse_for(text, false).unwrap();
+        catalog
+            .search(&query, language, home)
+            .into_iter()
+            .map(|hit| hit.label.unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn names_rank_above_generic_names_and_keywords() {
+        let mut catalog = AppCatalog::new();
+        catalog.set_system(vec![
+            app(
+                "files.desktop",
+                &entry("Files", "Keywords=folder;browser;\n"),
+            ),
+            app("firefox.desktop", FIREFOX),
+            app("brow.desktop", &entry("Browse Helper", "")),
+        ]);
+        assert_eq!(
+            labels(&catalog, "brow", "", None),
+            ["Browse Helper", "Files", "Firefox"]
+        );
+        let hits = catalog.search(&Query::parse_for("fire", false).unwrap(), "", None);
+        assert_eq!(hits[0].path, "/usr/share/applications/firefox.desktop");
+        assert!(hits[0].is_app);
+        assert!(!hits[0].is_dir);
+    }
+
+    #[test]
+    fn labels_follow_the_language() {
+        let mut catalog = AppCatalog::new();
+        catalog.set_system(vec![app("firefox.desktop", FIREFOX)]);
+        assert_eq!(
+            labels(&catalog, "navegador", "pt-BR", None),
+            ["Navegador Firefox"]
+        );
+        assert_eq!(
+            labels(&catalog, "firefox", "pt-BR", None),
+            ["Navegador Firefox"]
+        );
+        assert!(labels(&catalog, "navegador", "en-US", None).is_empty());
+    }
+
+    #[test]
+    fn hidden_apps_and_other_users_stay_out() {
+        let mut catalog = AppCatalog::new();
+        catalog.set_system(vec![
+            app("tool.desktop", &entry("Tool", "")),
+            app("tool.desktop", &entry("Tool Copy", "")),
+            app("secret.desktop", &entry("Tool Secret", "NoDisplay=true\n")),
+            app("editor.desktop", &entry("Editor Tool", "")),
+        ]);
+        catalog.set_user(
+            "/home/ana",
+            vec![
+                app("mine.desktop", &entry("My Tool", "")),
+                app("editor.desktop", "[Desktop Entry]\nHidden=true\n"),
+            ],
+        );
+        assert_eq!(labels(&catalog, "tool", "", None), ["Tool", "Editor Tool"]);
+        assert_eq!(
+            labels(&catalog, "tool", "", Some("/home/ana")),
+            ["Tool", "My Tool"]
+        );
+        assert_eq!(
+            labels(&catalog, "tool", "", Some("/home/bia")),
+            ["Tool", "Editor Tool"]
+        );
+        assert!(!catalog.is_empty());
+        assert!(AppCatalog::new().is_empty());
     }
 }
