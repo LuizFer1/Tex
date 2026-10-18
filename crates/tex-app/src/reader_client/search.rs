@@ -63,14 +63,17 @@ pub(super) fn search(id: u64, query: String) {
     });
 }
 
-/// Searches an indexed file a block of lines at a time; `None` when cancelled or unreadable.
+/// Searches an indexed file a block of lines at a time; `None` only when cancelled, and a read
+/// error ends the search with the hits found so far.
 fn find_in_file(
     index: &LineIndex,
     path: &Path,
     query: &str,
     cancel: &AtomicBool,
 ) -> Option<Vec<usize>> {
-    let mut file = File::open(path).ok()?;
+    let Ok(mut file) = File::open(path) else {
+        return Some(Vec::new());
+    };
     let step = PAGE_LINES * 8;
     let mut hits = Vec::new();
     let mut first = 0;
@@ -78,7 +81,9 @@ fn find_in_file(
         if cancel.load(Ordering::Relaxed) {
             return None;
         }
-        let chunk = index.read_lines(&mut file, first..first + step).ok()?;
+        let Ok(chunk) = index.read_lines(&mut file, first..first + step) else {
+            break;
+        };
         if chunk.is_empty() {
             break;
         }

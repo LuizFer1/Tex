@@ -2,10 +2,11 @@ use std::io::ErrorKind;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use slint::ModelRc;
 use tex_platform::replace_file;
 use tex_reader::{Body, Stamp};
 
-use super::search::{clear_search_view, reset_search};
+use super::search::{clear_search_view, reset_search, search};
 use super::{Banner, Reader, build, show_banner, show_built, spawn, window_of, with_reader};
 use crate::ReaderWindow;
 use crate::reader::{Outside, SaveCheck, changed_outside, needs_write, outside_change, save_check};
@@ -88,6 +89,9 @@ pub(super) fn finish_edit(id: u64) {
         if let Some(built) = built {
             show_built(&window, built);
             clear_search_view(&window);
+            if window.get_searching() {
+                search(id, window.get_query().to_string());
+            }
         }
         window.set_dirty(dirty);
     }
@@ -190,6 +194,8 @@ pub(super) fn reload(id: u64) {
         (reader.load, reader.path.clone(), reader.cancel.clone())
     });
     window.set_state(0);
+    window.set_lines(ModelRc::default());
+    window.set_blocks(ModelRc::default());
     window.set_editing(false);
     window.set_dirty(false);
     window.set_asking_reload(false);

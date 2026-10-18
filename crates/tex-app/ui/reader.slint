@@ -215,6 +215,8 @@ export component ReaderWindow inherits Window {
     changed editing => {
         if self.editing {
             editor.focus();
+        } else if self.searching {
+            find.focus();
         } else {
             keys.focus();
         }
@@ -225,7 +227,14 @@ export component ReaderWindow inherits Window {
             find.focus();
             find.select-all();
         } else {
+            root.jump-target = -1;
             keys.focus();
+        }
+    }
+
+    changed current-row => {
+        if self.current-row < 0 {
+            root.jump-target = -1;
         }
     }
 
@@ -234,6 +243,16 @@ export component ReaderWindow inherits Window {
 
     changed scheme => {
         Palette.color-scheme = self.scheme;
+    }
+
+    function reveal-block(y: length) {
+        blocks-list.content-y = max(blocks-list.visible-height - blocks-list.content-height, min(0px, 80px - y));
+        root.jump-target = -1;
+    }
+
+    function reveal-line(y: length) {
+        lines-list.content-y = max(lines-list.visible-height - lines-list.content-height, min(0px, 80px - y));
+        root.jump-target = -1;
     }
 
     function scroll-by(delta: length) {
@@ -517,14 +536,12 @@ export component ReaderWindow inherits Window {
                             background: index == root.current-row ? Tokens.selection : transparent;
                             init => {
                                 if self.is-target {
-                                    blocks-list.content-y = max(blocks-list.visible-height - blocks-list.content-height, min(0px, 80px - self.y));
-                                    root.jump-target = -1;
+                                    root.reveal-block(self.y);
                                 }
                             }
                             changed is-target => {
                                 if self.is-target {
-                                    blocks-list.content-y = max(blocks-list.visible-height - blocks-list.content-height, min(0px, 80px - self.y));
-                                    root.jump-target = -1;
+                                    root.reveal-block(self.y);
                                 }
                             }
                             view := BlockView {
@@ -547,14 +564,12 @@ export component ReaderWindow inherits Window {
                             background: index == root.current-row ? Tokens.selection : transparent;
                             init => {
                                 if self.is-target {
-                                    lines-list.content-y = max(lines-list.visible-height - lines-list.content-height, min(0px, 80px - self.y));
-                                    root.jump-target = -1;
+                                    root.reveal-line(self.y);
                                 }
                             }
                             changed is-target => {
                                 if self.is-target {
-                                    lines-list.content-y = max(lines-list.visible-height - lines-list.content-height, min(0px, 80px - self.y));
-                                    root.jump-target = -1;
+                                    root.reveal-line(self.y);
                                 }
                             }
                             line-text := Text {
