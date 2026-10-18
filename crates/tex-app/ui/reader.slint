@@ -1,6 +1,6 @@
 import { ListView, Palette } from "std-widgets.slint";
 import { Tokens } from "theme.slint";
-import { Icons, TitleButton, Footer, ResizeEdge } from "kit/kit.slint";
+import { Icons, TitleButton, Footer, ResizeEdge, Editor, Button, ButtonKind, TextField } from "kit/kit.slint";
 
 export struct ReaderBlock {
     // 0 heading, 1 paragraph, 2 item, 3 code, 4 quote, 5 rule, 6 table row, 7 image
@@ -135,7 +135,7 @@ component BlockView inherits VerticalLayout {
 }
 
 export component ReaderWindow inherits Window {
-    title: root.file-name + " — Tex";
+    title: (root.changed-text ? "• " : "") + root.file-name + " — Tex";
     icon: Tokens.app-icon;
     no-frame: true;
     min-width: 420px;
@@ -167,6 +167,65 @@ export component ReaderWindow inherits Window {
     callback close-window();
     callback link-clicked(string);
 
+    in property <bool> dirty;
+    in-out property <bool> editing;
+    in-out property <string> edit-text;
+    in-out property <string> edit-original;
+    // 0 none, 1 too large to edit, 2 changed outside, 3 deleted, 4 save failed, 5 characters would be lost
+    in property <int> banner;
+    in property <string> banner-detail;
+    in-out property <bool> asking-close;
+    in-out property <bool> searching;
+    in-out property <string> query;
+    in property <int> hit-count;
+    in property <int> hit-index: -1;
+    in property <bool> search-busy;
+    in property <int> current-row: -1;
+    property <int> jump-target: -1;
+    property <bool> changed-text: root.dirty || (root.editing && root.edit-text != root.edit-original);
+
+    callback edit-requested();
+    callback edit-finished();
+    callback save-requested();
+    // 1 overwrite, 2 reload, 3 save anyway
+    callback banner-action(int);
+    callback banner-dismissed();
+    // 0 save, 1 discard, 2 cancel
+    callback close-choice(int);
+    callback search-edited(string);
+    callback search-step(bool);
+    callback search-closed();
+
+    public function saved() {
+        footer.show-toast(@tr("saved"));
+    }
+
+    public function jump-to(row: int) {
+        root.jump-target = row;
+        if root.markdown {
+            blocks-list.content-y = max(blocks-list.visible-height - blocks-list.content-height, min(0px, 80px - row * (blocks-list.content-height / max(1, root.blocks.length))));
+        } else {
+            lines-list.content-y = max(lines-list.visible-height - lines-list.content-height, min(0px, 80px - row * (lines-list.content-height / max(1, root.lines.length))));
+        }
+    }
+
+    changed editing => {
+        if self.editing {
+            editor.focus();
+        } else {
+            keys.focus();
+        }
+    }
+
+    changed searching => {
+        if self.searching {
+            find.focus();
+            find.select-all();
+        } else {
+            keys.focus();
+        }
+    }
+
     property <string> encoding-name: root.encoding == 0 ? "UTF-8" : root.encoding == 1 ? "UTF-8 BOM" : root.encoding == 2 ? "UTF-16 LE" : root.encoding == 3 ? "UTF-16 BE" : "Windows-1252";
     property <length> char-width: Tokens.size-body * 0.6;
 
@@ -183,14 +242,60 @@ export component ReaderWindow inherits Window {
     }
 
     keys := FocusScope {
-        key-pressed(event) => {
+        capture-key-pressed(event) => {
+            if event.modifiers.control && (event.text == "s" || event.text == "S") {
+                root.save-requested();
+                return accept;
+            }
+            if event.modifiers.control && (event.text == "e" || event.text == "E") {
+                if root.editing {
+                    root.edit-finished();
+                } else {
+                    root.edit-requested();
+                }
+                return accept;
+            }
+            if root.asking-close {
+                if event.text == Key.Escape {
+                    root.close-choice(2);
+                    return accept;
+                }
+                return reject;
+            }
+            if root.editing {
+                if event.text == Key.Escape {
+                    root.edit-finished();
+                    return accept;
+                }
+                return reject;
+            }
+            if event.modifiers.control && (event.text == "f" || event.text == "F") {
+                root.searching = true;
+                return accept;
+            }
+            if event.text == Key.F3 {
+                root.search-step(!event.modifiers.shift);
+                return accept;
+            }
+            if root.searching && event.text == Key.Return {
+                root.search-step(!event.modifiers.shift);
+                return accept;
+            }
             if event.text == Key.Escape {
-                root.close-window();
+                if root.searching {
+                    root.searching = false;
+                    root.search-closed();
+                } else {
+                    root.close-window();
+                }
                 return accept;
             }
             if event.modifiers.alt && (event.text == "z" || event.text == "Z") {
                 root.wrap = !root.wrap;
                 return accept;
+            }
+            if root.searching && find.has-focus {
+                return reject;
             }
             if event.text == Key.DownArrow {
                 root.scroll-by(-40px);
@@ -256,12 +361,25 @@ export component ReaderWindow inherits Window {
                         VerticalLayout {
                             horizontal-stretch: 1;
                             alignment: center;
-                            Text {
-                                text: root.file-name;
-                                font-size: Tokens.size-label;
-                                font-weight: 600;
-                                color: Tokens.ink;
-                                overflow: elide;
+                            HorizontalLayout {
+                                spacing: 6px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Rectangle {
+                                        width: 8px;
+                                        height: 8px;
+                                        border-radius: 4px;
+                                        background: Tokens.action;
+                                        visible: root.changed-text;
+                                    }
+                                }
+                                Text {
+                                    text: root.file-name;
+                                    font-size: Tokens.size-label;
+                                    font-weight: 600;
+                                    color: Tokens.ink;
+                                    overflow: elide;
+                                }
                             }
                             Text {
                                 text: root.folder;
@@ -296,25 +414,139 @@ export component ReaderWindow inherits Window {
                     }
                 }
 
+                if root.banner != 0: Rectangle {
+                    background: Tokens.banner;
+                    HorizontalLayout {
+                        padding: 8px;
+                        padding-left: 16px;
+                        spacing: 8px;
+                        Text {
+                            text: root.banner == 1 ? @tr("This file is too large to edit in Tex (more than {0} KB).", 128) : root.banner == 2 ? @tr("The file changed outside Tex.") : root.banner == 3 ? @tr("The file no longer exists. Ctrl+S saves it again.") : root.banner == 4 ? @tr("Could not save: {0}", root.banner-detail) : @tr("Some characters cannot be kept in {0}. They will be replaced.", root.encoding-name);
+                            color: Tokens.banner-ink;
+                            font-size: Tokens.size-label;
+                            wrap: word-wrap;
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                        }
+                        if root.banner == 2: VerticalLayout {
+                            alignment: center;
+                            Button {
+                                text: @tr("Overwrite");
+                                clicked => {
+                                    root.banner-action(1);
+                                }
+                            }
+                        }
+                        if root.banner == 2: VerticalLayout {
+                            alignment: center;
+                            Button {
+                                text: @tr("Reload");
+                                clicked => {
+                                    root.banner-action(2);
+                                }
+                            }
+                        }
+                        if root.banner == 5: VerticalLayout {
+                            alignment: center;
+                            Button {
+                                kind: ButtonKind.primary;
+                                text: @tr("Save anyway");
+                                clicked => {
+                                    root.banner-action(3);
+                                }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            TitleButton {
+                                icon: Icons.close;
+                                tip: @tr("Close");
+                                clicked => {
+                                    root.banner-dismissed();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    visible: root.searching;
+                    height: root.searching ? search-row.preferred-height : 0px;
+                    background: Tokens.paper-2;
+                    search-row := HorizontalLayout {
+                        padding: 8px;
+                        padding-left: 16px;
+                        spacing: 12px;
+                        find := TextField {
+                            boxed: true;
+                            mono: true;
+                            horizontal-stretch: 1;
+                            placeholder: @tr("Find in file");
+                            text <=> root.query;
+                            edited(text) => {
+                                root.search-edited(text);
+                            }
+                        }
+                        Text {
+                            text: root.search-busy ? @tr("searching…") : root.query == "" ? "" : root.hit-count == 0 ? @tr("no matches") : @tr("{0} of {1}", root.hit-index + 1, root.hit-count);
+                            color: Tokens.muted;
+                            font-size: Tokens.size-label;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
                 Rectangle {
                     vertical-stretch: 1;
 
                     blocks-list := ListView {
-                        visible: root.markdown && root.state == 1;
-                        for block in root.blocks: BlockView {
-                            block: block;
-                            link-clicked(link) => {
-                                root.link-clicked(link);
+                        visible: root.markdown && root.state == 1 && !root.editing;
+                        for block[index] in root.blocks: Rectangle {
+                            property <bool> is-target: index == root.jump-target;
+                            height: view.preferred-height;
+                            background: index == root.current-row ? Tokens.selection : transparent;
+                            init => {
+                                if self.is-target {
+                                    blocks-list.content-y = max(blocks-list.visible-height - blocks-list.content-height, min(0px, 80px - self.y));
+                                    root.jump-target = -1;
+                                }
+                            }
+                            changed is-target => {
+                                if self.is-target {
+                                    blocks-list.content-y = max(blocks-list.visible-height - blocks-list.content-height, min(0px, 80px - self.y));
+                                    root.jump-target = -1;
+                                }
+                            }
+                            view := BlockView {
+                                width: parent.width;
+                                block: block;
+                                link-clicked(link) => {
+                                    root.link-clicked(link);
+                                }
                             }
                         }
                     }
 
                     lines-list := ListView {
-                        visible: !root.markdown && (root.state == 1 || root.state == 2);
+                        visible: !root.markdown && (root.state == 1 || root.state == 2) && !root.editing;
                         content-width: root.wrap ? self.visible-width : max(self.visible-width, root.longest * root.char-width + 64px);
-                        for line in root.lines: Rectangle {
+                        for line[index] in root.lines: Rectangle {
+                            property <bool> is-target: index == root.jump-target;
                             width: lines-list.content-width;
                             height: line-text.preferred-height;
+                            background: index == root.current-row ? Tokens.selection : transparent;
+                            init => {
+                                if self.is-target {
+                                    lines-list.content-y = max(lines-list.visible-height - lines-list.content-height, min(0px, 80px - self.y));
+                                    root.jump-target = -1;
+                                }
+                            }
+                            changed is-target => {
+                                if self.is-target {
+                                    lines-list.content-y = max(lines-list.visible-height - lines-list.content-height, min(0px, 80px - self.y));
+                                    root.jump-target = -1;
+                                }
+                            }
                             line-text := Text {
                                 x: 24px;
                                 width: parent.width - 48px;
@@ -325,6 +557,12 @@ export component ReaderWindow inherits Window {
                                 wrap: root.wrap ? word-wrap : no-wrap;
                             }
                         }
+                    }
+
+                    editor := Editor {
+                        visible: root.editing;
+                        text <=> root.edit-text;
+                        wrap: root.wrap;
                     }
 
                     if root.state == 0: Text {
@@ -355,9 +593,56 @@ export component ReaderWindow inherits Window {
                     }
                 }
 
-                Footer {
-                    hints: @tr("esc close · alt z wrap lines");
+                footer := Footer {
+                    hints: root.editing ? @tr("ctrl s save · ctrl e or esc stop editing") : @tr("esc close · ctrl e edit · ctrl f find · alt z wrap lines");
                     status: root.state == 2 ? @tr("indexing lines…") : root.state == 1 ? @tr("lines: {0} · {1}", root.line-count, root.encoding-name) : "";
+                }
+            }
+        }
+
+        if root.asking-close: Rectangle {
+            background: Tokens.shadow;
+            TouchArea {}
+            Rectangle {
+                width: 420px;
+                height: dialog.preferred-height;
+                background: Tokens.paper;
+                border-radius: Tokens.radius-card;
+                border-width: Tokens.border-control;
+                border-color: Tokens.border;
+                dialog := VerticalLayout {
+                    padding: 20px;
+                    spacing: 16px;
+                    Text {
+                        text: @tr("Save the changes to {0}?", root.file-name);
+                        wrap: word-wrap;
+                        color: Tokens.ink;
+                        font-size: Tokens.size-label;
+                    }
+                    HorizontalLayout {
+                        alignment: end;
+                        spacing: 8px;
+                        Button {
+                            text: @tr("Cancel");
+                            clicked => {
+                                root.close-choice(2);
+                            }
+                        }
+                        Button {
+                            kind: ButtonKind.danger;
+                            text: @tr("Discard");
+                            clicked => {
+                                root.close-choice(1);
+                            }
+                        }
+                        Button {
+                            kind: ButtonKind.primary;
+                            text: @tr("Save");
+                            clicked => {
+                                root.close-choice(0);
+                            }
+                        }
+                    }
                 }
             }
         }

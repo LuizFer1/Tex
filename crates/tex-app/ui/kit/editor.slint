@@ -1,0 +1,50 @@
+import { ScrollView } from "std-widgets.slint";
+import { Tokens } from "../theme.slint";
+
+export component Editor inherits Rectangle {
+    in-out property <string> text;
+    in property <bool> wrap: true;
+    callback edited(string);
+
+    forward-focus: input;
+    background: Tokens.field;
+
+    scroll := ScrollView {
+        width: parent.width;
+        height: parent.height;
+        content-width: root.wrap ? self.visible-width : max(self.visible-width, input.preferred-width + 48px);
+        content-height: max(self.visible-height, input.preferred-height + 24px);
+
+        input := TextInput {
+            x: 24px;
+            y: 12px;
+            width: scroll.content-width - 48px;
+            text <=> root.text;
+            single-line: false;
+            wrap: root.wrap ? word-wrap : no-wrap;
+            font-family: Tokens.mono-font;
+            font-size: Tokens.size-body;
+            color: Tokens.ink;
+            selection-background-color: Tokens.selection;
+            selection-foreground-color: Tokens.ink;
+            page-height: scroll.visible-height;
+
+            edited => {
+                root.edited(self.text);
+            }
+
+            cursor-position-changed(cpos) => {
+                if cpos.x + scroll.content-x < 0px {
+                    scroll.content-x = min(0px, -cpos.x);
+                } else if cpos.x + scroll.content-x > scroll.visible-width - 48px {
+                    scroll.content-x = min(0px, scroll.visible-width - 48px - cpos.x);
+                }
+                if cpos.y + 12px + scroll.content-y < 0px {
+                    scroll.content-y = min(0px, -cpos.y);
+                } else if cpos.y + 12px + scroll.content-y > scroll.visible-height - 28px {
+                    scroll.content-y = min(0px, max(scroll.visible-height - scroll.content-height, scroll.visible-height - 28px - cpos.y));
+                }
+            }
+        }
+    }
+}

@@ -725,3 +725,51 @@ msgstr "linhas: {0} · {1}"
 
 msgid "{0} · shift enter read"
 msgstr "{0} · shift enter ler"
+
+msgid "This file is too large to edit in Tex (more than {0} KB)."
+msgstr "Este arquivo é grande demais para editar no Tex (mais de {0} KB)."
+
+msgid "The file changed outside Tex."
+msgstr "O arquivo mudou fora do Tex."
+
+msgid "The file no longer exists. Ctrl+S saves it again."
+msgstr "O arquivo não existe mais. Ctrl+S salva de novo."
+
+msgid "Could not save: {0}"
+msgstr "Não foi possível salvar: {0}"
+
+msgid "Some characters cannot be kept in {0}. They will be replaced."
+msgstr "Alguns caracteres não cabem em {0}. Eles serão substituídos."
+
+msgid "Overwrite"
+msgstr "Sobrescrever"
+
+msgid "Reload"
+msgstr "Recarregar"
+
+msgid "Save anyway"
+msgstr "Salvar mesmo assim"
+
+msgid "Find in file"
+msgstr "Buscar no arquivo"
+
+msgid "searching…"
+msgstr "buscando…"
+
+msgid "no matches"
+msgstr "nada encontrado"
+
+msgid "Save the changes to {0}?"
+msgstr "Salvar as mudanças em {0}?"
+
+msgid "Discard"
+msgstr "Descartar"
+
+msgid "saved"
+msgstr "salvo"
+
+msgid "ctrl s save · ctrl e or esc stop editing"
+msgstr "ctrl s salvar · ctrl e ou esc parar de editar"
+
+msgid "esc close · ctrl e edit · ctrl f find · alt z wrap lines"
+msgstr "esc fechar · ctrl e editar · ctrl f buscar · alt z quebrar linhas"
