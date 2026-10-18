@@ -4785,6 +4785,7 @@ dependencies = [
  "embed-resource",
  "getrandom 0.4.3",
  "global-hotkey",
+ "libc",
  "serde",
  "serde_json",
  "sha2",

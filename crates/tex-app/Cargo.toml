@@ -28,3 +28,6 @@ getrandom.workspace = true
 [build-dependencies]
 slint-build.workspace = true
 embed-resource.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true

@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+#[cfg(target_os = "linux")]
+mod apply_update;
 mod clipboard_client;
 mod history;
 mod icons;
@@ -129,6 +131,8 @@ fn with_onboarding<R>(f: impl FnOnce(&mut Onboarding) -> R) -> Option<R> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    #[cfg(target_os = "linux")]
+    apply_update::exit_if_asked();
     let path = settings_path();
     let upgrade = path.exists();
     let settings = settings::load(&path);
