@@ -87,8 +87,8 @@ pub struct VolumeHandle(HANDLE);
 unsafe impl Send for VolumeHandle {}
 
 impl VolumeHandle {
-    pub fn open(letter: char) -> io::Result<Self> {
-        let path = wide(&format!(r"\\.\{letter}:"));
+    pub fn open(root: &str) -> io::Result<Self> {
+        let path = wide(&format!(r"\\.\{root}"));
         let handle = unsafe {
             CreateFileW(
                 path.as_ptr(),

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use tex_index::{SnapshotError, SnapshotHeader, VolumeIndex, read_snapshot, write_snapshot};
 
-pub fn snapshot_path(dir: &Path, serial: u32) -> PathBuf {
+pub fn snapshot_path(dir: &Path, serial: u64) -> PathBuf {
     dir.join(format!("{serial:08X}.bin"))
 }
 
@@ -19,7 +19,7 @@ pub fn save(dir: &Path, index: &VolumeIndex, header: &SnapshotHeader) -> io::Res
     fs::rename(&temporary, &path)
 }
 
-pub fn load(dir: &Path, serial: u32) -> Result<(VolumeIndex, SnapshotHeader), SnapshotError> {
+pub fn load(dir: &Path, serial: u64) -> Result<(VolumeIndex, SnapshotHeader), SnapshotError> {
     let file = File::open(snapshot_path(dir, serial))?;
     read_snapshot(&mut BufReader::new(file))
 }
@@ -38,7 +38,7 @@ mod tests {
     #[test]
     fn save_then_load() {
         let dir = temp_dir("roundtrip");
-        let mut index = VolumeIndex::new('C');
+        let mut index = VolumeIndex::new("C:");
         index.upsert(20, ROOT, "notes.txt", Attributes::default());
         let header = SnapshotHeader {
             serial: 0xABCD_0001,
@@ -71,6 +71,14 @@ mod tests {
         assert_eq!(
             snapshot_path(Path::new("x"), 0x00AB_CDEF),
             Path::new("x").join("00ABCDEF.bin")
+        );
+    }
+
+    #[test]
+    fn wide_serials_keep_every_digit() {
+        assert_eq!(
+            snapshot_path(Path::new("x"), 0x1234_5678_9ABC_DEF0),
+            Path::new("x").join("123456789ABCDEF0.bin")
         );
     }
 }

@@ -249,7 +249,7 @@ mod tests {
 
     #[test]
     fn apply_creates_renames_and_deletes() {
-        let mut index = VolumeIndex::new('C');
+        let mut index = VolumeIndex::new("C:");
         let dir = Attributes {
             dir: true,
             ..Attributes::default()

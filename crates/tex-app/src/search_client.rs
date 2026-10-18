@@ -68,9 +68,14 @@ pub struct SearchClient {
 
 impl SearchClient {
     /// Starts the thread that talks to the search service. `on_event` runs on that thread.
-    pub fn start(home: String, latest: Latest, on_event: impl Fn(Event) + Send + 'static) -> Self {
+    pub fn start(
+        home: String,
+        language: String,
+        latest: Latest,
+        on_event: impl Fn(Event) + Send + 'static,
+    ) -> Self {
         let (commands, receiver) = mpsc::channel();
-        thread::spawn(move || run(&receiver, &home, &on_event));
+        thread::spawn(move || run(&receiver, &home, &language, &on_event));
         Self { commands, latest }
     }
 
@@ -88,7 +93,7 @@ impl SearchClient {
     }
 }
 
-fn run(receiver: &Receiver<Command>, home: &str, on_event: &dyn Fn(Event)) {
+fn run(receiver: &Receiver<Command>, home: &str, language: &str, on_event: &dyn Fn(Event)) {
     let mut connection = None;
     while let Ok(first) = receiver.recv() {
         for command in coalesce(iter::once(first).chain(receiver.try_iter())) {
@@ -110,6 +115,7 @@ fn run(receiver: &Receiver<Command>, home: &str, on_event: &dyn Fn(Event)) {
                     show_apps: options.show_apps,
                     show_files: options.show_files,
                     show_folders: options.show_folders,
+                    language: language.to_owned(),
                 }),
                 Command::Status => Request::Status,
             };

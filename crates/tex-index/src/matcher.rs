@@ -25,9 +25,15 @@ pub struct Query {
 
 impl Query {
     /// Splits on `/` and `\`: the last piece is the name and the pieces before it are folders,
-    /// outermost first, keeping the 8 nearest the name. A first piece like `C:` picks the drive
-    /// instead. Each piece splits on whitespace into folded terms. `None` when nothing is left.
+    /// outermost first, keeping the 8 nearest the name. On Windows a first piece like `C:` picks
+    /// the drive instead. Each piece splits on whitespace into folded terms. `None` when nothing
+    /// is left.
     pub fn parse(text: &str) -> Option<Self> {
+        Self::parse_for(text, cfg!(windows))
+    }
+
+    /// `parse` with drive pieces (`C:`) read or not, so both platforms are tested anywhere.
+    pub(crate) fn parse_for(text: &str, drives: bool) -> Option<Self> {
         let mut pieces = text.split(['/', '\\']);
         let name = pieces.next_back().unwrap_or_default();
         let mut pieces = pieces
@@ -35,7 +41,7 @@ impl Query {
             .filter(|piece| !piece.is_empty())
             .peekable();
         let drive = pieces
-            .next_if(|piece| is_drive(piece))
+            .next_if(|piece| drives && is_drive(piece))
             .and_then(|piece| piece.chars().next())
             .map(|letter| letter.to_ascii_uppercase());
         let mut folders: Vec<Vec<String>> = pieces
@@ -196,7 +202,7 @@ mod tests {
     }
 
     fn parts(text: &str) -> (Vec<Vec<String>>, Vec<String>, Option<char>) {
-        let query = Query::parse(text).unwrap();
+        let query = Query::parse_for(text, true).unwrap();
         (
             query.folders,
             query.terms.into_iter().map(|term| term.text).collect(),
@@ -321,5 +327,21 @@ mod tests {
         assert!(MatchKind::Anywhere < MatchKind::WordStart);
         assert!(MatchKind::WordStart < MatchKind::Prefix);
         assert!(MatchKind::Prefix < MatchKind::Exact);
+    }
+
+    #[test]
+    fn unix_queries_keep_drive_like_pieces_as_folders() {
+        let query = Query::parse_for("c:/x", false).unwrap();
+        assert_eq!(query.folders, [vec!["c:"]]);
+        assert_eq!(query.drive, None);
+        let query = Query::parse_for("/home/luis/notes", false).unwrap();
+        assert_eq!(query.folders, [vec!["home"], vec!["luis"]]);
+        assert_eq!(query.terms.len(), 1);
+        assert_eq!(query.drive, None);
+    }
+
+    #[test]
+    fn parse_reads_drives_only_on_windows() {
+        assert_eq!(Query::parse("d:/x").unwrap().drive.is_some(), cfg!(windows));
     }
 }

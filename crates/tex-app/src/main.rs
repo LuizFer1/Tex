@@ -178,6 +178,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         std::env::home_dir()
             .map(|home| home.to_string_lossy().into_owned())
             .unwrap_or_default(),
+        tex_platform::user_language(),
         latest.clone(),
         {
             let windows = windows.clone();
@@ -2041,7 +2042,7 @@ fn show_event(windows: &Windows, event: Event, icons: &IconLoader, latest: &Late
 
 fn drive_row(volume: &VolumeStatus, separator: char) -> DriveRow {
     let mut row = DriveRow {
-        letter: volume.letter.to_string().into(),
+        root: volume.root.as_str().into(),
         ..Default::default()
     };
     match &volume.state {

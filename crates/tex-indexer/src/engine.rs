@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use tex_index::{Categories, Query, SearchRequest, VolumeIndex};
+use tex_index::{AppCatalog, Categories, Query, SearchRequest, VolumeIndex};
 use tex_ipc::{Filter, Hit, Request, Response, Results, SearchQuery, VolumeState, VolumeStatus};
 
 pub trait Handler: Send + Sync {
@@ -15,15 +15,15 @@ pub struct VolumeData {
 }
 
 pub struct Volume {
-    pub letter: char,
-    pub serial: u32,
+    pub root: String,
+    pub serial: u64,
     data: RwLock<VolumeData>,
 }
 
 impl Volume {
-    pub fn new(letter: char, serial: u32) -> Self {
+    pub fn new(root: &str, serial: u64) -> Self {
         Self {
-            letter,
+            root: root.to_owned(),
             serial,
             data: RwLock::new(VolumeData {
                 index: None,
@@ -46,6 +46,7 @@ impl Volume {
 #[derive(Default)]
 pub struct Engine {
     volumes: Mutex<Vec<Arc<Volume>>>,
+    apps: RwLock<AppCatalog>,
 }
 
 impl Engine {
@@ -53,11 +54,16 @@ impl Engine {
         Self::default()
     }
 
-    /// Tracks a volume, replacing one with the same letter only if it failed or its serial changed.
-    /// Returns `None` when the letter is already tracked and healthy.
-    pub fn add(&self, letter: char, serial: u32) -> Option<Arc<Volume>> {
+    /// The `.desktop` apps every search offers; empty on Windows.
+    pub fn apps_mut(&self) -> RwLockWriteGuard<'_, AppCatalog> {
+        self.apps.write().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Tracks a volume, replacing one with the same root only if it failed or its serial changed.
+    /// Returns `None` when the root is already tracked and healthy.
+    pub fn add(&self, root: &str, serial: u64) -> Option<Arc<Volume>> {
         let mut volumes = self.volumes.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(position) = volumes.iter().position(|volume| volume.letter == letter) {
+        if let Some(position) = volumes.iter().position(|volume| volume.root == root) {
             let existing = &volumes[position];
             let failed = matches!(existing.read().state, VolumeState::Failed { .. });
             if !failed && existing.serial == serial {
@@ -65,7 +71,7 @@ impl Engine {
             }
             volumes.remove(position);
         }
-        let volume = Arc::new(Volume::new(letter, serial));
+        let volume = Arc::new(Volume::new(root, serial));
         volumes.push(Arc::clone(&volume));
         Some(volume)
     }
@@ -82,11 +88,11 @@ impl Engine {
             .volumes()
             .iter()
             .map(|volume| VolumeStatus {
-                letter: volume.letter,
+                root: volume.root.clone(),
                 state: volume.read().state.clone(),
             })
             .collect();
-        status.sort_by_key(|volume| volume.letter);
+        status.sort_by(|a, b| a.root.cmp(&b.root));
         status
     }
 
@@ -119,6 +125,7 @@ impl Engine {
             .iter()
             .map(String::as_str)
             .collect();
+        let apps = self.apps.read().unwrap_or_else(|e| e.into_inner());
         let search_request = SearchRequest {
             query: &query,
             filter,
@@ -133,6 +140,8 @@ impl Engine {
                 folders: request.show_folders,
             },
             app_roots: &app_roots,
+            apps: Some(&*apps),
+            language: &request.language,
         };
         let Some(outcome) = tex_index::search(&indexes, &search_request, &|| false) else {
             return empty;
@@ -146,6 +155,7 @@ impl Engine {
                     path: hit.path,
                     is_dir: hit.is_dir,
                     is_app: hit.is_app,
+                    label: hit.label,
                 })
                 .collect(),
             total: outcome.total,
@@ -184,12 +194,12 @@ impl Handler for Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tex_index::{Attributes, ROOT};
+    use tex_index::{Attributes, DesktopApp, ROOT};
     use tex_ipc::{Filter, Hit, SearchQuery};
 
-    fn ready(engine: &Engine, letter: char, entries: &[(u32, u32, &str, bool)]) -> Arc<Volume> {
-        let volume = engine.add(letter, 1).unwrap();
-        let mut index = VolumeIndex::new(letter);
+    fn ready(engine: &Engine, root: &str, entries: &[(u32, u32, &str, bool)]) -> Arc<Volume> {
+        let volume = engine.add(root, 1).unwrap();
+        let mut index = VolumeIndex::new(root);
         for &(record, parent, name, dir) in entries {
             index.upsert(
                 record,
@@ -223,6 +233,7 @@ mod tests {
             show_apps: true,
             show_files: true,
             show_folders: true,
+            language: String::new(),
         }
     }
 
@@ -231,7 +242,7 @@ mod tests {
         let engine = Engine::new();
         ready(
             &engine,
-            'C',
+            "C:",
             &[
                 (20, ROOT, "Projetos", true),
                 (21, 20, "alpha.txt", false),
@@ -259,13 +270,13 @@ mod tests {
         let engine = Engine::new();
         ready(
             &engine,
-            'C',
+            "C:",
             &[
                 (20, ROOT, "Projetos", true),
                 (21, 20, "relatorio.pdf", false),
             ],
         );
-        engine.add('D', 2).unwrap();
+        engine.add("D:", 2).unwrap();
         let results = engine.search(&query("relatorio", Filter::All));
         assert_eq!(results.id, 7);
         assert_eq!(results.total, 1);
@@ -275,6 +286,7 @@ mod tests {
                 path: r"C:\Projetos\relatorio.pdf".into(),
                 is_dir: false,
                 is_app: false,
+                label: None,
             }]
         );
     }
@@ -284,7 +296,7 @@ mod tests {
         let engine = Engine::new();
         ready(
             &engine,
-            'C',
+            "C:",
             &[(20, ROOT, "notes", true), (21, 20, "notes.txt", false)],
         );
         assert_eq!(
@@ -300,7 +312,7 @@ mod tests {
         let engine = Engine::new();
         ready(
             &engine,
-            'C',
+            "C:",
             &[
                 (20, ROOT, "Tex", true),
                 (21, 20, "target", true),
@@ -322,26 +334,26 @@ mod tests {
     #[test]
     fn blank_query_returns_no_hits() {
         let engine = Engine::new();
-        ready(&engine, 'C', &[(20, ROOT, "a", false)]);
+        ready(&engine, "C:", &[(20, ROOT, "a", false)]);
         let results = engine.search(&query("   ", Filter::All));
         assert!(results.hits.is_empty());
         assert_eq!(results.total, 0);
     }
 
     #[test]
-    fn status_lists_volumes_by_letter() {
+    fn status_lists_volumes_by_root() {
         let engine = Engine::new();
-        engine.add('D', 2).unwrap();
-        ready(&engine, 'C', &[(20, ROOT, "a", false)]);
+        engine.add("D:", 2).unwrap();
+        ready(&engine, "C:", &[(20, ROOT, "a", false)]);
         assert_eq!(
             engine.status(),
             [
                 VolumeStatus {
-                    letter: 'C',
+                    root: "C:".into(),
                     state: VolumeState::Ready { entries: 1 }
                 },
                 VolumeStatus {
-                    letter: 'D',
+                    root: "D:".into(),
                     state: VolumeState::Indexing { percent: 0 }
                 },
             ]
@@ -349,15 +361,28 @@ mod tests {
     }
 
     #[test]
+    fn status_lists_unix_roots() {
+        let engine = Engine::new();
+        engine.add("/home", 2).unwrap();
+        engine.add("/", 1).unwrap();
+        let roots: Vec<String> = engine
+            .status()
+            .into_iter()
+            .map(|volume| volume.root)
+            .collect();
+        assert_eq!(roots, ["/", "/home"]);
+    }
+
+    #[test]
     fn add_replaces_only_failed_or_changed_volumes() {
         let engine = Engine::new();
-        let first = engine.add('C', 1).unwrap();
-        assert!(engine.add('C', 1).is_none());
+        let first = engine.add("C:", 1).unwrap();
+        assert!(engine.add("C:", 1).is_none());
         first.write().state = VolumeState::Failed {
             reason: "gone".into(),
         };
-        assert!(engine.add('C', 1).is_some());
-        assert!(engine.add('C', 9).is_some());
+        assert!(engine.add("C:", 1).is_some());
+        assert!(engine.add("C:", 9).is_some());
         assert_eq!(engine.volumes().len(), 1);
         assert_eq!(engine.volumes()[0].serial, 9);
     }
@@ -365,7 +390,7 @@ mod tests {
     #[test]
     fn handler_routes_requests() {
         let engine = Engine::new();
-        ready(&engine, 'C', &[(20, ROOT, "a.txt", false)]);
+        ready(&engine, "C:", &[(20, ROOT, "a.txt", false)]);
         match engine.handle(Request::Search(query("a", Filter::All))) {
             Response::Results(results) => assert_eq!(results.total, 1),
             other => panic!("unexpected {other:?}"),
@@ -396,8 +421,8 @@ mod tests {
             hidden: true,
             system: false,
         };
-        let volume = engine.add('C', 1).unwrap();
-        let mut index = VolumeIndex::new('C');
+        let volume = engine.add("C:", 1).unwrap();
+        let mut index = VolumeIndex::new("C:");
         index.upsert(
             20,
             ROOT,
@@ -474,5 +499,41 @@ mod tests {
                 .path
                 .ends_with(r"Programs\Visual Studio Code.lnk")
         );
+    }
+
+    #[test]
+    fn catalog_apps_come_with_their_label() {
+        let engine = Engine::new();
+        ready(
+            &engine,
+            "/",
+            &[
+                (20, ROOT, "home", true),
+                (21, 20, "firefox-notes.txt", false),
+            ],
+        );
+        engine.apps_mut().set_system(vec![
+            DesktopApp::parse(
+                "firefox.desktop",
+                "/usr/share/applications/firefox.desktop",
+                "[Desktop Entry]\nType=Application\nName=Firefox\nName[pt_BR]=Navegador Firefox\n",
+            )
+            .unwrap(),
+        ]);
+        let mut request = query("firefox", Filter::All);
+        request.language = "pt-BR".into();
+        let results = engine.search(&request);
+        assert_eq!(
+            results.hits[0],
+            Hit {
+                path: "/usr/share/applications/firefox.desktop".into(),
+                is_dir: false,
+                is_app: true,
+                label: Some("Navegador Firefox".into()),
+            }
+        );
+        assert_eq!(results.hits[1].path, "/home/firefox-notes.txt");
+        assert_eq!(results.hits[1].label, None);
+        assert_eq!(results.total, 2);
     }
 }

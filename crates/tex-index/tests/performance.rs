@@ -12,7 +12,7 @@ const DIRS: u32 = 30_000;
 const FIRST: u32 = 16;
 
 fn build() -> VolumeIndex {
-    let mut volume = VolumeIndex::new('C');
+    let mut volume = VolumeIndex::new("C:");
     let dir = Attributes {
         dir: true,
         ..Attributes::default()
@@ -57,6 +57,8 @@ fn time(volume: &VolumeIndex, text: &str) -> (u32, Duration) {
         excluded_folders: &[],
         categories: Categories::ALL,
         app_roots: &[],
+        apps: None,
+        language: "",
     };
     search(&[volume], &request, &|| false).unwrap();
     let started = Instant::now();

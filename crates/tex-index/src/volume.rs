@@ -26,7 +26,9 @@ pub(crate) struct FolderMask<'a> {
 }
 
 pub struct VolumeIndex {
-    letter: char,
+    root: String,
+    unix: bool,
+    system_root: bool,
     entries: Vec<Entry>,
     names: Vec<u8>,
     garbage: usize,
@@ -36,9 +38,14 @@ pub struct VolumeIndex {
 }
 
 impl VolumeIndex {
-    pub fn new(letter: char) -> Self {
+    /// An empty index for the volume at `root`: a drive such as `C:` (paths use `\` and names
+    /// ignore case) or a Unix mount point such as `/` or `/home` (paths use `/`, names are exact).
+    pub fn new(root: &str) -> Self {
+        let root = normalize_root(root);
         Self {
-            letter: letter.to_ascii_uppercase(),
+            unix: root.starts_with('/'),
+            system_root: is_system_root(&root),
+            root,
             entries: Vec::new(),
             names: Vec::new(),
             garbage: 0,
@@ -54,7 +61,7 @@ impl VolumeIndex {
 
     /// Rebuilds an index from snapshot data, checking that every name in use is in range and UTF-8.
     pub(crate) fn from_raw_parts(
-        letter: char,
+        root: &str,
         entries: Vec<Entry>,
         names: Vec<u8>,
         windows_dir: Option<Record>,
@@ -71,19 +78,34 @@ impl VolumeIndex {
             used += name.len();
         }
         let garbage = names.len().checked_sub(used).ok_or("names overlap")?;
-        Ok(Self {
-            letter,
-            entries,
-            names,
-            garbage,
-            live,
-            windows_dir,
-            lookup_cache: Mutex::new(Vec::new()),
-        })
+        let mut index = Self::new(root);
+        index.entries = entries;
+        index.names = names;
+        index.garbage = garbage;
+        index.live = live;
+        index.windows_dir = windows_dir;
+        Ok(index)
     }
 
-    pub fn letter(&self) -> char {
-        self.letter
+    pub fn root(&self) -> &str {
+        &self.root
+    }
+
+    /// The letter of a drive root such as `C:`; `None` on Unix roots.
+    pub fn drive(&self) -> Option<char> {
+        if self.unix {
+            None
+        } else {
+            self.root.chars().next()
+        }
+    }
+
+    pub fn separator(&self) -> char {
+        if self.unix { '/' } else { '\\' }
+    }
+
+    pub(crate) fn is_unix(&self) -> bool {
+        self.unix
     }
 
     pub fn len(&self) -> usize {
@@ -179,8 +201,8 @@ impl VolumeIndex {
         self.entry(record).map(|entry| self.entry_str(entry))
     }
 
-    /// Full path starting at the drive letter. `None` if the record or an ancestor is not indexed,
-    /// or the parent chain is deeper than 512 levels (a cycle).
+    /// Full path starting at the root (`C:\Users\a.txt`, `/home/a.txt`). `None` if the record or
+    /// an ancestor is not indexed, or the parent chain is deeper than 512 levels (a cycle).
     pub fn path(&self, record: Record) -> Option<String> {
         let mut parts = Vec::new();
         let mut current = record;
@@ -192,34 +214,76 @@ impl VolumeIndex {
             parts.push(self.entry_str(entry));
             current = entry.parent;
         }
-        let mut path = format!("{}:\\", self.letter);
+        let separator = self.separator();
+        let mut path = self.root.clone();
+        if parts.is_empty() && self.unix {
+            return Some(path);
+        }
+        if !path.ends_with(separator) {
+            path.push(separator);
+        }
         for (i, part) in parts.iter().rev().enumerate() {
             if i > 0 {
-                path.push('\\');
+                path.push(separator);
             }
             path.push_str(part);
         }
         Some(path)
     }
 
-    /// Record of a path on this volume, ignoring case. Scans every entry, so callers should cache it.
+    /// Record of a path on this volume (ignoring case on drives, exact on Unix). Scans every
+    /// entry, so callers should cache it.
     pub fn lookup(&self, path: &str) -> Option<Record> {
-        let normalized = path.replace('/', "\\");
-        let normalized = normalized.trim_end_matches('\\');
-        let mut chars = normalized.chars();
-        let letter = chars.next()?;
-        if !letter.eq_ignore_ascii_case(&self.letter) || chars.next() != Some(':') {
-            return None;
-        }
-        let Some(last) = normalized[2..].split('\\').rfind(|part| !part.is_empty()) else {
+        let separator = self.separator();
+        let normalized = if self.unix {
+            path.to_owned()
+        } else {
+            path.replace('/', "\\")
+        };
+        let normalized = normalized.trim_end_matches(separator);
+        let rest = self.strip_root(normalized)?;
+        let Some(last) = rest.split(separator).rfind(|part| !part.is_empty()) else {
             return Some(ROOT);
         };
         (0..self.entries.len() as Record).find(|&record| {
-            self.name(record).is_some_and(|name| same_name(name, last))
+            self.name(record)
+                .is_some_and(|name| self.same_name(name, last))
                 && self
                     .path(record)
-                    .is_some_and(|full| same_name(&full, normalized))
+                    .is_some_and(|full| self.same_name(&full, normalized))
         })
+    }
+
+    /// What follows the root in `path` (without a trailing separator), or `None` when `path`
+    /// is not on this volume.
+    fn strip_root<'a>(&self, path: &'a str) -> Option<&'a str> {
+        let root = self.root.trim_end_matches('/');
+        let head = path.get(..root.len())?;
+        let rest = &path[root.len()..];
+        let same = if self.unix {
+            head == root
+        } else {
+            head.eq_ignore_ascii_case(root)
+        };
+        (same && (rest.is_empty() || rest.starts_with(self.separator()))).then_some(rest)
+    }
+
+    fn same_name(&self, a: &str, b: &str) -> bool {
+        if self.unix {
+            a == b
+        } else {
+            same_name_ignoring_case(a, b)
+        }
+    }
+
+    /// Entries at the root that count as system: NTFS metadata on drives; on Unix `lost+found`
+    /// and, on the `/` volume, the operating system's top-level folders.
+    fn is_root_system(&self, name: &[u8]) -> bool {
+        if self.unix {
+            name == b"lost+found" || (self.root == "/" && is_unix_system_dir(name))
+        } else {
+            name.starts_with(b"$") || name.eq_ignore_ascii_case(b"System Volume Information")
+        }
     }
 
     /// `lookup` with a small cache, for the folders every query sends (home, Start Menu).
@@ -242,8 +306,9 @@ impl VolumeIndex {
         found
     }
 
-    /// Walks from `record` up to the root. `hidden` is set by a hidden record or ancestor; `system`
-    /// by a system one, the Windows folder or NTFS metadata at the root; `excluded` by a record in
+    /// Walks from `record` up to the root. `hidden` is set by a hidden record or ancestor (on Unix,
+    /// a name starting with `.`); `system` by a system one, the Windows folder or a system entry at
+    /// the root (`is_root_system`), or a volume mounted in a system folder; `excluded` by a record in
     /// `excluded`. Inside an app root (a Start Menu folder) only the entries below that root count
     /// for `hidden` and `system`. `in_folders` when the ancestors match every folder of `folders`,
     /// nearest first, and `nearest` is the one that matched the last folder. `None` for orphans
@@ -258,7 +323,7 @@ impl VolumeIndex {
     ) -> Option<Lineage> {
         let mut lineage = Lineage {
             hidden: false,
-            system: false,
+            system: self.system_root,
             excluded: false,
             in_home: false,
             in_app_root: false,
@@ -284,12 +349,13 @@ impl VolumeIndex {
                 lineage.in_app_root = true;
                 below_root = (lineage.hidden, lineage.system);
             }
-            if entry.is_hidden() {
+            let name = self.entry_name(entry);
+            if entry.is_hidden() || (self.unix && name.first() == Some(&b'.')) {
                 lineage.hidden = true;
             }
             if entry.is_system()
                 || Some(current) == self.windows_dir
-                || (entry.parent == ROOT && is_root_metadata(self.entry_name(entry)))
+                || (entry.parent == ROOT && self.is_root_system(name))
             {
                 lineage.system = true;
             }
@@ -339,13 +405,52 @@ impl VolumeIndex {
     }
 }
 
-fn same_name(a: &str, b: &str) -> bool {
+fn same_name_ignoring_case(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b)
         || ((!a.is_ascii() || !b.is_ascii()) && a.to_lowercase() == b.to_lowercase())
 }
 
-fn is_root_metadata(name: &[u8]) -> bool {
-    name.starts_with(b"$") || name.eq_ignore_ascii_case(b"System Volume Information")
+/// `/` stays `/`, other Unix roots lose a trailing `/`, and drives become `C:`.
+fn normalize_root(root: &str) -> String {
+    if root.starts_with('/') {
+        let trimmed = root.trim_end_matches('/');
+        if trimmed.is_empty() {
+            "/".to_owned()
+        } else {
+            trimmed.to_owned()
+        }
+    } else {
+        root.trim_end_matches(['\\', '/']).to_ascii_uppercase()
+    }
+}
+
+const UNIX_SYSTEM_DIRS: [&str; 14] = [
+    "bin",
+    "boot",
+    "dev",
+    "etc",
+    "lost+found",
+    "proc",
+    "run",
+    "sbin",
+    "snap",
+    "srv",
+    "sys",
+    "tmp",
+    "usr",
+    "var",
+];
+
+/// Top-level folders of `/` that belong to the system, `lib`, `lib64` and the like included.
+fn is_unix_system_dir(name: &[u8]) -> bool {
+    name.starts_with(b"lib") || UNIX_SYSTEM_DIRS.iter().any(|dir| dir.as_bytes() == name)
+}
+
+/// A Unix volume mounted inside a system folder (`/boot/efi`, `/var`) is system as a whole.
+fn is_system_root(root: &str) -> bool {
+    root.strip_prefix('/')
+        .and_then(|rest| rest.split('/').next())
+        .is_some_and(|first| !first.is_empty() && is_unix_system_dir(first.as_bytes()))
 }
 
 #[cfg(test)]
@@ -365,10 +470,11 @@ mod tests {
 
     #[test]
     fn upsert_stores_new_entries() {
-        let mut volume = VolumeIndex::new('c');
+        let mut volume = VolumeIndex::new("c:");
         volume.upsert(20, ROOT, "Users", DIR);
         volume.upsert(21, 20, "notes.txt", FILE);
-        assert_eq!(volume.letter(), 'C');
+        assert_eq!(volume.root(), "C:");
+        assert_eq!(volume.drive(), Some('C'));
         assert_eq!(volume.len(), 2);
         assert_eq!(volume.name(20), Some("Users"));
         assert_eq!(volume.name(21), Some("notes.txt"));
@@ -377,7 +483,7 @@ mod tests {
 
     #[test]
     fn upsert_renames_and_moves_in_place() {
-        let mut volume = VolumeIndex::new('C');
+        let mut volume = VolumeIndex::new("C:");
         volume.upsert(20, ROOT, "a", DIR);
         volume.upsert(21, ROOT, "b", DIR);
         volume.upsert(22, 20, "old.txt", FILE);
@@ -390,7 +496,7 @@ mod tests {
 
     #[test]
     fn upsert_with_same_name_reuses_the_stored_name() {
-        let mut volume = VolumeIndex::new('C');
+        let mut volume = VolumeIndex::new("C:");
         volume.upsert(20, ROOT, "doc.txt", FILE);
         volume.upsert(
             20,
@@ -407,7 +513,7 @@ mod tests {
 
     #[test]
     fn remove_frees_the_entry() {
-        let mut volume = VolumeIndex::new('C');
+        let mut volume = VolumeIndex::new("C:");
         volume.upsert(20, ROOT, "gone.txt", FILE);
         volume.remove(20);
         volume.remove(20);
@@ -419,13 +525,13 @@ mod tests {
 
     #[test]
     fn windows_dir_is_stored() {
-        let mut volume = VolumeIndex::new('C');
+        let mut volume = VolumeIndex::new("C:");
         volume.set_windows_dir(Some(30));
         assert_eq!(volume.windows_dir(), Some(30));
     }
 
     pub(crate) fn sample() -> VolumeIndex {
-        let mut volume = VolumeIndex::new('C');
+        let mut volume = VolumeIndex::new("C:");
         volume.upsert(20, ROOT, "Users", DIR);
         volume.upsert(21, 20, "Luís", DIR);
         volume.upsert(22, 21, "notes.txt", FILE);
@@ -477,7 +583,7 @@ mod tests {
 
     #[test]
     fn heavy_renaming_triggers_compaction() {
-        let mut volume = VolumeIndex::new('C');
+        let mut volume = VolumeIndex::new("C:");
         let long = "x".repeat(200);
         for i in 0..2_000 {
             volume.upsert(20, ROOT, &format!("{long}{i}"), FILE);
@@ -598,7 +704,7 @@ mod tests {
 
     #[test]
     fn lineage_consumes_folders_from_the_nearest() {
-        let mut volume = VolumeIndex::new('C');
+        let mut volume = VolumeIndex::new("C:");
         volume.upsert(20, ROOT, "Projetos", DIR);
         volume.upsert(21, 20, "Tex", DIR);
         volume.upsert(22, 21, "target", DIR);
@@ -697,5 +803,103 @@ mod tests {
         assert_eq!(volume.cached_lookup(r"C:\missing"), None);
         assert_eq!(volume.cached_lookup(r"C:\missing"), None);
         assert_eq!(volume.lookup_cache.lock().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn unix_paths_use_slashes() {
+        let mut volume = VolumeIndex::new("/");
+        volume.upsert(20, ROOT, "home", DIR);
+        volume.upsert(21, 20, "luis", DIR);
+        volume.upsert(22, 21, "notes.txt", FILE);
+        assert_eq!(volume.root(), "/");
+        assert_eq!(volume.drive(), None);
+        assert_eq!(volume.separator(), '/');
+        assert_eq!(volume.path(22).as_deref(), Some("/home/luis/notes.txt"));
+        assert_eq!(volume.path(ROOT).as_deref(), Some("/"));
+    }
+
+    #[test]
+    fn mount_points_prefix_their_paths() {
+        let mut volume = VolumeIndex::new("/home/");
+        volume.upsert(20, ROOT, "luis", DIR);
+        volume.upsert(21, 20, "Notes.txt", FILE);
+        assert_eq!(volume.root(), "/home");
+        assert_eq!(volume.path(21).as_deref(), Some("/home/luis/Notes.txt"));
+        assert_eq!(volume.path(ROOT).as_deref(), Some("/home"));
+    }
+
+    #[test]
+    fn unix_lookup_is_exact() {
+        let mut volume = VolumeIndex::new("/home");
+        volume.upsert(20, ROOT, "luis", DIR);
+        volume.upsert(21, 20, "Notes.txt", FILE);
+        assert_eq!(volume.lookup("/home/luis/Notes.txt"), Some(21));
+        assert_eq!(volume.lookup("/home/luis/"), Some(20));
+        assert_eq!(volume.lookup("/home/luis/notes.txt"), None);
+        assert_eq!(volume.lookup("/home"), Some(ROOT));
+        assert_eq!(volume.lookup("/homework"), None);
+        assert_eq!(volume.lookup("/etc"), None);
+        assert_eq!(volume.lookup(r"C:\home"), None);
+        let root = VolumeIndex::new("/");
+        assert_eq!(root.lookup("/"), Some(ROOT));
+        assert_eq!(root.lookup("relative"), None);
+    }
+
+    #[test]
+    fn unix_dot_names_are_hidden() {
+        let mut volume = VolumeIndex::new("/home");
+        volume.upsert(20, ROOT, "luis", DIR);
+        volume.upsert(21, 20, ".config", DIR);
+        volume.upsert(22, 21, "app.json", FILE);
+        volume.upsert(23, 20, "notes.txt", FILE);
+        let hidden = volume.lineage(22, None, &[], &[], None).unwrap();
+        assert!(hidden.hidden);
+        assert!(!hidden.system);
+        assert!(volume.lineage(23, None, &[], &[], None).unwrap().visible());
+    }
+
+    #[test]
+    fn dot_names_on_drives_follow_the_attribute() {
+        let mut volume = VolumeIndex::new("C:");
+        volume.upsert(20, ROOT, ".git", DIR);
+        volume.upsert(21, 20, "config", FILE);
+        assert!(volume.lineage(21, None, &[], &[], None).unwrap().visible());
+    }
+
+    #[test]
+    fn top_level_system_folders_of_the_unix_root() {
+        let mut volume = VolumeIndex::new("/");
+        for (record, name) in [
+            (20, "usr"),
+            (21, "lib64"),
+            (22, "lost+found"),
+            (23, "home"),
+            (24, "opt"),
+        ] {
+            volume.upsert(record, ROOT, name, DIR);
+        }
+        volume.upsert(30, 20, "bin", DIR);
+        volume.upsert(31, 30, "python3", FILE);
+        volume.upsert(32, 23, "usr", DIR);
+        volume.upsert(33, 32, "notes.txt", FILE);
+        let system = |record| volume.lineage(record, None, &[], &[], None).unwrap().system;
+        assert!(system(31));
+        assert!(system(21));
+        assert!(system(22));
+        assert!(!system(23));
+        assert!(!system(24));
+        assert!(!system(33));
+    }
+
+    #[test]
+    fn volumes_mounted_in_system_folders_are_system() {
+        let mut efi = VolumeIndex::new("/boot/efi");
+        efi.upsert(20, ROOT, "EFI", DIR);
+        assert!(efi.lineage(20, None, &[], &[], None).unwrap().system);
+        let mut home = VolumeIndex::new("/home");
+        home.upsert(20, ROOT, "usr", DIR);
+        home.upsert(21, ROOT, "lost+found", DIR);
+        assert!(!home.lineage(20, None, &[], &[], None).unwrap().system);
+        assert!(home.lineage(21, None, &[], &[], None).unwrap().system);
     }
 }

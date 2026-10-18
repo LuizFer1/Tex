@@ -57,15 +57,17 @@ pub fn build_rows(hits: &[Hit]) -> Vec<Row> {
 }
 
 fn item(hit: &Hit) -> Row {
-    let (folder, name) = match hit.path.rsplit_once('\\') {
+    let separator = if hit.path.starts_with('/') { '/' } else { '\\' };
+    let (folder, name) = match hit.path.rsplit_once(separator) {
+        Some(("", name)) if separator == '/' => ("/".to_owned(), name),
         Some((folder, name)) if folder.ends_with(':') => (format!("{folder}\\"), name),
         Some((folder, name)) => (folder.to_owned(), name),
         None => (String::new(), hit.path.as_str()),
     };
-    let name = if hit.is_app {
-        strip_app_extension(name)
-    } else {
-        name
+    let name = match &hit.label {
+        Some(label) => label.as_str(),
+        None if hit.is_app => strip_app_extension(name),
+        None => name,
     };
     Row::Item {
         name: name.to_owned(),
@@ -114,14 +116,14 @@ pub fn status_parts(volumes: &[VolumeStatus]) -> (String, String) {
     let indexing: Vec<String> = volumes
         .iter()
         .filter_map(|volume| match volume.state {
-            VolumeState::Indexing { percent } => Some(format!("{}: {percent}%", volume.letter)),
+            VolumeState::Indexing { percent } => Some(format!("{} {percent}%", volume.root)),
             _ => None,
         })
         .collect();
     let failed: Vec<String> = volumes
         .iter()
         .filter(|volume| matches!(volume.state, VolumeState::Failed { .. }))
-        .map(|volume| format!("{}:", volume.letter))
+        .map(|volume| volume.root.clone())
         .collect();
     (indexing.join(", "), failed.join(" "))
 }
@@ -178,13 +180,22 @@ pub fn file_icon(name: &str) -> FileIcon {
     }
 }
 
-/// The last three folders after "…\", or the path as is when it has three or fewer.
+/// The last three folders after "…\" ("…/" on Unix paths), or the path as is when it has three
+/// or fewer.
 pub fn short_path(folder: &str) -> String {
-    let parts: Vec<&str> = folder.split('\\').filter(|part| !part.is_empty()).collect();
-    if parts.len() <= 4 {
+    let (separator, keep) = if folder.starts_with('/') {
+        ("/", 3)
+    } else {
+        ("\\", 4)
+    };
+    let parts: Vec<&str> = folder
+        .split(separator)
+        .filter(|part| !part.is_empty())
+        .collect();
+    if parts.len() <= keep {
         return folder.to_string();
     }
-    format!("…\\{}", parts[parts.len() - 3..].join("\\"))
+    format!("…{separator}{}", parts[parts.len() - 3..].join(separator))
 }
 
 /// For each row, the number of items in its group when it is a header, 0 otherwise.
@@ -201,21 +212,18 @@ pub fn header_counts(rows: &[Row]) -> Vec<usize> {
         .collect()
 }
 
-/// Ready volumes as "C: D:" and their entries added up.
+/// Ready volumes as "C: D:" (or "/ /home") and their entries added up.
 pub fn ready_summary(volumes: &[VolumeStatus]) -> (String, u64) {
-    let ready: Vec<(char, u32)> = volumes
+    let ready: Vec<(&str, u32)> = volumes
         .iter()
         .filter_map(|volume| match volume.state {
-            VolumeState::Ready { entries } => Some((volume.letter, entries)),
+            VolumeState::Ready { entries } => Some((volume.root.as_str(), entries)),
             _ => None,
         })
         .collect();
-    let letters: Vec<String> = ready
-        .iter()
-        .map(|(letter, _)| format!("{letter}:"))
-        .collect();
+    let roots: Vec<&str> = ready.iter().map(|(root, _)| *root).collect();
     (
-        letters.join(" "),
+        roots.join(" "),
         ready.iter().map(|(_, entries)| u64::from(*entries)).sum(),
     )
 }
@@ -230,6 +238,7 @@ mod tests {
             path: path.into(),
             is_dir,
             is_app: false,
+            label: None,
         }
     }
 
@@ -249,6 +258,7 @@ mod tests {
             path: path.into(),
             is_dir: false,
             is_app: true,
+            label: None,
         };
         let rows = build_rows(&[
             hit(r"C:\Projetos\code", true),
@@ -314,6 +324,37 @@ mod tests {
     }
 
     #[test]
+    fn unix_paths_split_on_slashes_and_apps_use_their_label() {
+        let rows = build_rows(&[
+            Hit {
+                path: "/usr/share/applications/firefox.desktop".into(),
+                is_dir: false,
+                is_app: true,
+                label: Some("Firefox".into()),
+            },
+            hit("/home/luis/notes.txt", false),
+            hit("/notes", true),
+        ]);
+        assert_eq!(
+            rows,
+            [
+                Row::Header(Category::Apps),
+                Row::Item {
+                    name: "Firefox".into(),
+                    folder: "/usr/share/applications".into(),
+                    path: "/usr/share/applications/firefox.desktop".into(),
+                    is_dir: false,
+                    is_app: true,
+                },
+                Row::Header(Category::Files),
+                item("notes.txt", "/home/luis", "/home/luis/notes.txt", false),
+                Row::Header(Category::Folders),
+                item("notes", "/", "/notes", true),
+            ]
+        );
+    }
+
+    #[test]
     fn selection_skips_headers_and_stops_at_the_ends() {
         let is_item = [false, true, true, false, true];
         assert_eq!(step_selection(&is_item, None, 1), Some(1));
@@ -327,29 +368,44 @@ mod tests {
 
     #[test]
     fn status_parts_list_indexing_and_failed_volumes() {
-        let volume = |letter, state| VolumeStatus { letter, state };
+        let volume = |root: &str, state| VolumeStatus {
+            root: root.into(),
+            state,
+        };
         assert_eq!(
-            status_parts(&[volume('C', VolumeState::Ready { entries: 1 })]),
+            status_parts(&[volume("C:", VolumeState::Ready { entries: 1 })]),
             (String::new(), String::new())
         );
         assert_eq!(
             status_parts(&[
-                volume('C', VolumeState::Indexing { percent: 45 }),
-                volume('D', VolumeState::Indexing { percent: 3 }),
+                volume("C:", VolumeState::Indexing { percent: 45 }),
+                volume("D:", VolumeState::Indexing { percent: 3 }),
                 volume(
-                    'E',
+                    "E:",
                     VolumeState::Failed {
                         reason: "gone".into()
                     }
                 ),
                 volume(
-                    'F',
+                    "F:",
                     VolumeState::Failed {
                         reason: "gone".into()
                     }
                 ),
             ]),
             ("C: 45%, D: 3%".into(), "E: F:".into())
+        );
+        assert_eq!(
+            status_parts(&[
+                volume("/home", VolumeState::Indexing { percent: 12 }),
+                volume(
+                    "/",
+                    VolumeState::Failed {
+                        reason: "gone".into()
+                    }
+                ),
+            ]),
+            ("/home 12%".into(), "/".into())
         );
     }
 
@@ -373,6 +429,15 @@ mod tests {
         );
         assert_eq!(short_path(r"D:\"), r"D:\");
         assert_eq!(short_path(r"C:\a\b\c\"), r"C:\a\b\c\");
+        assert_eq!(
+            short_path("/home/ana/Documents/Work/2026"),
+            "…/Documents/Work/2026"
+        );
+        assert_eq!(
+            short_path("/usr/share/applications"),
+            "/usr/share/applications"
+        );
+        assert_eq!(short_path("/"), "/");
     }
 
     #[test]
@@ -411,17 +476,17 @@ mod tests {
     fn ready_summary_lists_ready_letters_and_adds_entries() {
         let volumes = [
             VolumeStatus {
-                letter: 'C',
+                root: "C:".into(),
                 state: VolumeState::Ready {
                     entries: 4_000_000_000,
                 },
             },
             VolumeStatus {
-                letter: 'D',
+                root: "D:".into(),
                 state: VolumeState::Indexing { percent: 3 },
             },
             VolumeStatus {
-                letter: 'E',
+                root: "E:".into(),
                 state: VolumeState::Ready {
                     entries: 500_000_000,
                 },
