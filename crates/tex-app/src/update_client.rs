@@ -1,4 +1,4 @@
-use std::fs;
+use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process;
@@ -159,13 +159,16 @@ struct Ready {
 
 impl<F: Fn(&str, u64) -> io::Result<Vec<u8>>> Checker<F> {
     /// Finds a newer release and downloads its installer, or reuses one already downloaded
-    /// and signed; `Ok(None)` when Tex is up to date. Removes every other installer.
+    /// and signed; `Ok(None)` when there is nothing to install. Removes every other installer
+    /// once a newer release is found, and all of them when Tex is up to date.
     fn check(&self, emit: &dyn Fn(UpdateStatus)) -> io::Result<Option<Ready>> {
         let answer = (self.fetch)(&self.api, API_LIMIT)?;
-        let Some(release) =
-            Release::from_json(&answer).and_then(|release| release.newer_than(self.current))
-        else {
+        let latest = Release::version_in(&answer).ok_or_else(|| invalid("not a release"))?;
+        if latest <= self.current {
             remove_installers(&self.folder, None);
+            return Ok(None);
+        }
+        let Some(release) = Release::from_json(&answer) else {
             return Ok(None);
         };
         let name = installer_name(release.version);
@@ -178,6 +181,8 @@ impl<F: Fn(&str, u64) -> io::Result<Vec<u8>>> Checker<F> {
         if self.verified(&ready) {
             return Ok(Some(ready));
         }
+        let _ = fs::remove_file(&ready.installer);
+        let _ = fs::remove_file(&ready.signature);
         emit(UpdateStatus::Downloading(release.version.to_string()));
         if release.installer.size > INSTALLER_LIMIT {
             return Err(invalid("the installer is too large"));
@@ -215,15 +220,7 @@ impl<F: Fn(&str, u64) -> io::Result<Vec<u8>>> Checker<F> {
         let Ok(mut file) = open_locked(&ready.installer) else {
             return UpdateStatus::Failed;
         };
-        let mut installer = Vec::new();
-        let signature = fs::read(&ready.signature)
-            .ok()
-            .and_then(|bytes| parse_signature(&bytes));
-        let valid = file.read_to_end(&mut installer).is_ok()
-            && signature.is_some_and(|signature| {
-                verify(&installer, ready.version, &signature, &self.public_key)
-            });
-        if !valid {
+        if !self.verified_open(&mut file, ready) {
             drop(file);
             remove_installers(&self.folder, None);
             return UpdateStatus::Failed;
@@ -245,6 +242,19 @@ impl<F: Fn(&str, u64) -> io::Result<Vec<u8>>> Checker<F> {
         };
         drop(file);
         status
+    }
+
+    /// Verifies the bytes read through `file`, which are dropped before returning.
+    fn verified_open(&self, file: &mut File, ready: &Ready) -> bool {
+        let Some(signature) = fs::read(&ready.signature)
+            .ok()
+            .and_then(|bytes| parse_signature(&bytes))
+        else {
+            return false;
+        };
+        let mut installer = Vec::new();
+        file.read_to_end(&mut installer).is_ok()
+            && verify(&installer, ready.version, &signature, &self.public_key)
     }
 }
 
@@ -432,6 +442,131 @@ mod tests {
         server.routes[0].1 = release("0.5.0", 4);
         assert!(checker(&server, &folder).check(&|_| {}).is_err());
         assert!(!folder.join("Tex-Setup-0.5.0.exe").exists());
+    }
+
+    #[test]
+    fn refuses_an_installer_shorter_than_its_asset() {
+        let folder = folder("short");
+        let mut server = server("0.5.0", b"setup", signature(b"setup", "0.5.0"));
+        server.routes[0].1 = release("0.5.0", 10);
+        assert!(checker(&server, &folder).check(&|_| {}).is_err());
+        assert!(!folder.join("Tex-Setup-0.5.0.exe").exists());
+    }
+
+    #[test]
+    fn an_answer_that_is_not_a_release_is_an_error_and_keeps_downloads() {
+        let folder = folder("not-release");
+        let mut server = server("0.5.0", b"setup", signature(b"setup", "0.5.0"));
+        checker(&server, &folder).check(&|_| {}).unwrap();
+        let bad_tag = String::from_utf8(release("0.5.0", 5))
+            .unwrap()
+            .replace("\"v0.5.0\"", "\"latest\"");
+        for answer in [b"not json".to_vec(), bad_tag.into_bytes()] {
+            server.routes[0].1 = answer;
+            assert!(checker(&server, &folder).check(&|_| {}).is_err());
+            assert_eq!(
+                names(&folder),
+                ["Tex-Setup-0.5.0.exe", "Tex-Setup-0.5.0.exe.sig"]
+            );
+        }
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn a_newer_release_without_its_signature_has_nothing_to_install() {
+        let folder = folder("no-sig");
+        let mut server = server("0.5.0", b"setup", signature(b"setup", "0.5.0"));
+        checker(&server, &folder).check(&|_| {}).unwrap();
+        let no_signature = String::from_utf8(release("0.5.1", 5))
+            .unwrap()
+            .replace("Tex-Setup-0.5.1.exe.sig", "notes.txt");
+        server.routes[0].1 = no_signature.into_bytes();
+        assert_eq!(checker(&server, &folder).check(&|_| {}).unwrap(), None);
+        assert_eq!(*server.asked.borrow().last().unwrap(), API);
+        assert_eq!(
+            names(&folder),
+            ["Tex-Setup-0.5.0.exe", "Tex-Setup-0.5.0.exe.sig"]
+        );
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn deletes_a_download_that_fails_verification_before_downloading_again() {
+        let folder = folder("bad-download");
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join("Tex-Setup-0.5.0.exe"), b"evil").unwrap();
+        fs::write(
+            folder.join("Tex-Setup-0.5.0.exe.sig"),
+            signature(b"setup", "0.5.0"),
+        )
+        .unwrap();
+        let mut server = server("0.5.0", b"setup", signature(b"setup", "0.5.0"));
+        server.routes.retain(|(route, _)| route != SETUP);
+        assert!(checker(&server, &folder).check(&|_| {}).is_err());
+        assert!(names(&folder).is_empty());
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    fn run_all(
+        checker: &Checker<impl Fn(&str, u64) -> io::Result<Vec<u8>>>,
+        commands: &[Command],
+    ) -> Vec<UpdateStatus> {
+        let (sender, receiver) = mpsc::channel();
+        for command in commands {
+            sender.send(*command).unwrap();
+        }
+        drop(sender);
+        let statuses = RefCell::new(Vec::new());
+        run(&receiver, checker, &|status| {
+            statuses.borrow_mut().push(status)
+        });
+        statuses.into_inner()
+    }
+
+    #[test]
+    fn apply_without_a_ready_installer_is_ignored() {
+        let folder = folder("apply-idle");
+        let server = server("0.4.2", b"setup", signature(b"setup", "0.4.2"));
+        let statuses = run_all(
+            &checker(&server, &folder),
+            &[Command::Apply, Command::Check, Command::Apply],
+        );
+        assert_eq!(statuses, [UpdateStatus::Checking, UpdateStatus::UpToDate]);
+    }
+
+    #[test]
+    fn a_failed_check_forgets_the_ready_installer() {
+        let folder = folder("apply-failed");
+        let server = server("0.5.0", b"setup", signature(b"setup", "0.5.0"));
+        let answers = std::cell::Cell::new(0);
+        let base = checker(&server, &folder);
+        let checker = Checker {
+            api: base.api,
+            folder: base.folder,
+            current: base.current,
+            public_key: base.public_key,
+            fetch: |url: &str, limit: u64| {
+                if url == API {
+                    answers.set(answers.get() + 1);
+                    if answers.get() > 1 {
+                        return Err(io::Error::other("offline"));
+                    }
+                }
+                server.get(url, limit)
+            },
+        };
+        let statuses = run_all(&checker, &[Command::Check, Command::Check, Command::Apply]);
+        assert_eq!(
+            statuses,
+            [
+                UpdateStatus::Checking,
+                UpdateStatus::Downloading("0.5.0".into()),
+                UpdateStatus::Ready("0.5.0".into()),
+                UpdateStatus::Checking,
+                UpdateStatus::Failed,
+            ]
+        );
+        fs::remove_dir_all(&folder).unwrap();
     }
 
     #[test]

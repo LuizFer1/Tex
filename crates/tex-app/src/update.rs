@@ -96,6 +96,13 @@ impl Release {
         })
     }
 
+    /// The version a GitHub `releases/latest` answer names, whatever its assets; `None` when
+    /// the answer is not a release.
+    pub fn version_in(bytes: &[u8]) -> Option<Version> {
+        let raw: RawRelease = serde_json::from_slice(bytes).ok()?;
+        Version::parse(&raw.tag_name)
+    }
+
     pub fn newer_than(self, current: Version) -> Option<Release> {
         (self.version > current).then_some(self)
     }
@@ -266,6 +273,18 @@ mod tests {
         let bad_tag = LATEST.replace("\"v0.4.3\"", "\"latest\"");
         assert_eq!(Release::from_json(bad_tag.as_bytes()), None);
         assert_eq!(Release::from_json(b"not json"), None);
+    }
+
+    #[test]
+    fn reads_the_version_of_any_release() {
+        assert_eq!(Release::version_in(LATEST.as_bytes()), Some(v("0.4.3")));
+        assert_eq!(
+            Release::version_in(br#"{"tag_name":"v0.4.4"}"#),
+            Some(v("0.4.4"))
+        );
+        let bad_tag = LATEST.replace("\"v0.4.3\"", "\"latest\"");
+        assert_eq!(Release::version_in(bad_tag.as_bytes()), None);
+        assert_eq!(Release::version_in(b"not json"), None);
     }
 
     #[test]
