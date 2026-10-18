@@ -311,7 +311,11 @@ impl<'a> Worker<'a> {
             {
                 continue;
             }
-            let app = app_rank(entry.is_dir(), name, lineage.in_app_root);
+            let app = if volume.is_unix() {
+                NOT_APP
+            } else {
+                app_rank(entry.is_dir(), name, lineage.in_app_root)
+            };
             let is_app = app != NOT_APP;
             let categories = self.request.categories;
             let shown = if is_app {
@@ -832,7 +836,7 @@ mod tests {
         d.upsert(20, ROOT, "relatorio.txt", FILE);
         d.upsert(21, ROOT, "notes.txt", FILE);
         let on = |text: &str| -> Vec<String> {
-            let query = Query::parse(text).unwrap();
+            let query = Query::parse_for(text, true).unwrap();
             search(&[&c, &d], &base(&query), &|| false)
                 .unwrap()
                 .hits
@@ -871,5 +875,20 @@ mod tests {
             false,
         );
         assert_eq!(paths(&outcome), ["/home/luis/relatorio.txt"]);
+    }
+
+    #[test]
+    fn unix_volumes_answer_slash_queries_without_apps() {
+        let mut root = VolumeIndex::new("/");
+        root.upsert(20, ROOT, "home", DIR);
+        root.upsert(21, 20, "luis", DIR);
+        root.upsert(22, 21, "relatorio.txt", FILE);
+        root.upsert(23, 21, "tool.exe", FILE);
+        let query = Query::parse_for("/home/luis/relatorio", false).unwrap();
+        assert_eq!(found(&root, &base(&query)), ["/home/luis/relatorio.txt"]);
+        let tool = Query::parse_for("tool", false).unwrap();
+        let outcome = search(&[&root], &base(&tool), &|| false).unwrap();
+        assert_eq!(paths(&outcome), ["/home/luis/tool.exe"]);
+        assert!(!outcome.hits[0].is_app);
     }
 }

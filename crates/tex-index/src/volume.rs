@@ -102,6 +102,10 @@ impl VolumeIndex {
         if self.unix { '/' } else { '\\' }
     }
 
+    pub(crate) fn is_unix(&self) -> bool {
+        self.unix
+    }
+
     pub fn len(&self) -> usize {
         self.live
     }
