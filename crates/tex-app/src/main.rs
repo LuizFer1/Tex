@@ -24,9 +24,8 @@ use std::time::Instant;
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use slint::language::ColorScheme;
 use slint::winit_030::winit::event::WindowEvent;
-use slint::winit_030::winit::platform::windows::WindowExtWindows;
 use slint::winit_030::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use slint::winit_030::winit::window::ResizeDirection;
+use slint::winit_030::winit::window::{ResizeDirection, Window as WinitWindow};
 use slint::winit_030::{EventResult, WinitWindowAccessor};
 use slint::{
     CloseRequestResponse, ComponentHandle, Image, Model, ModelRc, PhysicalPosition, Rgba8Pixel,
@@ -1583,6 +1582,15 @@ fn is_foreground(popup: &Popup) -> bool {
     popup_hwnd(popup) == Some(foreground_window())
 }
 
+#[cfg(windows)]
+fn skip_taskbar(window: &WinitWindow) {
+    use slint::winit_030::winit::platform::windows::WindowExtWindows;
+    window.set_skip_taskbar(true);
+}
+
+#[cfg(not(windows))]
+fn skip_taskbar(_window: &WinitWindow) {}
+
 fn window_hwnd(window: &slint::Window) -> Option<isize> {
     window
         .with_winit_window(
@@ -1679,9 +1687,7 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
     if popup.show().is_err() {
         return;
     }
-    popup
-        .window()
-        .with_winit_window(|window| window.set_skip_taskbar(true));
+    popup.window().with_winit_window(skip_taskbar);
     shape_window(
         popup.window(),
         popup.get_tab_width(),
@@ -2127,7 +2133,7 @@ fn show_history(windows: &Windows) {
         return;
     }
     window.window().with_winit_window(|window| {
-        window.set_skip_taskbar(true);
+        skip_taskbar(window);
         window.focus_window();
     });
     shape_window(

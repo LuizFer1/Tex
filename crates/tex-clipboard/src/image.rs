@@ -81,7 +81,9 @@ pub fn dib_to_rgba(dib: &[u8]) -> Option<Rgba> {
             offset += table_len;
             Format::Indexed(
                 table
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .map(|color| [color[2], color[1], color[0], 255])
                     .collect(),
             )
@@ -155,8 +157,15 @@ pub fn dib_to_rgba(dib: &[u8]) -> Option<Rgba> {
             }
         }
     }
-    if bits == 32 && matches!(format, Format::Bgr) && pixels.chunks_exact(4).all(|px| px[3] == 0) {
-        pixels.chunks_exact_mut(4).for_each(|px| px[3] = 255);
+    if bits == 32
+        && matches!(format, Format::Bgr)
+        && pixels.as_chunks::<4>().0.iter().all(|px| px[3] == 0)
+    {
+        pixels
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .for_each(|px| px[3] = 255);
     }
     Some(Rgba {
         width,
@@ -178,7 +187,7 @@ pub fn rgba_to_dib(image: &Rgba) -> Vec<u8> {
     dib.extend((image.pixels.len() as u32).to_le_bytes());
     dib.resize(INFO_HEADER_LEN, 0);
     for row in image.pixels.chunks_exact(row_len).rev() {
-        for px in row.chunks_exact(4) {
+        for px in row.as_chunks::<4>().0 {
             dib.extend([px[2], px[1], px[0], px[3]]);
         }
     }
@@ -223,10 +232,14 @@ pub fn decode_png(png: &[u8]) -> Option<Rgba> {
         match frame.color_type {
             png::ColorType::Rgba => pixels.extend_from_slice(row),
             png::ColorType::Rgb => row
-                .chunks_exact(3)
+                .as_chunks::<3>()
+                .0
+                .iter()
                 .for_each(|px| pixels.extend([px[0], px[1], px[2], 255])),
             png::ColorType::GrayscaleAlpha => row
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .for_each(|px| pixels.extend([px[0], px[0], px[0], px[1]])),
             png::ColorType::Grayscale => row.iter().for_each(|&v| pixels.extend([v, v, v, 255])),
             png::ColorType::Indexed => return None,
@@ -268,7 +281,7 @@ pub fn thumbnail(image: &Rgba, max: u32) -> Rgba {
             for row in rows.clone() {
                 let start = (row * width as usize + columns.start) * 4;
                 let end = (row * width as usize + columns.end) * 4;
-                for px in image.pixels[start..end].chunks_exact(4) {
+                for px in image.pixels[start..end].as_chunks::<4>().0 {
                     let alpha = u64::from(px[3]);
                     for (sum, &value) in sums.iter_mut().zip(&px[..3]) {
                         *sum += u64::from(value) * alpha;
