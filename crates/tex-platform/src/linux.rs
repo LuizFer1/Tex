@@ -1,5 +1,9 @@
 mod dbus;
+mod hotkeys;
+mod keys;
 mod x11;
+
+pub use hotkeys::Hotkeys;
 
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions, TryLockError};

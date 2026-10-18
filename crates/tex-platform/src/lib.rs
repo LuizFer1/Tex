@@ -8,6 +8,10 @@ pub use windows::{
     user_language, watch_theme, work_area_under_cursor,
 };
 #[cfg(windows)]
+mod hotkeys;
+#[cfg(windows)]
+pub use hotkeys::Hotkeys;
+#[cfg(windows)]
 mod clipboard;
 #[cfg(windows)]
 pub use clipboard::{ClipboardWatcher, foreground_window, paste_into, write_image, write_text};
@@ -40,7 +44,7 @@ pub use winkey::{WinKeyHook, catch_windows_key};
 mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::{
-    ClipboardWatcher, SingleInstance, WinKeyHook, app_icon, cache_dir, catch_windows_key,
+    ClipboardWatcher, Hotkeys, SingleInstance, WinKeyHook, app_icon, cache_dir, catch_windows_key,
     config_dir, data_dir, foreground_window, http_get, init_icon_thread, local_time,
     lock_foreground, open_locked, open_path, paste_into, pick_file, pick_folder, primary_work_area,
     protect, restore_foreground, reveal_in_folder, round_corners, shape_tabbed_window,
@@ -128,6 +132,77 @@ pub struct ClipFormats {
     pub history_disallowed: bool,
     pub from_tex: bool,
     pub owner_exe: Option<String>,
+}
+
+/// What the running Tex is asked to do by another Tex (`tex --toggle`), the GNOME extension
+/// or any other program on the session bus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppCommand {
+    Toggle,
+    History,
+    Settings,
+    About,
+    TogglePause,
+    ApplyUpdate,
+    Quit,
+}
+
+/// One of the two global shortcuts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HotkeySlot {
+    Tex,
+    History,
+}
+
+impl HotkeySlot {
+    pub(crate) fn index(self) -> usize {
+        match self {
+            HotkeySlot::Tex => 0,
+            HotkeySlot::History => 1,
+        }
+    }
+}
+
+/// A shortcut in the form each backend reads, built by the app.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Accelerator {
+    /// For `global-hotkey` on Windows.
+    pub hotkey: global_hotkey::hotkey::HotKey,
+    /// X11 keysym of the key.
+    pub keysym: u32,
+    /// X11 modifier mask: Shift 1, Control 4, Mod1 (Alt) 8, Mod4 (Super) 64.
+    pub mods: u16,
+    /// GNOME Shell accelerator, such as `<Alt>space`.
+    pub gnome: String,
+    /// Trigger for the GlobalShortcuts portal, such as `ALT+space`.
+    pub portal: String,
+    /// What the shortcut does, in the user's language; the portal shows it.
+    pub label: String,
+}
+
+/// How global shortcuts work in this session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HotkeySupport {
+    /// Tex registers the keys from its settings (Windows, X11, GNOME with the extension).
+    Free,
+    /// The desktop picks the keys and may ask the user first (the GlobalShortcuts portal).
+    System,
+    /// Nothing can register a global shortcut here.
+    Unavailable,
+}
+
+/// What the shortcut backend reports, on one of its threads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HotkeyEvent {
+    Pressed(HotkeySlot),
+    /// The portal bound the shortcuts: the keys of each as the desktop describes them,
+    /// `None` when it refused one.
+    Bound {
+        tex: Option<String>,
+        history: Option<String>,
+    },
+    /// The support changed (the GNOME extension came or went): register the shortcuts again.
+    Changed,
 }
 
 /// The content worth reading for a [`ClipFormats`].

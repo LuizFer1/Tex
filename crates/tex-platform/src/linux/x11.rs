@@ -70,6 +70,11 @@ fn display() -> Option<&'static Display> {
         .as_ref()
 }
 
+/// Whether the app's windows are X11 windows: an X11 session whose server answers.
+pub(crate) fn is_x11() -> bool {
+    display().is_some()
+}
+
 /// Whether winit runs on X11. Under WSL Slint always asks for X11 (XWayland), because WSLg's
 /// Wayland compositor can restart under it; elsewhere winit picks Wayland whenever
 /// `WAYLAND_DISPLAY` or `WAYLAND_SOCKET` is set and not empty, and X11 when only `DISPLAY` is.
