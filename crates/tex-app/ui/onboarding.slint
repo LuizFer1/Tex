@@ -18,12 +18,13 @@ struct OnboardingQuestion {
 
 component KeySeparator inherits HorizontalLayout {
     in property <string> text;
-    padding-left: 4px;
-    padding-right: 4px;
+    in property <bool> compact;
+    padding-left: root.compact ? 3px : 4px;
+    padding-right: root.compact ? 3px : 4px;
     Text {
         text: root.text;
         font-family: Tokens.mono-font;
-        font-size: Tokens.size-path;
+        font-size: root.compact ? Tokens.size-kicker : Tokens.size-path;
         font-weight: 500;
         color: Tokens.muted;
         vertical-alignment: center;
@@ -232,8 +233,8 @@ component FooterLink inherits Rectangle {
 
     height: 34px;
     horizontal-stretch: 0;
-    min-width: label.preferred-width;
-    preferred-width: label.preferred-width;
+    min-width: label.preferred-width + 8px;
+    preferred-width: label.preferred-width + 8px;
     accessible-role: button;
     accessible-label: root.text;
     accessible-action-default => {
@@ -241,6 +242,7 @@ component FooterLink inherits Rectangle {
     }
 
     label := Text {
+        x: 4px;
         text: root.text;
         font-size: Tokens.size-body;
         font-weight: 500;
@@ -248,6 +250,8 @@ component FooterLink inherits Rectangle {
         vertical-alignment: center;
     }
     Rectangle {
+        x: 4px;
+        width: label.preferred-width;
         y: parent.height / 2 + Tokens.size-body / 2 + 2px;
         height: 1px;
         background: Tokens.control-off-2;
@@ -374,7 +378,7 @@ export component OnboardingWindow inherits Window {
             title: @tr("When should old history be deleted?"),
             hint: @tr("Favorites are never deleted."),
             first: { label: @tr("After 1 week"), preview: 0, icon: Icons.calendar-check },
-            second: { label: @tr("Past 1 GB"), preview: 0, icon: Icons.hard-drives },
+            second: { label: @tr("Over 1 GB"), preview: 0, icon: Icons.hard-drives },
         },
     ];
     property <OnboardingQuestion> current: root.questions[max(0, min(root.step - 1, root.question-count - 1))];
@@ -396,7 +400,9 @@ export component OnboardingWindow inherits Window {
     keys := FocusScope {
         key-pressed(event) => {
             if event.text == Key.Return {
-                root.next();
+                if !event.repeat {
+                    root.next();
+                }
                 return accept;
             }
             if event.text == Key.Escape {
@@ -423,7 +429,6 @@ export component OnboardingWindow inherits Window {
         Rectangle {
             border-width: Tokens.border-control;
             border-color: Tokens.action;
-            border-radius: Tokens.radius-window;
 
             VerticalLayout {
                 padding: Tokens.border-control;
@@ -431,8 +436,6 @@ export component OnboardingWindow inherits Window {
                 Rectangle {
                     height: 36px;
                     background: Tokens.paper-2;
-                    border-top-left-radius: Tokens.radius-window - Tokens.border-control;
-                    border-top-right-radius: Tokens.radius-window - Tokens.border-control;
                     TouchArea {
                         pointer-event(event) => {
                             if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
@@ -533,15 +536,19 @@ export component OnboardingWindow inherits Window {
                             }
                             if root.is-done: HorizontalLayout {
                                 alignment: start;
-                                spacing: 6px;
+                                spacing: 4px;
                                 for key in root.hotkey-keys: Keycap {
                                     text: key;
                                 }
                                 if root.done-win: KeySeparator {
                                     text: root.or-text;
+                                    compact: true;
                                 }
                                 if root.done-win: Keycap {
                                     text: "Win";
+                                }
+                                Rectangle {
+                                    width: 6px;
                                 }
                                 Text {
                                     text: @tr("to call me");
@@ -632,7 +639,6 @@ export component OnboardingWindow inherits Window {
                                     width: root.card-width;
                                     label: root.current.second.label;
                                     selected: root.selected == 1;
-                                    badge: @tr("DEFAULT");
                                     preview-background: root.preview-background(root.current.second, root.selected == 1);
                                     picked => {
                                         root.select(1);
