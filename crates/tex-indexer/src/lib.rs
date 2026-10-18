@@ -7,6 +7,7 @@ pub mod events;
 pub mod linux;
 pub mod log;
 pub mod mounts;
+pub mod paste;
 #[cfg(windows)]
 pub mod pipe;
 #[cfg(windows)]
