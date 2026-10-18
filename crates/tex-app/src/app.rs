@@ -23,6 +23,11 @@ pub struct AppState {
     pub capture_error: String,
     pub paste_target: WindowRef,
     pub previous_foreground: WindowRef,
+    /// The popup got the focus since it was last shown. Wayland reports a focus loss before
+    /// the first focus, which must not close it.
+    pub popup_focused: bool,
+    /// The same for the history window.
+    pub history_focused: bool,
     pub title_pressed_at: Option<Instant>,
     pub theme_preview: Option<Theme>,
     hotkeys: GlobalHotKeyManager,
@@ -76,6 +81,8 @@ impl AppState {
             capture_error: String::new(),
             paste_target: WindowRef::default(),
             previous_foreground: WindowRef::default(),
+            popup_focused: false,
+            history_focused: false,
             title_pressed_at: None,
             theme_preview: None,
             hotkeys,
