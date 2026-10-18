@@ -199,15 +199,30 @@ fn normalized(files: &[String], owner: &str) -> Result<Vec<String>, String> {
 }
 
 /// A command needs a program, and none of its parts may name a path outside the extension folder.
+/// Whether a command part points outside the extension folder: a drive, `..`, or a path from the
+/// root. On Windows a single `/x` after the root is a flag such as `cmd /c`, not a path.
+fn leaves_folder(part: &str) -> bool {
+    let path = Path::new(part);
+    let mut components = path.components();
+    if components
+        .clone()
+        .any(|part| matches!(part, Component::Prefix(_) | Component::ParentDir))
+    {
+        return true;
+    }
+    if cfg!(windows) {
+        part.starts_with('\\') || (path.has_root() && components.nth(2).is_some())
+    } else {
+        path.has_root()
+    }
+}
+
 fn check_command(command: &[String], owner: &str) -> Result<(), String> {
     match command.first() {
         Some(program) if !program.trim().is_empty() => {}
         _ => return Err(format!("{owner}: command is empty")),
     }
-    let outside = command.iter().any(|part| {
-        let path = Path::new(part);
-        path.is_absolute() || path.components().any(|part| part == Component::ParentDir)
-    });
+    let outside = command.iter().any(|part| leaves_folder(part));
     if outside {
         return Err(format!(
             "{owner}: command paths must stay inside the extension folder"
@@ -413,6 +428,8 @@ command = ["python", "srt.py"]
         ];
         if cfg!(windows) {
             commands.push(r"['..\fora.exe']".to_string());
+            commands.push(r"['powershell', '\fora.ps1']".to_string());
+            commands.push("['powershell', 'C:fora.ps1']".to_string());
         }
         for command in commands {
             let error = error_of(&tool_with(&command));

@@ -22,9 +22,12 @@ pub enum KeyProblem {
     Taken(String),
 }
 
-/// Whether a key can follow Ctrl+Alt: AltGr arrives as Ctrl+Alt on Windows, so with any other key
-/// the shortcut would fire while typing a character such as `@` or `€`.
+/// Whether the reader can see the shortcut: it needs Ctrl or Alt, and Ctrl+Alt only with a letter
+/// or an F key, because AltGr arrives as Ctrl+Alt on Windows and would fire it while typing `@` or `€`.
 fn fits_ctrl_alt(shortcut: &Shortcut) -> bool {
+    if !(shortcut.ctrl || shortcut.alt) {
+        return false;
+    }
     let name = shortcut.key.name;
     let letter = name.len() == 1 && name.as_bytes()[0].is_ascii_alphabetic();
     let function = name.len() > 1
@@ -42,12 +45,13 @@ pub fn resolve(
         .iter()
         .map(|(title, text)| {
             let Some(text) = text else { return Ok(None) };
-            let shortcut = Shortcut::parse(text)
-                .filter(fits_ctrl_alt)
-                .ok_or(KeyProblem::Invalid)?;
+            let shortcut = Shortcut::parse(text).ok_or(KeyProblem::Invalid)?;
             let key = shortcut.canonical();
             if READER_KEYS.contains(&key.as_str()) {
                 return Err(KeyProblem::Reserved);
+            }
+            if !fits_ctrl_alt(&shortcut) {
+                return Err(KeyProblem::Invalid);
             }
             if let Some((_, owner)) = taken.iter().find(|(used, _)| *used == key) {
                 return Err(KeyProblem::Taken(owner.clone()));
@@ -253,6 +257,17 @@ mod tests {
     fn nonsense_is_invalid() {
         assert_eq!(ask(&[("A", Some("nada+x"))]), [Err(KeyProblem::Invalid)]);
         assert_eq!(ask(&[("A", Some("f"))]), [Err(KeyProblem::Invalid)]);
+    }
+
+    #[test]
+    fn shortcuts_need_ctrl_or_alt() {
+        for key in ["Shift+F5", "Win+K", "Shift+Win+K"] {
+            assert_eq!(
+                ask(&[("A", Some(key))]),
+                [Err(KeyProblem::Invalid)],
+                "{key}"
+            );
+        }
     }
 
     #[test]

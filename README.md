@@ -184,7 +184,7 @@ output = "markdown"                  # "markdown" (default) | "text"
 
 - `output = "replace"` needs an editable document (text up to 128 KB, or one already changed in the reader); the result is not saved until Ctrl+S. `"show"` puts the output in a panel under the text, with Copy and Close. `"none"` only says "done".
 - A file type opened by a viewer becomes readable from the popup. When two viewers claim the same type, the one in the folder that comes first alphabetically wins and the Tools menu lists the conflict. The viewer's output is what the reader shows; Ctrl+E still edits the raw file when it is text.
-- Shortcuts use the same names as Tex's own shortcuts (`Ctrl`, `Alt`, `Shift`, `Win`, a letter, digit, `F1`–`F24` or a key name such as `Space`). The reader keeps Ctrl+E, Ctrl+S, Ctrl+Shift+E, Ctrl+Shift+S, Ctrl+F, Shift+F3 and Alt+Z; a tool asking for one of them, or for a key an earlier tool took, still works from the menu without the shortcut, and the menu says why. Ctrl+Alt shortcuts only work with a letter or an F key, because AltGr arrives as Ctrl+Alt on Windows and would fire them while typing characters such as `@` or `€`.
+- Shortcuts use the same names as Tex's own shortcuts (`Ctrl`, `Alt`, `Shift`, `Win`, a letter, digit, `F1`–`F24` or a key name such as `Space`). The reader keeps Ctrl+E, Ctrl+S, Ctrl+Shift+E, Ctrl+Shift+S, Ctrl+F, Shift+F3 and Alt+Z; a tool shortcut needs Ctrl or Alt; a tool asking for a reserved key, a key without Ctrl or Alt, or a key an earlier tool took, still works from the menu without the shortcut, and the menu says why. Ctrl+Alt shortcuts only work with a letter or an F key, because AltGr arrives as Ctrl+Alt on Windows and would fire them while typing characters such as `@` or `€`.
 
 Protocol:
 
