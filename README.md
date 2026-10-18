@@ -159,6 +159,63 @@ Measured with the installed 0.3.0 release on Windows 10 at 1920×1080, with ever
 
 ---
 
+## Reader extensions
+
+The text reader (Shift+Enter on a file in the search popup) can be extended with external programs, in any language. Each extension is a folder with an `extension.toml` in `%APPDATA%\Tex\extensions\<folder>\`. Tools → "Open extensions folder" in the reader opens (and creates) it. Extensions are read again every time a file is opened and every time the Tools menu opens, so a new or changed extension needs no restart. A broken manifest is listed in the Tools menu with the reason and is not loaded.
+
+An extension has **tools**, which transform the document or the selection, and **viewers**, which open new file types by converting them to Markdown or plain text:
+
+```toml
+name = "Format JSON"                 # required
+
+[[tool]]                             # any number of tools
+title = "Format"                     # required; shown in the Tools menu
+files = ["json", ".jsonl"]           # required; file extensions, with or without the dot, any case; "*" = every file
+command = ["python", "format.py"]    # required; program and arguments
+input = "document"                   # "document" (default) | "selection" (edit mode, non-empty selection)
+output = "replace"                   # "show" (default, output panel) | "replace" (document or selection) | "none"
+shortcut = "Ctrl+Shift+F"            # optional
+
+[[viewer]]                           # any number of viewers
+files = ["srt", "vtt"]               # required; "*" is not allowed here
+command = ["python", "srt.py"]       # required
+output = "markdown"                  # "markdown" (default) | "text"
+```
+
+- `output = "replace"` needs an editable document (text up to 128 KB, or one already changed in the reader); the result is not saved until Ctrl+S. `"show"` puts the output in a panel under the text, with Copy and Close. `"none"` only says "done".
+- A file type opened by a viewer becomes readable from the popup. When two viewers claim the same type, the one in the folder that comes first alphabetically wins and the Tools menu lists the conflict. The viewer's output is what the reader shows; Ctrl+E still edits the raw file when it is text.
+- Shortcuts use the same names as Tex's own shortcuts (`Ctrl`, `Alt`, `Shift`, `Win`, a letter, digit, `F1`–`F24` or a key name such as `Space`). The reader keeps Ctrl+E, Ctrl+S, Ctrl+Shift+E, Ctrl+Shift+S, Ctrl+F, Shift+F3 and Alt+Z; a tool asking for one of them, or for a key an earlier tool took, still works from the menu without the shortcut, and the menu says why. Ctrl+Alt shortcuts only work with a letter or an F key, because AltGr arrives as Ctrl+Alt on Windows and would fire them while typing characters such as `@` or `€`.
+
+Protocol:
+
+- The command runs in the extension's folder, without a console window. `command[0]` is a file in that folder if one exists with that name, otherwise a program on the `PATH`; later arguments that name files in the folder are passed as full paths. Parts of `command` may not be absolute paths or contain `..`: every path stays inside the extension's folder.
+- stdin gets the document or the selection as UTF-8 (empty for viewers); stdout must be UTF-8. Environment: `TEX_FILE` (the file's full path), `TEX_EXTENSION_DIR` and `TEX_VERSION`.
+- A non-zero exit code is a failure: the reader shows the first line of stderr (or the exit code) in a banner, or on the error screen for a viewer.
+- Limits: 10 seconds and 16 MB of output. While a tool runs the reader shows "Running…" with Cancel. Cancel, the time limit or too much output stops the command and every process it started.
+
+Example: an "Uppercase" tool for every file, in PowerShell. `%APPDATA%\Tex\extensions\uppercase\extension.toml`:
+
+```toml
+name = "Uppercase"
+
+[[tool]]
+title = "Uppercase"
+files = ["*"]
+command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "upper.ps1"]
+output = "replace"
+shortcut = "Ctrl+Shift+U"
+```
+
+`upper.ps1` in the same folder (Windows PowerShell 5.1 reads and writes redirected text in the OEM code page unless told otherwise):
+
+```powershell
+[Console]::InputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+$text = [Console]::In.ReadToEnd()
+[Console]::Out.Write($text.ToUpper())
+```
+
+---
+
 ## License
 
 Tex is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE.md).
