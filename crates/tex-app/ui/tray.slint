@@ -5,6 +5,11 @@ export component TexTray inherits SystemTrayIcon {
     in property <string> update-version;
     out property <string> open-label: @tr("Open Tex");
     out property <string> history-label: @tr("Clipboard history");
+    out property <string> settings-label: @tr("Settings");
+    out property <string> about-label: @tr("About Tex");
+    out property <string> pause-label: root.paused ? @tr("Resume capture") : @tr("Pause capture");
+    out property <string> update-label: @tr("Update to {0}", root.update-version);
+    out property <string> quit-label: @tr("Quit");
     icon: Artwork.mascot-tray;
     tooltip: "Tex";
 
@@ -37,28 +42,28 @@ export component TexTray inherits SystemTrayIcon {
         }
 
         MenuItem {
-            title: @tr("Settings");
+            title: root.settings-label;
             activated => {
                 root.settings();
             }
         }
 
         MenuItem {
-            title: @tr("About Tex");
+            title: root.about-label;
             activated => {
                 root.about();
             }
         }
 
         MenuItem {
-            title: root.paused ? @tr("Resume capture") : @tr("Pause capture");
+            title: root.pause-label;
             activated => {
                 root.toggle-pause();
             }
         }
 
         if root.update-version != "": MenuItem {
-            title: @tr("Update to {0}", root.update-version);
+            title: root.update-label;
             activated => {
                 root.install-update();
             }
@@ -67,7 +72,7 @@ export component TexTray inherits SystemTrayIcon {
         MenuSeparator { }
 
         MenuItem {
-            title: @tr("Quit");
+            title: root.quit-label;
             activated => {
                 root.quit();
             }

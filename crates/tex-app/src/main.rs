@@ -34,11 +34,11 @@ use tex_clipboard::{
 };
 use tex_ipc::{Filter, VolumeState, VolumeStatus};
 use tex_platform::{
-    ClipboardWatcher, HotkeyEvent, HotkeySlot, Hotkeys, IconPixels, LocalTime, SingleInstance,
-    WindowRef, catch_windows_key, foreground_window, local_time, lock_foreground, open_path,
-    paste_into, pick_file, pick_folder, primary_work_area, restore_foreground, reveal_in_folder,
-    round_corners, shape_tabbed_window, take_foreground, transparent_windows, watch_theme,
-    work_area_under_cursor, write_image, write_text,
+    AppBus, AppCommand, ClipboardWatcher, HotkeyEvent, HotkeySlot, Hotkeys, IconPixels, LocalTime,
+    SingleInstance, WindowRef, catch_windows_key, foreground_window, local_time, lock_foreground,
+    open_path, paste_into, pick_file, pick_folder, primary_work_area, restore_foreground,
+    reveal_in_folder, round_corners, send_command, shape_tabbed_window, take_foreground,
+    transparent_windows, watch_theme, work_area_under_cursor, write_image, write_text,
 };
 
 use crate::app::{AppState, HotkeyError, with_app};
@@ -74,6 +74,7 @@ thread_local! {
     static HISTORY: RefCell<Option<HistoryState>> = const { RefCell::new(None) };
     static ONBOARDING: RefCell<Option<Onboarding>> = const { RefCell::new(None) };
     static UPDATES: RefCell<Option<Updates>> = const { RefCell::new(None) };
+    static BUS: RefCell<Option<AppBus>> = const { RefCell::new(None) };
 }
 
 /// Weak handles to every window, cheap to clone into callbacks and across threads.
@@ -132,13 +133,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     if std::env::args().any(|arg| arg == "--autostart") && !settings.general.start_with_windows {
         return Ok(());
     }
+    let command = app::command_from_args(std::env::args());
     let Some(_instance) = SingleInstance::acquire("Local\\Tex.SingleInstance")? else {
+        if cfg!(target_os = "linux") {
+            let _ = send_command(command.unwrap_or(AppCommand::Settings));
+        }
         return Ok(());
     };
 
     slint::BackendSelector::new()
         .backend_name("winit".into())
         .select()?;
+    #[cfg(target_os = "linux")]
+    slint::set_xdg_app_id("io.github.LuizFer1.Tex")?;
 
     let popup = Popup::new()?;
     let about = AboutWindow::new()?;
@@ -194,6 +201,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     })?;
     app::init(AppState::new(settings, path, hotkeys));
+    let bus = AppBus::start({
+        let windows = windows.clone();
+        let client = client.clone();
+        move |command| {
+            let windows = windows.clone();
+            let client = client.clone();
+            let _ = slint::invoke_from_event_loop(move || run_command(&windows, &client, command));
+        }
+    });
+    BUS.with_borrow_mut(|slot| *slot = bus);
     let language = with_app(|app| app.settings.general.language);
     app::apply_language(language);
     apply_theme(&windows);
@@ -249,6 +266,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     };
     tray.set_paused(with_app(|app| app::capture_paused(&app.settings)));
+    publish_state(&windows);
 
     update_hotkey_labels(&windows);
     with_app(|app| {
@@ -351,9 +369,54 @@ fn main() -> Result<(), Box<dyn Error>> {
         let client = client.clone();
         let _ = slint::invoke_from_event_loop(move || show_on_start(&windows, &client));
     }
+    if cfg!(target_os = "linux")
+        && let Some(command) = command
+    {
+        let windows = windows.clone();
+        let client = client.clone();
+        let _ = slint::invoke_from_event_loop(move || run_command(&windows, &client, command));
+    }
 
     slint::run_event_loop_until_quit()?;
     Ok(())
+}
+
+/// Runs a command from the session bus: another Tex, the GNOME extension or a system shortcut.
+fn run_command(windows: &Windows, client: &SearchClient, command: AppCommand) {
+    match command {
+        AppCommand::Toggle => tray_toggle(windows, client),
+        AppCommand::History => toggle_history(windows),
+        AppCommand::Settings => show_settings(windows, client, None),
+        AppCommand::About => show_about(windows),
+        AppCommand::TogglePause => toggle_pause(windows),
+        AppCommand::ApplyUpdate => install_update(windows),
+        AppCommand::Quit => {
+            let _ = slint::quit_event_loop();
+        }
+    }
+}
+
+/// Shows the pause, the update and the menu texts on the session bus, for the GNOME extension.
+fn publish_state(windows: &Windows) {
+    let Some(tray) = windows.tray.upgrade() else {
+        return;
+    };
+    BUS.with_borrow(|bus| {
+        let Some(bus) = bus else {
+            return;
+        };
+        bus.set_paused(tray.get_paused());
+        bus.set_update_ready(&tray.get_update_version());
+        bus.set_labels(vec![
+            tray.get_open_label().to_string(),
+            tray.get_history_label().to_string(),
+            tray.get_settings_label().to_string(),
+            tray.get_about_label().to_string(),
+            tray.get_pause_label().to_string(),
+            tray.get_update_label().to_string(),
+            tray.get_quit_label().to_string(),
+        ]);
+    });
 }
 
 fn show_about(windows: &Windows) {
@@ -438,6 +501,7 @@ fn show_update_status(windows: &Windows, status: &UpdateStatus) {
     if let Some(tray) = windows.tray.upgrade() {
         tray.set_update_version(status.ready_version().unwrap_or_default().into());
     }
+    publish_state(windows);
     if let Some(window) = windows.settings.upgrade() {
         window.set_update_state(state);
         window.set_update_version(version.into());
@@ -946,6 +1010,7 @@ fn clipboard_changed(windows: &Windows) {
     if let Some(tray) = windows.tray.upgrade() {
         tray.set_paused(capture_paused);
     }
+    publish_state(windows);
     if let Some(history) = windows.history.upgrade() {
         history.set_paused(capture_paused);
         history.set_paste_by_default(paste);
@@ -1005,6 +1070,7 @@ fn apply_settings(
     if new.general.language != old.general.language {
         app::apply_language(new.general.language);
         update_hotkey_labels(windows);
+        publish_state(windows);
     }
     if new.general.onboarding_done && !old.general.onboarding_done {
         resume_hotkeys();

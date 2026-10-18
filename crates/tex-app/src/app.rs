@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 
 use slint::language::ColorScheme;
 use tex_platform::{
-    Accelerator, HotkeySlot, HotkeySupport, Hotkeys, WinKeyHook, WindowRef, system_uses_dark_theme,
-    user_language,
+    Accelerator, AppCommand, HotkeySlot, HotkeySupport, Hotkeys, WinKeyHook, WindowRef,
+    system_uses_dark_theme, user_language,
 };
 
 use crate::clipboard_client::ClientSettings;
@@ -71,6 +71,20 @@ pub fn init(state: AppState) {
 /// Runs `f` on the app state. Keep it short: never call into Slint callbacks from inside.
 pub fn with_app<R>(f: impl FnOnce(&mut AppState) -> R) -> R {
     APP.with_borrow_mut(|app| f(app.as_mut().expect("app state initialized")))
+}
+
+/// The command on the command line, such as `--toggle`: what a second Tex sends to the one
+/// running, or what the first one does once it starts.
+pub fn command_from_args(args: impl IntoIterator<Item = String>) -> Option<AppCommand> {
+    args.into_iter().find_map(|arg| match arg.as_str() {
+        "--toggle" => Some(AppCommand::Toggle),
+        "--history" => Some(AppCommand::History),
+        "--settings" => Some(AppCommand::Settings),
+        "--about" => Some(AppCommand::About),
+        "--toggle-pause" => Some(AppCommand::TogglePause),
+        "--quit" => Some(AppCommand::Quit),
+        _ => None,
+    })
 }
 
 /// Keycaps for a shortcut: the keys the desktop chose when it decides, else the saved shortcut.
@@ -356,6 +370,22 @@ mod tests {
             client_settings(&settings).retention,
             settings.clipboard.retention()
         );
+    }
+
+    #[test]
+    fn command_line_flags_become_commands() {
+        let args = |list: &[&str]| command_from_args(list.iter().map(|arg| arg.to_string()));
+        assert_eq!(args(&["tex", "--toggle"]), Some(AppCommand::Toggle));
+        assert_eq!(args(&["tex", "--history"]), Some(AppCommand::History));
+        assert_eq!(args(&["tex", "--settings"]), Some(AppCommand::Settings));
+        assert_eq!(args(&["tex", "--about"]), Some(AppCommand::About));
+        assert_eq!(
+            args(&["tex", "--toggle-pause"]),
+            Some(AppCommand::TogglePause)
+        );
+        assert_eq!(args(&["tex", "--quit"]), Some(AppCommand::Quit));
+        assert_eq!(args(&["tex", "--autostart"]), None);
+        assert_eq!(args(&["tex"]), None);
     }
 
     #[test]

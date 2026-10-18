@@ -2,9 +2,11 @@ mod dbus;
 mod hotkeys;
 mod keys;
 mod portal;
+mod service;
 mod x11;
 
 pub use hotkeys::Hotkeys;
+pub use service::{AppBus, send_command};
 
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions, TryLockError};

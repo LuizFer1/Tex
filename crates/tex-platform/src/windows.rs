@@ -36,7 +36,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::winkey::{MASK_KEY, tap_key};
-use crate::{LocalTime, WindowRef, WorkArea};
+use crate::{AppCommand, LocalTime, WindowRef, WorkArea};
 
 pub struct SingleInstance(HANDLE);
 
@@ -288,6 +288,28 @@ pub fn system_uses_dark_theme() -> bool {
 /// Windows tells each window when the theme changes (`WindowEvent::ThemeChanged`), so there is
 /// nothing to watch.
 pub fn watch_theme(_on_change: impl Fn() + Send + 'static) {}
+
+/// Windows has no session bus: a second Tex just exits.
+pub struct AppBus;
+
+impl AppBus {
+    pub fn start(_on_command: impl Fn(AppCommand) + Send + Sync + 'static) -> Option<AppBus> {
+        None
+    }
+
+    pub fn set_paused(&self, _paused: bool) {}
+
+    pub fn set_update_ready(&self, _version: &str) {}
+
+    pub fn set_labels(&self, _labels: Vec<String>) {}
+}
+
+pub fn send_command(_command: AppCommand) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "no session bus on Windows",
+    ))
+}
 
 /// Converts a Unix time in milliseconds to the user's local time.
 pub fn local_time(unix_ms: i64) -> LocalTime {
