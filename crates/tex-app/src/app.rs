@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use global_hotkey::GlobalHotKeyManager;
 use global_hotkey::hotkey::HotKey;
 use slint::language::ColorScheme;
-use tex_platform::{WinKeyHook, system_uses_dark_theme, user_language};
+use tex_platform::{WinKeyHook, WindowRef, system_uses_dark_theme, user_language};
 
 use crate::clipboard_client::ClientSettings;
 use crate::search_client::SearchOptions;
@@ -21,8 +21,13 @@ pub struct AppState {
     pub history_hotkey_failed: bool,
     pub winkey_error: String,
     pub capture_error: String,
-    pub paste_target: isize,
-    pub previous_foreground: isize,
+    pub paste_target: WindowRef,
+    pub previous_foreground: WindowRef,
+    /// The popup got the focus since it was last shown. Wayland reports a focus loss before
+    /// the first focus, which must not close it.
+    pub popup_focused: bool,
+    /// The same for the history window.
+    pub history_focused: bool,
     pub title_pressed_at: Option<Instant>,
     pub theme_preview: Option<Theme>,
     hotkeys: GlobalHotKeyManager,
@@ -74,8 +79,10 @@ impl AppState {
             history_hotkey_failed: false,
             winkey_error: String::new(),
             capture_error: String::new(),
-            paste_target: 0,
-            previous_foreground: 0,
+            paste_target: WindowRef::default(),
+            previous_foreground: WindowRef::default(),
+            popup_focused: false,
+            history_focused: false,
             title_pressed_at: None,
             theme_preview: None,
             hotkeys,

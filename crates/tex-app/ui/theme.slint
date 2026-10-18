@@ -57,6 +57,9 @@ export global Tokens {
     in property <length> border-strong: 1.5px;
     in property <length> focus-width: 2px;
     in property <length> scrollbar-width: 10px;
+    in property <bool> see-through: false;
+    out property <color> window-background: see-through ? transparent : paper;
+    out property <length> inner-corner: see-through ? radius-tab - border-control : 0px;
 
     in property <string> ui-font: "Nunito";
     in property <string> mono-font: "IBM Plex Mono";

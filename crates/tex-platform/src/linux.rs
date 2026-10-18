@@ -1,3 +1,6 @@
+mod dbus;
+mod x11;
+
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io;
@@ -5,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
 
-use crate::{Clip, ClipFormats, IconPixels, LocalTime, Payload, WorkArea};
+use crate::{Clip, ClipFormats, IconPixels, LocalTime, Payload, WindowRef, WorkArea};
 
 /// Held while this process is the only Tex of the user; the lock goes away with the process.
 pub struct SingleInstance {
@@ -112,12 +115,21 @@ pub fn open_path(path: &str) -> io::Result<()> {
     spawn_detached("xdg-open", path)
 }
 
+/// Shows `path` selected in the file manager (`org.freedesktop.FileManager1`); without one,
+/// opens its folder with `xdg-open`. Runs on a thread, since the file manager may take a while
+/// to start.
 pub fn reveal_in_folder(path: &str) -> io::Result<()> {
-    let folder = Path::new(path).parent().map_or_else(
-        || path.to_owned(),
-        |parent| parent.to_string_lossy().into_owned(),
-    );
-    spawn_detached("xdg-open", &folder)
+    let path = path.to_owned();
+    thread::spawn(move || {
+        if dbus::show_item(&path).is_err() {
+            let folder = Path::new(&path).parent().map_or_else(
+                || path.clone(),
+                |parent| parent.to_string_lossy().into_owned(),
+            );
+            let _ = spawn_detached("xdg-open", &folder);
+        }
+    });
+    Ok(())
 }
 
 fn spawn_detached(program: &str, argument: &str) -> io::Result<()> {
@@ -132,20 +144,35 @@ pub fn open_locked(path: &Path) -> io::Result<File> {
     File::open(path)
 }
 
+/// Whether windows can have transparent pixels: only on X11 with a compositor. On Wayland the
+/// software renderer's buffers (softbuffer) carry no alpha.
+pub fn transparent_windows() -> bool {
+    x11::compositor_running()
+}
+
+/// Whether the desktop prefers dark, as the portal last said ([`watch_theme`]). Light until known.
 pub fn system_uses_dark_theme() -> bool {
-    false
+    dbus::system_uses_dark_theme()
 }
 
+/// Follows the portal's color scheme on a thread and calls `on_change` when dark turns on or off.
+pub fn watch_theme(on_change: impl Fn() + Send + 'static) {
+    dbus::watch_theme(on_change);
+}
+
+/// Work area of the monitor under the pointer on X11. `None` on Wayland, where the compositor
+/// places windows.
 pub fn work_area_under_cursor() -> Option<WorkArea> {
-    None
+    x11::work_area_under_cursor()
 }
 
+/// Work area of the primary monitor on X11. `None` on Wayland.
 pub fn primary_work_area() -> Option<WorkArea> {
-    None
+    x11::primary_work_area()
 }
 
 pub fn shape_tabbed_window(
-    _window: isize,
+    _window: WindowRef,
     _width: i32,
     _height: i32,
     _tab_width: i32,
@@ -154,21 +181,27 @@ pub fn shape_tabbed_window(
 ) {
 }
 
-pub fn round_corners(_window: isize) {}
+pub fn round_corners(_window: WindowRef) {}
 
 pub fn lock_foreground(_lock: bool) {}
 
-pub fn take_foreground(_window: isize) -> bool {
-    false
+/// Activates `window` on X11 through the window manager. Wayland windows have no [`WindowRef`].
+pub fn take_foreground(window: WindowRef) -> bool {
+    x11::activate(window.0 as u32)
 }
 
-pub fn restore_foreground(_window: isize) {}
-
-pub fn foreground_window() -> isize {
-    0
+/// Keeps `window` out of the taskbar on X11.
+pub fn skip_taskbar(window: WindowRef) {
+    x11::skip_taskbar(window.0 as u32);
 }
 
-pub fn paste_into(_window: isize) {}
+pub fn restore_foreground(_window: WindowRef) {}
+
+pub fn foreground_window() -> WindowRef {
+    WindowRef::default()
+}
+
+pub fn paste_into(_window: WindowRef) {}
 
 pub struct ClipboardWatcher;
 
@@ -201,16 +234,21 @@ pub fn http_get(_url: &str, _max_bytes: u64) -> io::Result<Vec<u8>> {
     Err(unsupported())
 }
 
+/// Asks the desktop portal for a file on a thread and calls `on_done` there with its path
+/// (`None` when cancelled or without a portal). Any file goes: Linux programs have no extension.
 pub fn pick_file(
-    _title: &str,
+    title: &str,
     _filter_name: &str,
     on_done: impl FnOnce(Option<String>) + Send + 'static,
 ) {
-    thread::spawn(move || on_done(None));
+    let title = title.to_owned();
+    thread::spawn(move || on_done(dbus::choose(&title, false)));
 }
 
-pub fn pick_folder(_title: &str, on_done: impl FnOnce(Option<String>) + Send + 'static) {
-    thread::spawn(move || on_done(None));
+/// Asks the desktop portal for a folder on a thread and calls `on_done` there with its path.
+pub fn pick_folder(title: &str, on_done: impl FnOnce(Option<String>) + Send + 'static) {
+    let title = title.to_owned();
+    thread::spawn(move || on_done(dbus::choose(&title, true)));
 }
 
 pub fn init_icon_thread() {}
@@ -227,7 +265,7 @@ impl WinKeyHook {
     }
 }
 
-pub fn catch_windows_key(_window: isize, _on_press: impl Fn() -> bool + 'static) {}
+pub fn catch_windows_key(_window: WindowRef, _on_press: impl Fn() -> bool + 'static) {}
 
 fn unsupported() -> io::Error {
     io::Error::new(io::ErrorKind::Unsupported, "not available on Linux yet")

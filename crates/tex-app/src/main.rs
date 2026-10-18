@@ -24,7 +24,6 @@ use std::time::Instant;
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use slint::language::ColorScheme;
 use slint::winit_030::winit::event::WindowEvent;
-use slint::winit_030::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::winit_030::winit::window::{ResizeDirection, Window as WinitWindow};
 use slint::winit_030::{EventResult, WinitWindowAccessor};
 use slint::{
@@ -36,10 +35,11 @@ use tex_clipboard::{
 };
 use tex_ipc::{Filter, VolumeState, VolumeStatus};
 use tex_platform::{
-    ClipboardWatcher, IconPixels, LocalTime, SingleInstance, catch_windows_key, foreground_window,
-    local_time, lock_foreground, open_path, paste_into, pick_file, pick_folder, primary_work_area,
-    restore_foreground, reveal_in_folder, round_corners, shape_tabbed_window, take_foreground,
-    work_area_under_cursor, write_image, write_text,
+    ClipboardWatcher, IconPixels, LocalTime, SingleInstance, WindowRef, catch_windows_key,
+    foreground_window, local_time, lock_foreground, open_path, paste_into, pick_file, pick_folder,
+    primary_work_area, restore_foreground, reveal_in_folder, round_corners, shape_tabbed_window,
+    take_foreground, transparent_windows, watch_theme, work_area_under_cursor, write_image,
+    write_text,
 };
 
 use crate::app::{AppState, HotkeyError, with_app};
@@ -162,6 +162,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let language = with_app(|app| app.settings.general.language);
     app::apply_language(language);
     apply_theme(&windows);
+    watch_theme({
+        let windows = windows.clone();
+        move || theme_changed(&windows)
+    });
     with_app(|app| apply_categories(&popup, &app.settings));
 
     let clipboard = ClipboardClient::start(
@@ -333,12 +337,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
     tray.on_about({
         let windows = windows.clone();
-        move || {
-            apply_theme(&windows);
-            if let Some(about) = windows.about.upgrade() {
-                let _ = about.show();
-            }
-        }
+        move || show_about(&windows)
     });
     tray.on_toggle_pause({
         let windows = windows.clone();
@@ -355,9 +354,36 @@ fn main() -> Result<(), Box<dyn Error>> {
     if !with_app(|app| app.settings.general.onboarding_done) {
         start_onboarding(&windows, upgrade);
     }
+    #[cfg(debug_assertions)]
+    {
+        let windows = windows.clone();
+        let client = client.clone();
+        let _ = slint::invoke_from_event_loop(move || show_on_start(&windows, &client));
+    }
 
     slint::run_event_loop_until_quit()?;
     Ok(())
+}
+
+fn show_about(windows: &Windows) {
+    apply_theme(windows);
+    if let Some(about) = windows.about.upgrade() {
+        let _ = about.show();
+    }
+}
+
+/// Development aid: `--show popup|history|settings|about` opens that window once the event
+/// loop runs, since the WSLg desktop has no tray to open it from. Debug builds only.
+#[cfg(debug_assertions)]
+fn show_on_start(windows: &Windows, client: &SearchClient) {
+    let mut args = std::env::args().skip_while(|arg| arg != "--show");
+    match args.nth(1).as_deref() {
+        Some("popup") => show_popup(windows, client),
+        Some("history") => show_history(windows),
+        Some("settings") => show_settings(windows, client, None),
+        Some("about") => show_about(windows),
+        _ => {}
+    }
 }
 
 /// Flips the pause the tray shows; until the onboarding is done that is always "paused", so it saves "resumed".
@@ -453,8 +479,11 @@ fn wire_popup(popup: &Popup, windows: &Windows, client: &SearchClient) {
         let windows = windows.clone();
         move |_, event| {
             match event {
+                WindowEvent::Focused(true) => with_app(|app| app.popup_focused = true),
                 WindowEvent::Focused(false) => {
-                    let _ = popup.upgrade_in_event_loop(|popup| hide_popup(&popup));
+                    if with_app(|app| std::mem::take(&mut app.popup_focused)) {
+                        let _ = popup.upgrade_in_event_loop(|popup| hide_popup(&popup));
+                    }
                 }
                 WindowEvent::ThemeChanged(_) => theme_changed(&windows),
                 WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
@@ -996,7 +1025,14 @@ fn rgb(value: u32) -> slint::Color {
 }
 
 /// Copies a design into one window's `Tokens` (each window has its own copy of the global).
-fn apply_design(tokens: &Tokens<'_>, artwork: &Artwork<'_>, design: &Design, dark: bool) {
+fn apply_design(
+    tokens: &Tokens<'_>,
+    artwork: &Artwork<'_>,
+    design: &Design,
+    dark: bool,
+    see_through: bool,
+) {
+    tokens.set_see_through(see_through);
     let c = theme::colors(design, dark);
     tokens.set_action(rgb(c.action));
     tokens.set_action_strong(rgb(c.action_strong));
@@ -1103,6 +1139,7 @@ fn apply_theme(windows: &Windows) {
     }));
     let dark = scheme == ColorScheme::Dark;
     let design = theme::design(theme::DEFAULT);
+    let see_through = transparent_windows();
     if let Some(popup) = windows.popup.upgrade() {
         popup.set_scheme(scheme);
         apply_design(
@@ -1110,6 +1147,7 @@ fn apply_theme(windows: &Windows) {
             &popup.global::<Artwork>(),
             design,
             dark,
+            see_through,
         );
     }
     if let Some(about) = windows.about.upgrade() {
@@ -1119,6 +1157,7 @@ fn apply_theme(windows: &Windows) {
             &about.global::<Artwork>(),
             design,
             dark,
+            see_through,
         );
     }
     if let Some(settings) = windows.settings.upgrade() {
@@ -1128,6 +1167,7 @@ fn apply_theme(windows: &Windows) {
             &settings.global::<Artwork>(),
             design,
             dark,
+            see_through,
         );
     }
     if let Some(history) = windows.history.upgrade() {
@@ -1137,6 +1177,7 @@ fn apply_theme(windows: &Windows) {
             &history.global::<Artwork>(),
             design,
             dark,
+            see_through,
         );
     }
     if let Some(onboarding) = windows.onboarding.upgrade() {
@@ -1145,6 +1186,7 @@ fn apply_theme(windows: &Windows) {
             &onboarding.global::<Artwork>(),
             design,
             dark,
+            see_through,
         );
     }
 }
@@ -1356,12 +1398,10 @@ fn show_settings(windows: &Windows, client: &SearchClient, tab: Option<i32>) {
     }
     send_history(ClipboardCommand::Usage);
     let _ = window.show();
-    if let Some(hwnd) = window_hwnd(window.window()) {
-        round_corners(hwnd);
+    if let Some(target) = window_ref(window.window()) {
+        round_corners(target);
     }
-    window
-        .window()
-        .with_winit_window(|window| window.focus_window());
+    focus_window(window.window());
 }
 
 /// Opens the onboarding centered on the primary monitor, with the current settings selected.
@@ -1382,12 +1422,10 @@ fn start_onboarding(windows: &Windows, upgrade: bool) {
         window.window().set_position(PhysicalPosition::new(x, y));
     }
     let _ = window.show();
-    if let Some(hwnd) = window_hwnd(window.window()) {
-        round_corners(hwnd);
+    if let Some(target) = window_ref(window.window()) {
+        round_corners(target);
     }
-    window
-        .window()
-        .with_winit_window(|window| window.focus_window());
+    focus_window(window.window());
 }
 
 /// Hides the settings window and opens the onboarding again with the current settings
@@ -1401,9 +1439,7 @@ fn redo_onboarding(windows: &Windows) {
     if ONBOARDING.with_borrow(Option::is_none) {
         start_onboarding(windows, true);
     } else if let Some(window) = windows.onboarding.upgrade() {
-        window
-            .window()
-            .with_winit_window(|window| window.focus_window());
+        focus_window(window.window());
     }
 }
 
@@ -1579,7 +1615,7 @@ fn tray_toggle(windows: &Windows, client: &SearchClient) {
 }
 
 fn is_foreground(popup: &Popup) -> bool {
-    popup_hwnd(popup) == Some(foreground_window())
+    popup_ref(popup) == Some(foreground_window())
 }
 
 #[cfg(windows)]
@@ -1589,33 +1625,56 @@ fn skip_taskbar(window: &WinitWindow) {
 }
 
 #[cfg(not(windows))]
-fn skip_taskbar(_window: &WinitWindow) {}
-
-fn window_hwnd(window: &slint::Window) -> Option<isize> {
-    window
-        .with_winit_window(
-            |window| match window.window_handle().map(|handle| handle.as_raw()) {
-                Ok(RawWindowHandle::Win32(handle)) => Some(handle.hwnd.get()),
-                _ => None,
-            },
-        )
-        .flatten()
+fn skip_taskbar(window: &WinitWindow) {
+    if let Some(target) = WindowRef::of(window) {
+        tex_platform::skip_taskbar(target);
+    }
 }
 
-fn popup_hwnd(popup: &Popup) -> Option<isize> {
-    window_hwnd(popup.window())
+fn window_ref(window: &slint::Window) -> Option<WindowRef> {
+    window.with_winit_window(WindowRef::of).flatten()
+}
+
+fn popup_ref(popup: &Popup) -> Option<WindowRef> {
+    window_ref(popup.window())
+}
+
+/// Gives `window` the keyboard focus and says whether it has it. A window the platform can
+/// address takes the foreground itself; a Wayland window can only ask the compositor through
+/// winit, which may refuse, so the request counts as taken.
+fn take_focus(window: &slint::Window) -> bool {
+    match window_ref(window) {
+        Some(target) => take_foreground(target),
+        None if cfg!(windows) => false,
+        None => {
+            window.with_winit_window(|window| window.focus_window());
+            true
+        }
+    }
+}
+
+/// Asks the keyboard focus for a window other than the popup: through winit on Windows and
+/// Wayland, through the platform on X11, whose window managers can refuse winit's request.
+fn focus_window(window: &slint::Window) {
+    if cfg!(target_os = "linux")
+        && let Some(target) = window_ref(window)
+    {
+        take_foreground(target);
+        return;
+    }
+    window.with_winit_window(|window| window.focus_window());
 }
 
 /// Clips a popup window to its "tex -" tab and body.
 fn shape_window(window: &slint::Window, tab_width: f32, tab_height: f32) {
-    let Some(hwnd) = window_hwnd(window) else {
+    let Some(target) = window_ref(window) else {
         return;
     };
     let scale = window.scale_factor();
     let size = window.size();
     let radius = theme::design(theme::DEFAULT).shape.radius_tab;
     shape_tabbed_window(
-        hwnd,
+        target,
         size.width as i32,
         size.height as i32,
         placement::physical(tab_width, scale),
@@ -1683,7 +1742,10 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
         popup.window().set_position(PhysicalPosition::new(x, y));
     }
     let previous = foreground_window();
-    with_app(|app| app.previous_foreground = previous);
+    with_app(|app| {
+        app.previous_foreground = previous;
+        app.popup_focused = false;
+    });
     if popup.show().is_err() {
         return;
     }
@@ -1693,11 +1755,11 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
         popup.get_tab_width(),
         popup.get_tab_height(),
     );
-    let Some(window) = popup_hwnd(&popup).filter(|window| take_foreground(*window)) else {
+    if !take_focus(popup.window()) {
         hide_popup(&popup);
         return;
-    };
-    {
+    }
+    if let Some(window) = popup_ref(&popup) {
         let windows = windows.clone();
         catch_windows_key(window, move || {
             if !with_app(|app| app.settings.winkey_active()) {
@@ -1939,7 +2001,11 @@ fn wire_history(window: &HistoryWindow, windows: &Windows, client: &SearchClient
         let windows = windows.clone();
         move |_, event| {
             match event {
+                WindowEvent::Focused(true) => with_app(|app| app.history_focused = true),
                 WindowEvent::Focused(false) => {
+                    if !with_app(|app| std::mem::take(&mut app.history_focused)) {
+                        return EventResult::Propagate;
+                    }
                     let _ = window.upgrade_in_event_loop(|window| {
                         if window.window().is_visible()
                             && !window.get_renaming()
@@ -2108,6 +2174,7 @@ fn show_history(windows: &Windows) {
     apply_theme(windows);
     let (monitor, paused, paste) = with_app(|app| {
         app.paste_target = target;
+        app.history_focused = false;
         (
             app.settings.general.popup_monitor,
             app::capture_paused(&app.settings),
@@ -2132,10 +2199,8 @@ fn show_history(windows: &Windows) {
     if window.show().is_err() {
         return;
     }
-    window.window().with_winit_window(|window| {
-        skip_taskbar(window);
-        window.focus_window();
-    });
+    window.window().with_winit_window(skip_taskbar);
+    focus_window(window.window());
     shape_window(
         window.window(),
         window.get_tab_width(),
