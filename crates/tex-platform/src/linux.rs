@@ -1,3 +1,5 @@
+mod x11;
+
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io;
@@ -136,12 +138,15 @@ pub fn system_uses_dark_theme() -> bool {
     false
 }
 
+/// Work area of the monitor under the pointer on X11. `None` on Wayland, where the compositor
+/// places windows.
 pub fn work_area_under_cursor() -> Option<WorkArea> {
-    None
+    x11::work_area_under_cursor()
 }
 
+/// Work area of the primary monitor on X11. `None` on Wayland.
 pub fn primary_work_area() -> Option<WorkArea> {
-    None
+    x11::primary_work_area()
 }
 
 pub fn shape_tabbed_window(
