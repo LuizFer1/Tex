@@ -139,7 +139,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let clipboard = ClipboardClient::start(
         history_folder(),
-        with_app(|app| app::client_settings(&app.settings.clipboard)),
+        with_app(|app| app::client_settings(&app.settings)),
         {
             let windows = windows.clone();
             move |event| {
@@ -733,7 +733,7 @@ fn clipboard_changed(windows: &Windows) {
     let (settings, paused, paste) = with_app(|app| {
         let clipboard = &app.settings.clipboard;
         (
-            app::client_settings(clipboard),
+            app::client_settings(&app.settings),
             clipboard.paused,
             clipboard.on_pick == OnPick::CopyAndPaste,
         )

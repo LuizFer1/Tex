@@ -9,7 +9,7 @@ use tex_platform::{WinKeyHook, system_uses_dark_theme, user_language};
 
 use crate::clipboard_client::ClientSettings;
 use crate::search_client::SearchOptions;
-use crate::settings::{self, Clipboard, Language, Search, Settings, Theme};
+use crate::settings::{self, Language, Search, Settings, Theme};
 use crate::shortcut::Shortcut;
 
 /// Everything the UI thread changes at run time: the settings and what applies them.
@@ -251,9 +251,14 @@ pub fn search_options(search: &Search) -> SearchOptions {
     }
 }
 
-pub fn client_settings(clipboard: &Clipboard) -> ClientSettings {
+/// The worker's settings. Until the onboarding is done the capture stays paused, since one of
+/// its questions is whether Tex may keep what is copied.
+pub fn client_settings(settings: &Settings) -> ClientSettings {
+    let clipboard = &settings.clipboard;
+    let mut capture = clipboard.capture_settings();
+    capture.paused = clipboard.paused || !settings.general.onboarding_done;
     ClientSettings {
-        capture: clipboard.capture_settings(),
+        capture,
         retention: clipboard.retention(),
     }
 }
@@ -261,6 +266,20 @@ pub fn client_settings(clipboard: &Clipboard) -> ClientSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nothing_is_captured_before_the_onboarding_is_done() {
+        let mut settings = Settings::default();
+        assert!(client_settings(&settings).capture.paused);
+        settings.general.onboarding_done = true;
+        assert!(!client_settings(&settings).capture.paused);
+        settings.clipboard.paused = true;
+        assert!(client_settings(&settings).capture.paused);
+        assert_eq!(
+            client_settings(&settings).retention,
+            settings.clipboard.retention()
+        );
+    }
 
     #[test]
     fn a_tray_click_right_after_the_popup_closed_keeps_it_closed() {
