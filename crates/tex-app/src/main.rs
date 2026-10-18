@@ -4,7 +4,6 @@ mod app;
 mod clipboard_client;
 mod history;
 mod icons;
-#[allow(dead_code)]
 mod onboarding;
 mod placement;
 mod results;
@@ -49,6 +48,7 @@ use crate::clipboard_client::{
 };
 use crate::history::{HistoryList, day_starts_through, size_parts, when_parts};
 use crate::icons::{IconCache, IconLoader, IconState};
+use crate::onboarding::{Onboarding, Outcome};
 use crate::results::{
     Row, build_rows, file_icon, group_digits, header_counts, ready_summary, short_path,
     status_parts, step_selection,
@@ -71,6 +71,7 @@ const PREVIEW_CHARS: usize = 100_000;
 thread_local! {
     static ICONS: RefCell<IconCache<Image>> = RefCell::new(IconCache::new(ICON_CACHE_SIZE));
     static HISTORY: RefCell<Option<HistoryState>> = const { RefCell::new(None) };
+    static ONBOARDING: RefCell<Option<Onboarding>> = const { RefCell::new(None) };
 }
 
 /// Weak handles to every window, cheap to clone into callbacks and across threads.
@@ -81,6 +82,7 @@ struct Windows {
     settings: Weak<SettingsWindow>,
     history: Weak<HistoryWindow>,
     tray: Weak<TexTray>,
+    onboarding: Weak<OnboardingWindow>,
 }
 
 /// The history window's rows and what it waits for from the clipboard worker.
@@ -104,8 +106,14 @@ fn with_history<R>(f: impl FnOnce(&mut HistoryState) -> R) -> R {
     HISTORY.with_borrow_mut(|history| f(history.as_mut().expect("history state initialized")))
 }
 
+/// Runs `f` on the onboarding while it is open.
+fn with_onboarding<R>(f: impl FnOnce(&mut Onboarding) -> R) -> Option<R> {
+    ONBOARDING.with_borrow_mut(|onboarding| onboarding.as_mut().map(f))
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let path = settings_path();
+    let upgrade = path.exists();
     let settings = settings::load(&path);
     if std::env::args().any(|arg| arg == "--autostart") && !settings.general.start_with_windows {
         return Ok(());
@@ -123,6 +131,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let settings_window = SettingsWindow::new()?;
     let history = HistoryWindow::new()?;
     let tray = TexTray::new()?;
+    let onboarding = OnboardingWindow::new()?;
     about.set_version(env!("CARGO_PKG_VERSION").into());
     settings_window.set_version(env!("CARGO_PKG_VERSION").into());
     let windows = Windows {
@@ -131,6 +140,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         settings: settings_window.as_weak(),
         history: history.as_weak(),
         tray: tray.as_weak(),
+        onboarding: onboarding.as_weak(),
     };
 
     app::init(AppState::new(settings, path, GlobalHotKeyManager::new()?));
@@ -243,7 +253,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     wire_popup(&popup, &windows, &client);
     wire_settings(&settings_window, &windows, &client);
     wire_history(&history, &windows, &client);
-    for window in [about.window(), settings_window.window()] {
+    wire_onboarding(&onboarding, &windows, &client);
+    for window in [
+        about.window(),
+        settings_window.window(),
+        onboarding.window(),
+    ] {
         let windows = windows.clone();
         window.on_winit_window_event(move |window, event| {
             if matches!(event, WindowEvent::ThemeChanged(_)) {
@@ -298,6 +313,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         let _ = slint::quit_event_loop();
     });
     tray.show()?;
+    if !with_app(|app| app.settings.general.onboarding_done) {
+        start_onboarding(&windows, upgrade);
+    }
 
     slint::run_event_loop_until_quit()?;
     Ok(())
@@ -784,21 +802,19 @@ fn save_settings(window: &SettingsWindow) {
     );
 }
 
-/// Reads the settings window back, applies whatever changed and saves.
-fn settings_edited(windows: &Windows, client: &SearchClient) {
-    let Some(window) = windows.settings.upgrade() else {
-        return;
-    };
-    let old = with_app(|app| app.settings.clone());
-    let mut new = read_settings(&window, &old);
-    if new.general.windows_key != old.general.windows_key {
+/// Applies `new` over `old` (Windows-key hook, language, theme, categories, clipboard) and
+/// saves. Returns what was applied: the hook may fail and turn the Windows key off.
+fn apply_settings(
+    windows: &Windows,
+    client: &SearchClient,
+    old: &Settings,
+    mut new: Settings,
+) -> Settings {
+    if new.winkey_active() != old.winkey_active() {
         let on_press = winkey_handler(windows, client);
-        let result = with_app(|app| app.set_winkey(new.general.windows_key, on_press));
-        if result.is_err() {
+        if with_app(|app| app.set_winkey(new.winkey_active(), on_press)).is_err() {
             new.general.windows_key = false;
-            window.set_windows_key(false);
         }
-        window.set_winkey_error(with_app(|app| app.winkey_error.clone()).into());
     }
     with_app(|app| app.settings = new.clone());
     if new.general.language != old.general.language {
@@ -810,12 +826,31 @@ fn settings_edited(windows: &Windows, client: &SearchClient) {
     if let Some(popup) = windows.popup.upgrade() {
         apply_categories(&popup, &new);
     }
-    save_settings(&window);
-    if new.clipboard != old.clipboard {
+    if let Some(window) = windows.settings.upgrade() {
+        save_settings(&window);
+    }
+    if new.clipboard != old.clipboard || new.general.onboarding_done != old.general.onboarding_done
+    {
         clipboard_changed(windows);
     }
     if new.general.language != old.general.language {
         send_history(ClipboardCommand::Usage);
+    }
+    new
+}
+
+/// Reads the settings window back, applies whatever changed and saves.
+fn settings_edited(windows: &Windows, client: &SearchClient) {
+    let Some(window) = windows.settings.upgrade() else {
+        return;
+    };
+    let old = with_app(|app| app.settings.clone());
+    let new = read_settings(&window, &old);
+    let requested = new.general.windows_key;
+    let applied = apply_settings(windows, client, &old, new);
+    if requested != old.general.windows_key {
+        window.set_windows_key(applied.general.windows_key);
+        window.set_winkey_error(with_app(|app| app.winkey_error.clone()).into());
     }
 }
 
@@ -930,7 +965,9 @@ fn apply_design(tokens: &Tokens<'_>, artwork: &Artwork<'_>, design: &Design, dar
 }
 
 fn apply_theme(windows: &Windows) {
-    let scheme = app::color_scheme(with_app(|app| app.settings.general.theme));
+    let scheme = app::color_scheme(with_app(|app| {
+        app.theme_preview.unwrap_or(app.settings.general.theme)
+    }));
     let dark = scheme == ColorScheme::Dark;
     let design = theme::design(theme::DEFAULT);
     if let Some(popup) = windows.popup.upgrade() {
@@ -965,6 +1002,14 @@ fn apply_theme(windows: &Windows) {
         apply_design(
             &history.global::<Tokens>(),
             &history.global::<Artwork>(),
+            design,
+            dark,
+        );
+    }
+    if let Some(onboarding) = windows.onboarding.upgrade() {
+        apply_design(
+            &onboarding.global::<Tokens>(),
+            &onboarding.global::<Artwork>(),
             design,
             dark,
         );
@@ -1181,6 +1226,171 @@ fn show_settings(windows: &Windows, client: &SearchClient, tab: Option<i32>) {
     window
         .window()
         .with_winit_window(|window| window.focus_window());
+}
+
+/// Opens the onboarding centered on the primary monitor, with the current settings selected.
+fn start_onboarding(windows: &Windows, upgrade: bool) {
+    let onboarding = with_app(|app| Onboarding::new(&app.settings, upgrade));
+    ONBOARDING.with_borrow_mut(|state| *state = Some(onboarding));
+    let Some(window) = windows.onboarding.upgrade() else {
+        return;
+    };
+    refresh_onboarding(windows);
+    apply_theme(windows);
+    if let Some(area) = primary_work_area() {
+        let (x, y) = placement::centered_origin(
+            &area,
+            placement::ONBOARDING_WIDTH,
+            placement::ONBOARDING_HEIGHT,
+        );
+        window.window().set_position(PhysicalPosition::new(x, y));
+    }
+    let _ = window.show();
+    if let Some(hwnd) = window_hwnd(window.window()) {
+        round_corners(hwnd);
+    }
+    window
+        .window()
+        .with_winit_window(|window| window.focus_window());
+}
+
+fn refresh_onboarding(windows: &Windows) {
+    let (Some(window), Some(onboarding)) = (
+        windows.onboarding.upgrade(),
+        ONBOARDING.with_borrow(|onboarding| onboarding.clone()),
+    ) else {
+        return;
+    };
+    let (shortcut, history, windows_key) = with_app(|app| {
+        (
+            app.shortcut(),
+            app.history_shortcut(),
+            onboarding.windows_key(&app.settings),
+        )
+    });
+    window.set_step(onboarding.step as i32);
+    window.set_selected(onboarding.selected());
+    window.set_upgrade(onboarding.upgrade);
+    window.set_progress(onboarding.progress());
+    window.set_hotkey_text(shortcut.display().into());
+    window.set_hotkey_keys(keys_model(&shortcut));
+    window.set_history_hotkey_text(history.display().into());
+    window.set_done_win(windows_key);
+}
+
+/// Answers the current question; the theme question previews its answer at once.
+fn onboarding_select(windows: &Windows, option: i32) {
+    let Ok(option) = usize::try_from(option) else {
+        return;
+    };
+    if with_onboarding(|onboarding| onboarding.select(option)) == Some(true) {
+        let saved = with_app(|app| app.settings.general.theme);
+        let preview = ONBOARDING.with_borrow(|onboarding| {
+            onboarding
+                .as_ref()
+                .map(|onboarding| onboarding.theme(saved))
+        });
+        with_app(|app| app.theme_preview = preview);
+        apply_theme(windows);
+    }
+    refresh_onboarding(windows);
+}
+
+fn onboarding_next(windows: &Windows, client: &SearchClient) {
+    match with_onboarding(Onboarding::next) {
+        Some(Outcome::Concluded) => conclude_onboarding(windows, client),
+        Some(Outcome::OpenSearch) => {
+            ONBOARDING.with_borrow_mut(|onboarding| *onboarding = None);
+            if let Some(window) = windows.onboarding.upgrade() {
+                let _ = window.hide();
+            }
+            show_popup(windows, client);
+            return;
+        }
+        Some(Outcome::Moved) | None => {}
+    }
+    refresh_onboarding(windows);
+}
+
+/// Writes the answers over the current settings, marks the onboarding done and applies it
+/// all through the same path the settings window uses.
+fn conclude_onboarding(windows: &Windows, client: &SearchClient) {
+    let Some(onboarding) = ONBOARDING.with_borrow(|onboarding| onboarding.clone()) else {
+        return;
+    };
+    let old = with_app(|app| {
+        app.theme_preview = None;
+        app.settings.clone()
+    });
+    let mut new = old.clone();
+    onboarding.apply(&mut new);
+    apply_settings(windows, client, &old, new);
+    apply_theme(windows);
+    if let Some(window) = windows.settings.upgrade()
+        && window.window().is_visible()
+    {
+        with_app(|app| fill_settings(&window, app));
+    }
+}
+
+fn wire_onboarding(window: &OnboardingWindow, windows: &Windows, client: &SearchClient) {
+    window.on_drag({
+        let weak = window.as_weak();
+        move || {
+            if let Some(window) = weak.upgrade() {
+                window.window().with_winit_window(|window| {
+                    let _ = window.drag_window();
+                });
+            }
+        }
+    });
+    window.on_select({
+        let windows = windows.clone();
+        move |option| onboarding_select(&windows, option)
+    });
+    window.on_next({
+        let windows = windows.clone();
+        let client = client.clone();
+        move || onboarding_next(&windows, &client)
+    });
+    window.on_back({
+        let windows = windows.clone();
+        move || {
+            with_onboarding(Onboarding::back);
+            refresh_onboarding(&windows);
+        }
+    });
+    window.on_skip({
+        let windows = windows.clone();
+        let client = client.clone();
+        move || {
+            if with_onboarding(Onboarding::skip) == Some(true) {
+                conclude_onboarding(&windows, &client);
+            }
+            refresh_onboarding(&windows);
+        }
+    });
+    window.on_close_window({
+        let weak = window.as_weak();
+        move || {
+            if let Some(window) = weak.upgrade() {
+                window
+                    .window()
+                    .dispatch_event(slint::platform::WindowEvent::CloseRequested);
+            }
+        }
+    });
+    window.window().on_close_requested({
+        let windows = windows.clone();
+        let client = client.clone();
+        move || {
+            if with_onboarding(Onboarding::skip) == Some(true) {
+                conclude_onboarding(&windows, &client);
+            }
+            ONBOARDING.with_borrow_mut(|onboarding| *onboarding = None);
+            CloseRequestResponse::HideWindow
+        }
+    });
 }
 
 fn toggle_popup(windows: &Windows, client: &SearchClient) {

@@ -2,6 +2,8 @@ use tex_platform::WorkArea;
 
 pub const POPUP_WIDTH: f32 = 700.0;
 pub const HISTORY_WIDTH: f32 = 640.0;
+pub const ONBOARDING_WIDTH: f32 = 640.0;
+pub const ONBOARDING_HEIGHT: f32 = 480.0;
 
 /// Rounds a logical length to physical pixels at the given scale.
 pub fn physical(logical: f32, scale: f32) -> i32 {
@@ -13,6 +15,15 @@ pub fn popup_origin(area: &WorkArea, logical_width: f32) -> (i32, i32) {
     let width = (logical_width * area.scale).round() as u32;
     let x = area.x + (area.width.saturating_sub(width) / 2) as i32;
     let y = area.y + (area.height * 15 / 100) as i32;
+    (x, y)
+}
+
+/// Top-left corner in physical pixels that centers a window in the work area.
+pub fn centered_origin(area: &WorkArea, logical_width: f32, logical_height: f32) -> (i32, i32) {
+    let width = physical(logical_width, area.scale).max(0) as u32;
+    let height = physical(logical_height, area.scale).max(0) as u32;
+    let x = area.x + (area.width.saturating_sub(width) / 2) as i32;
+    let y = area.y + (area.height.saturating_sub(height) / 2) as i32;
     (x, y)
 }
 
@@ -59,6 +70,18 @@ mod tests {
         assert_eq!(
             popup_origin(&area(100, 0, 500, 800, 1.0), 640.0),
             (100, 120)
+        );
+    }
+
+    #[test]
+    fn centers_a_window_in_the_work_area() {
+        assert_eq!(
+            centered_origin(&area(0, 0, 1920, 1040, 1.0), 640.0, 480.0),
+            (640, 280)
+        );
+        assert_eq!(
+            centered_origin(&area(-1920, 0, 3840, 2080, 2.0), 640.0, 480.0),
+            (-640, 560)
         );
     }
 

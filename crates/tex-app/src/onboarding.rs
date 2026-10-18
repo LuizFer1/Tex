@@ -84,6 +84,7 @@ impl Onboarding {
         concluded
     }
 
+    #[cfg(test)]
     pub fn is_done(&self) -> bool {
         self.step == DONE
     }
