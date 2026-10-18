@@ -15,6 +15,7 @@ pub mod runner;
 mod security;
 pub mod store;
 pub mod tree;
+pub mod unit;
 pub mod usn;
 #[cfg(windows)]
 pub mod volumes;

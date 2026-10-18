@@ -1,0 +1,17 @@
+[Unit]
+Description=Tex search indexer
+After=local-fs.target
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/tex/tex-indexer service
+RuntimeDirectory=tex
+RuntimeDirectoryMode=0755
+StateDirectory=tex
+StateDirectoryMode=0700
+Restart=on-failure
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target

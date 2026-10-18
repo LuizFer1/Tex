@@ -9,6 +9,7 @@ use std::io;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::thread;
 
 use crate::engine::Engine;
 use crate::log::{self, Logger, log};
@@ -46,4 +47,21 @@ pub fn start(echo_log: bool) -> io::Result<Arc<Runner>> {
     runner.reload_apps();
     runner.discover();
     Ok(runner)
+}
+
+/// Blocks SIGINT and SIGTERM in this thread and in the threads it starts later, and calls
+/// `on_stop` on a thread of its own when one of them arrives. Call before starting threads.
+pub fn on_stop_signal(on_stop: impl FnOnce() + Send + 'static) {
+    let mut signals: libc::sigset_t = unsafe { std::mem::zeroed() };
+    unsafe {
+        libc::sigemptyset(&mut signals);
+        libc::sigaddset(&mut signals, libc::SIGINT);
+        libc::sigaddset(&mut signals, libc::SIGTERM);
+        libc::pthread_sigmask(libc::SIG_BLOCK, &signals, std::ptr::null_mut());
+    }
+    thread::spawn(move || {
+        let mut signal = 0;
+        unsafe { libc::sigwait(&signals, &mut signal) };
+        on_stop();
+    });
 }

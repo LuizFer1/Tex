@@ -12,7 +12,7 @@ use std::thread;
 #[cfg(windows)]
 use tex_ipc::PIPE_NAME;
 #[cfg(unix)]
-use tex_ipc::SOCKET_PATH;
+use tex_ipc::socket_path;
 use tex_ipc::{
     Filter, Request, Response, Results, SearchQuery, VolumeStatus, read_message, write_message,
 };
@@ -157,7 +157,7 @@ fn connect() -> io::Result<Connection> {
 
 #[cfg(unix)]
 fn connect() -> io::Result<Connection> {
-    UnixStream::connect(SOCKET_PATH)
+    UnixStream::connect(socket_path())
 }
 
 /// Sends one request and waits for the answer, reconnecting once if the pipe broke
