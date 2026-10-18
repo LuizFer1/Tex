@@ -54,7 +54,7 @@ enum Event {
         encoding: Encoding,
     },
     Markdown {
-        rows: Vec<BlockRow>,
+        rows: Vec<StyledRow>,
         count: usize,
         encoding: Encoding,
     },
@@ -278,7 +278,10 @@ fn spawn(id: u64, path: PathBuf, cancel: Arc<AtomicBool>) {
         };
         match body {
             Body::Text(text) if markdown => send(Event::Markdown {
-                rows: block_rows(&blocks(&text)),
+                rows: block_rows(&blocks(&text))
+                    .into_iter()
+                    .map(StyledRow::new)
+                    .collect(),
                 count: line_count(&text),
                 encoding,
             }),
@@ -342,7 +345,7 @@ fn deliver(id: u64, event: Event) {
             count,
             encoding,
         } => {
-            let blocks: Vec<ReaderBlock> = rows.iter().map(reader_block).collect();
+            let blocks: Vec<ReaderBlock> = rows.into_iter().map(reader_block).collect();
             window.set_blocks(ModelRc::new(VecModel::from(blocks)));
             window.set_markdown(true);
             window.set_line_count(count as i32);
@@ -401,14 +404,31 @@ fn styled(markup: &str) -> StyledText {
     StyledText::from_markdown(markup).unwrap_or_else(|_| StyledText::from_plain_text(markup))
 }
 
-fn reader_block(row: &BlockRow) -> ReaderBlock {
-    let cells: Vec<StyledText> = row.cells.iter().map(|cell| styled(cell)).collect();
+/// A block row with its Markdown already parsed, so the worker does it instead of the UI thread.
+struct StyledRow {
+    row: BlockRow,
+    text: StyledText,
+    cells: Vec<StyledText>,
+}
+
+impl StyledRow {
+    fn new(row: BlockRow) -> StyledRow {
+        StyledRow {
+            text: styled(&row.markup),
+            cells: row.cells.iter().map(|cell| styled(cell)).collect(),
+            row,
+        }
+    }
+}
+
+fn reader_block(styled: StyledRow) -> ReaderBlock {
+    let StyledRow { row, text, cells } = styled;
     ReaderBlock {
         kind: row.kind.index(),
         level: row.level as i32,
-        marker: row.marker.as_str().into(),
-        text: styled(&row.markup),
-        plain: row.plain.as_str().into(),
+        marker: row.marker.into(),
+        text,
+        plain: row.plain.into(),
         cells: ModelRc::new(VecModel::from(cells)),
         header: row.header,
     }
