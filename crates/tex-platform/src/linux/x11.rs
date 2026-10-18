@@ -1,4 +1,5 @@
 use std::ffi::OsString;
+use std::path::Path;
 use std::sync::OnceLock;
 
 use x11rb::connection::Connection;
@@ -44,12 +45,14 @@ struct Display {
 }
 
 /// The X server of this session, opened once. `None` on Wayland, even with XWayland present,
-/// because the app's windows are then Wayland windows.
+/// because the app's windows are then Wayland windows (except under WSL, see
+/// [`is_x11_session`]).
 fn display() -> Option<&'static Display> {
     static DISPLAY: OnceLock<Option<Display>> = OnceLock::new();
     DISPLAY
         .get_or_init(|| {
             if !is_x11_session(
+                under_wsl(),
                 std::env::var_os("WAYLAND_DISPLAY"),
                 std::env::var_os("WAYLAND_SOCKET"),
                 std::env::var_os("DISPLAY"),
@@ -67,15 +70,22 @@ fn display() -> Option<&'static Display> {
         .as_ref()
 }
 
-/// Whether winit runs on X11: it picks Wayland whenever `WAYLAND_DISPLAY` or `WAYLAND_SOCKET`
-/// is set and not empty, and X11 when only `DISPLAY` is.
+/// Whether winit runs on X11. Under WSL Slint always asks for X11 (XWayland), because WSLg's
+/// Wayland compositor can restart under it; elsewhere winit picks Wayland whenever
+/// `WAYLAND_DISPLAY` or `WAYLAND_SOCKET` is set and not empty, and X11 when only `DISPLAY` is.
 pub(crate) fn is_x11_session(
+    wsl: bool,
     wayland_display: Option<OsString>,
     wayland_socket: Option<OsString>,
     display: Option<OsString>,
 ) -> bool {
     let set = |value: &Option<OsString>| value.as_ref().is_some_and(|value| !value.is_empty());
-    !set(&wayland_display) && !set(&wayland_socket) && set(&display)
+    (wsl || (!set(&wayland_display) && !set(&wayland_socket))) && set(&display)
+}
+
+/// The same test Slint's winit backend makes for WSL.
+fn under_wsl() -> bool {
+    Path::new("/proc/sys/fs/binfmt_misc/WSLInterop").exists() || Path::new("/run/WSL").exists()
 }
 
 /// Work area of the monitor under the pointer, or of the primary one.
@@ -316,12 +326,20 @@ mod tests {
     #[test]
     fn x11_only_when_no_wayland_variable_is_set() {
         let some = |value: &str| Some(OsString::from(value));
-        assert!(is_x11_session(None, None, some(":0")));
-        assert!(is_x11_session(some(""), None, some(":0")));
-        assert!(!is_x11_session(some("wayland-0"), None, some(":0")));
-        assert!(!is_x11_session(None, some("5"), some(":0")));
-        assert!(!is_x11_session(None, None, None));
-        assert!(!is_x11_session(None, None, some("")));
+        assert!(is_x11_session(false, None, None, some(":0")));
+        assert!(is_x11_session(false, some(""), None, some(":0")));
+        assert!(!is_x11_session(false, some("wayland-0"), None, some(":0")));
+        assert!(!is_x11_session(false, None, some("5"), some(":0")));
+        assert!(!is_x11_session(false, None, None, None));
+        assert!(!is_x11_session(false, None, None, some("")));
+    }
+
+    #[test]
+    fn wsl_is_x11_whenever_there_is_a_display() {
+        let some = |value: &str| Some(OsString::from(value));
+        assert!(is_x11_session(true, some("wayland-0"), None, some(":0")));
+        assert!(is_x11_session(true, None, some("5"), some(":0")));
+        assert!(!is_x11_session(true, some("wayland-0"), None, None));
     }
 
     #[test]
