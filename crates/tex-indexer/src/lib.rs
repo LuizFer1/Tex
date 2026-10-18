@@ -1,7 +1,12 @@
 #[cfg(windows)]
 pub mod account;
+pub mod desktop;
 pub mod engine;
+pub mod events;
+#[cfg(target_os = "linux")]
+pub mod linux;
 pub mod log;
+pub mod mounts;
 #[cfg(windows)]
 pub mod pipe;
 #[cfg(windows)]
@@ -9,6 +14,8 @@ pub mod runner;
 #[cfg(windows)]
 mod security;
 pub mod store;
+pub mod tree;
+pub mod unit;
 pub mod usn;
 #[cfg(windows)]
 pub mod volumes;

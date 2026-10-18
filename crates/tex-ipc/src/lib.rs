@@ -10,6 +10,19 @@ pub const PIPE_NAME: &str = r"\\.\pipe\tex-indexer";
 pub const SOCKET_PATH: &str = "/run/tex/indexer.sock";
 pub const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 
+/// Where the service listens: `SOCKET_PATH`, or `TEX_INDEXER_SOCKET` in debug builds, to try
+/// the app and a development server without root.
+#[cfg(unix)]
+pub fn socket_path() -> String {
+    if cfg!(debug_assertions)
+        && let Ok(path) = std::env::var("TEX_INDEXER_SOCKET")
+        && !path.is_empty()
+    {
+        return path;
+    }
+    SOCKET_PATH.to_owned()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Request {
     Search(SearchQuery),

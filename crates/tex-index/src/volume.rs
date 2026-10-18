@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::sync::Mutex;
 
+use crate::access::Owner;
 use crate::entry::{Attributes, Entry, ROOT, Record};
 
 const MAX_DEPTH: u16 = 512;
@@ -34,6 +36,7 @@ pub struct VolumeIndex {
     garbage: usize,
     live: usize,
     windows_dir: Option<Record>,
+    owners: HashMap<Record, Owner>,
     lookup_cache: Mutex<Vec<(String, Option<Record>)>>,
 }
 
@@ -51,6 +54,7 @@ impl VolumeIndex {
             garbage: 0,
             live: 0,
             windows_dir: None,
+            owners: HashMap::new(),
             lookup_cache: Mutex::new(Vec::new()),
         }
     }
@@ -132,6 +136,26 @@ impl VolumeIndex {
         self.windows_dir = record;
     }
 
+    /// Sets or clears the owner and mode of a directory (Unix volumes; ROOT is the mount point).
+    pub fn set_owner(&mut self, record: Record, owner: Option<Owner>) {
+        match owner {
+            Some(owner) => {
+                self.owners.insert(record, owner);
+            }
+            None => {
+                self.owners.remove(&record);
+            }
+        }
+    }
+
+    pub fn owner(&self, record: Record) -> Option<Owner> {
+        self.owners.get(&record).copied()
+    }
+
+    pub(crate) fn owners(&self) -> &HashMap<Record, Owner> {
+        &self.owners
+    }
+
     /// Creates the entry, or updates it in place on rename, move or attribute change.
     pub fn upsert(&mut self, record: Record, parent: Record, name: &str, attributes: Attributes) {
         assert!(
@@ -175,6 +199,7 @@ impl VolumeIndex {
         entry.flags = 0;
         self.garbage += entry.name_len as usize;
         self.live -= 1;
+        self.owners.remove(&record);
         self.maybe_compact();
     }
 
@@ -195,6 +220,16 @@ impl VolumeIndex {
         if self.names.len() >= MIN_COMPACT_BYTES && self.garbage * 4 > self.names.len() {
             self.compact();
         }
+    }
+
+    /// The directory that holds `record`; `None` when it is not indexed.
+    pub fn parent(&self, record: Record) -> Option<Record> {
+        self.entry(record).map(|entry| entry.parent)
+    }
+
+    /// Whether `record` is an indexed directory.
+    pub fn is_dir(&self, record: Record) -> bool {
+        self.entry(record).is_some_and(|entry| entry.is_dir())
     }
 
     pub fn name(&self, record: Record) -> Option<&str> {
@@ -521,6 +556,26 @@ mod tests {
         assert_eq!(volume.len(), 0);
         assert_eq!(volume.name(20), None);
         assert_eq!(volume.garbage(), "gone.txt".len());
+    }
+
+    #[test]
+    fn owners_stay_until_the_entry_goes() {
+        let mut volume = VolumeIndex::new("/");
+        let owner = Owner {
+            uid: 1000,
+            gid: 100,
+            mode: 0o750,
+        };
+        volume.upsert(20, ROOT, "home", DIR);
+        volume.set_owner(20, Some(owner));
+        volume.set_owner(ROOT, Some(owner));
+        volume.upsert(20, ROOT, "casa", DIR);
+        assert_eq!(volume.owner(20), Some(owner));
+        volume.remove(20);
+        assert_eq!(volume.owner(20), None);
+        assert_eq!(volume.owner(ROOT), Some(owner));
+        volume.set_owner(ROOT, None);
+        assert_eq!(volume.owner(ROOT), None);
     }
 
     #[test]

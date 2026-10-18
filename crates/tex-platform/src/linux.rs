@@ -1,3 +1,4 @@
+mod apps;
 mod dbus;
 mod hotkeys;
 mod keys;
@@ -119,7 +120,11 @@ pub fn local_time(unix_ms: i64) -> LocalTime {
     }
 }
 
+/// Opens `path` with its default app (`xdg-open`); a `.desktop` file starts its app.
 pub fn open_path(path: &str) -> io::Result<()> {
+    if path.ends_with(".desktop") {
+        return apps::launch(path);
+    }
     spawn_detached("xdg-open", path)
 }
 
@@ -141,7 +146,14 @@ pub fn reveal_in_folder(path: &str) -> io::Result<()> {
 }
 
 fn spawn_detached(program: &str, argument: &str) -> io::Result<()> {
-    let mut child = Command::new(program).arg(argument).spawn()?;
+    let mut command = Command::new(program);
+    command.arg(argument);
+    spawn(command)
+}
+
+/// Starts `command` and waits for it on a thread, so it never stays behind as a zombie.
+fn spawn(mut command: Command) -> io::Result<()> {
+    let mut child = command.spawn()?;
     thread::spawn(move || {
         let _ = child.wait();
     });
@@ -294,8 +306,9 @@ pub fn pick_folder(title: &str, on_done: impl FnOnce(Option<String>) + Send + 's
 
 pub fn init_icon_thread() {}
 
-pub fn app_icon(_path: &str) -> Option<IconPixels> {
-    None
+/// The icon of the app whose `.desktop` file is at `path`, from the icon themes.
+pub fn app_icon(path: &str) -> Option<IconPixels> {
+    apps::app_icon(path)
 }
 
 pub struct WinKeyHook;
