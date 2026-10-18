@@ -35,8 +35,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WS_SYSMENU,
 };
 
-use crate::WorkArea;
 use crate::winkey::{MASK_KEY, tap_key};
+use crate::{LocalTime, WorkArea};
 
 pub struct SingleInstance(HANDLE);
 
@@ -276,16 +276,6 @@ pub fn system_uses_dark_theme() -> bool {
         )
     };
     status == 0 && light == 0
-}
-
-/// A wall-clock time in the user's time zone.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct LocalTime {
-    pub year: u16,
-    pub month: u8,
-    pub day: u8,
-    pub hour: u8,
-    pub minute: u8,
 }
 
 /// Converts a Unix time in milliseconds to the user's local time.

@@ -33,48 +33,14 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     SetForegroundWindow, TranslateMessage, WM_CLIPBOARDUPDATE, WM_QUIT, WNDCLASSW,
 };
 
+use crate::{Clip, ClipFormats, Payload};
+
 const TEX_FORMAT: &str = "Tex.Copy";
 const EXCLUDE_FORMAT: &str = "ExcludeClipboardContentFromMonitorProcessing";
 const HISTORY_FORMAT: &str = "CanIncludeInClipboardHistory";
 const PNG_FORMAT: &str = "PNG";
 const OPEN_ATTEMPTS: u32 = 5;
 const OPEN_RETRY: Duration = Duration::from_millis(10);
-
-/// What the clipboard held after one update.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Clip {
-    pub text: Option<String>,
-    /// `CF_DIBV5`, or `CF_DIB` when there is no V5 header.
-    pub dib: Option<Vec<u8>>,
-    /// `ExcludeClipboardContentFromMonitorProcessing` is present.
-    pub excluded: bool,
-    /// `CanIncludeInClipboardHistory` is present with the value 0.
-    pub history_disallowed: bool,
-    /// Written by Tex itself; text and image are not read.
-    pub from_tex: bool,
-    /// File name of the owner's executable, such as `notepad.exe`.
-    pub owner_exe: Option<String>,
-}
-
-/// The formats on the clipboard, known before any content is read.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ClipFormats {
-    /// `CF_UNICODETEXT` is offered and, once read, not empty.
-    pub text: bool,
-    /// `CF_DIBV5` or `CF_DIB` is offered.
-    pub image: bool,
-    pub excluded: bool,
-    pub history_disallowed: bool,
-    pub from_tex: bool,
-    pub owner_exe: Option<String>,
-}
-
-/// The content worth reading for a [`ClipFormats`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Payload {
-    Text,
-    Image,
-}
 
 type Wanted = dyn Fn(&ClipFormats) -> Option<Payload>;
 

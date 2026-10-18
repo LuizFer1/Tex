@@ -9,13 +9,7 @@ use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
 use windows_sys::Win32::UI::Shell::{SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON, SHGetFileInfoW};
 use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyIcon, GetIconInfo, HICON, ICONINFO};
 
-/// Straight (not premultiplied) RGBA pixels, row by row from the top.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IconPixels {
-    pub width: u32,
-    pub height: u32,
-    pub rgba: Vec<u8>,
-}
+use crate::IconPixels;
 
 /// Call once on the thread that will call `app_icon`; the shell needs COM initialized there.
 pub fn init_icon_thread() {
