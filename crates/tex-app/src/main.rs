@@ -221,7 +221,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let latest = Latest::default();
     let client = SearchClient::start(
-        std::env::var("USERPROFILE").unwrap_or_default(),
+        std::env::home_dir()
+            .map(|home| home.to_string_lossy().into_owned())
+            .unwrap_or_default(),
         latest.clone(),
         {
             let windows = windows.clone();
@@ -293,7 +295,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         });
     }
 
-    let updates = UpdateClient::start(history_folder().join("updates"), {
+    let updates = UpdateClient::start(tex_platform::cache_dir().join("updates"), {
         let windows = windows.clone();
         move |status| {
             let windows = windows.clone();

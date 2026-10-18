@@ -147,14 +147,7 @@ impl ClipboardClient {
 }
 
 pub fn history_folder() -> PathBuf {
-    let base = std::env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(std::env::var_os("USERPROFILE").unwrap_or_default())
-                .join("AppData")
-                .join("Local")
-        });
-    base.join("Tex")
+    tex_platform::data_dir()
 }
 
 /// Opens the history, then answers commands. Waits on the channel only until the oldest
