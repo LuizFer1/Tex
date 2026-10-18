@@ -1,6 +1,7 @@
 use std::io;
+use std::sync::Arc;
 
-use super::{keys, x11};
+use super::{keys, portal, x11};
 use crate::{Accelerator, HotkeyEvent, HotkeySlot, HotkeySupport};
 
 /// How this session registers global shortcuts, picked once at start.
@@ -28,6 +29,7 @@ pub(crate) fn choose(x11: bool, gnome: bool, portal: impl FnOnce() -> bool) -> K
 
 enum Backend {
     X11(keys::Grabs),
+    Portal(portal::Shortcuts),
     Unavailable,
 }
 
@@ -38,10 +40,15 @@ pub struct Hotkeys {
 
 impl Hotkeys {
     pub fn start(on_event: impl Fn(HotkeyEvent) + Send + Sync + 'static) -> io::Result<Hotkeys> {
-        let pressed = move |slot| on_event(HotkeyEvent::Pressed(slot));
-        let backend = match choose(x11::is_x11(), false, || false) {
+        let on_event: Arc<dyn Fn(HotkeyEvent) + Send + Sync> = Arc::new(on_event);
+        let pressed = {
+            let on_event = on_event.clone();
+            move |slot| on_event(HotkeyEvent::Pressed(slot))
+        };
+        let backend = match choose(x11::is_x11(), false, portal::available) {
             Kind::X11 => keys::Grabs::start(pressed).map_or(Backend::Unavailable, Backend::X11),
-            Kind::Shell | Kind::Portal | Kind::Unavailable => Backend::Unavailable,
+            Kind::Portal => Backend::Portal(portal::Shortcuts::start(on_event)),
+            Kind::Shell | Kind::Unavailable => Backend::Unavailable,
         };
         Ok(Hotkeys { backend })
     }
@@ -49,14 +56,23 @@ impl Hotkeys {
     pub fn support(&self) -> HotkeySupport {
         match &self.backend {
             Backend::X11(_) => HotkeySupport::Free,
+            Backend::Portal(_) => HotkeySupport::System,
             Backend::Unavailable => HotkeySupport::Unavailable,
         }
     }
 
-    /// Registers `accelerator` for `slot`, replacing what the slot had.
+    /// Registers `accelerator` for `slot`, replacing what the slot had. The portal answers
+    /// later with [`HotkeyEvent::Bound`], so for it this only asks.
     pub fn register(&mut self, slot: HotkeySlot, accelerator: &Accelerator) -> io::Result<()> {
         match &mut self.backend {
             Backend::X11(grabs) => grabs.grab(slot, accelerator.keysym, accelerator.mods),
+            Backend::Portal(shortcuts) => {
+                shortcuts.set(
+                    slot,
+                    Some((accelerator.label.clone(), accelerator.portal.clone())),
+                );
+                Ok(())
+            }
             Backend::Unavailable => Err(unavailable()),
         }
     }
@@ -64,6 +80,7 @@ impl Hotkeys {
     pub fn unregister(&mut self, slot: HotkeySlot) {
         match &mut self.backend {
             Backend::X11(grabs) => grabs.ungrab(slot),
+            Backend::Portal(shortcuts) => shortcuts.set(slot, None),
             Backend::Unavailable => {}
         }
     }

@@ -1,6 +1,7 @@
 mod dbus;
 mod hotkeys;
 mod keys;
+mod portal;
 mod x11;
 
 pub use hotkeys::Hotkeys;

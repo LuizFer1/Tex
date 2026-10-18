@@ -250,6 +250,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     tray.set_paused(with_app(|app| app::capture_paused(&app.settings)));
 
+    update_hotkey_labels(&windows);
     with_app(|app| {
         app.resume_hotkey();
         app.resume_history_hotkey();
@@ -459,6 +460,17 @@ fn hotkey_event(windows: &Windows, client: &SearchClient, event: HotkeyEvent) {
             }
             hotkeys_changed(windows);
         }
+    }
+}
+
+/// The shortcut descriptions the portal shows, in the current language.
+fn update_hotkey_labels(windows: &Windows) {
+    if let Some(tray) = windows.tray.upgrade() {
+        let labels = [
+            tray.get_open_label().to_string(),
+            tray.get_history_label().to_string(),
+        ];
+        with_app(|app| app.hotkey_labels = labels);
     }
 }
 
@@ -992,6 +1004,10 @@ fn apply_settings(
     with_app(|app| app.settings = new.clone());
     if new.general.language != old.general.language {
         app::apply_language(new.general.language);
+        update_hotkey_labels(windows);
+    }
+    if new.general.onboarding_done && !old.general.onboarding_done {
+        resume_hotkeys();
     }
     if new.general.theme != old.general.theme {
         apply_theme(windows);

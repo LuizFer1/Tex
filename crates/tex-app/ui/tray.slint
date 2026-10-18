@@ -3,6 +3,8 @@ import { Artwork } from "artwork.slint";
 export component TexTray inherits SystemTrayIcon {
     in property <bool> paused;
     in property <string> update-version;
+    out property <string> open-label: @tr("Open Tex");
+    out property <string> history-label: @tr("Clipboard history");
     icon: Artwork.mascot-tray;
     tooltip: "Tex";
 
@@ -21,14 +23,14 @@ export component TexTray inherits SystemTrayIcon {
 
     Menu {
         MenuItem {
-            title: @tr("Open Tex");
+            title: root.open-label;
             activated => {
                 root.open();
             }
         }
 
         MenuItem {
-            title: @tr("Clipboard history");
+            title: root.history-label;
             activated => {
                 root.history();
             }
