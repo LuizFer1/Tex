@@ -1,4 +1,6 @@
 mod apps;
+#[allow(dead_code)]
+mod clipboard;
 mod dbus;
 mod hotkeys;
 mod keys;
