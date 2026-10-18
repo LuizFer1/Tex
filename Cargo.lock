@@ -4673,6 +4673,7 @@ name = "tex-platform"
 version = "0.4.2"
 dependencies = [
  "libc",
+ "raw-window-handle",
  "windows-sys 0.59.0",
 ]
 

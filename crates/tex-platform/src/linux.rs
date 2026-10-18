@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
 
-use crate::{Clip, ClipFormats, IconPixels, LocalTime, Payload, WorkArea};
+use crate::{Clip, ClipFormats, IconPixels, LocalTime, Payload, WindowRef, WorkArea};
 
 /// Held while this process is the only Tex of the user; the lock goes away with the process.
 pub struct SingleInstance {
@@ -145,7 +145,7 @@ pub fn primary_work_area() -> Option<WorkArea> {
 }
 
 pub fn shape_tabbed_window(
-    _window: isize,
+    _window: WindowRef,
     _width: i32,
     _height: i32,
     _tab_width: i32,
@@ -154,21 +154,21 @@ pub fn shape_tabbed_window(
 ) {
 }
 
-pub fn round_corners(_window: isize) {}
+pub fn round_corners(_window: WindowRef) {}
 
 pub fn lock_foreground(_lock: bool) {}
 
-pub fn take_foreground(_window: isize) -> bool {
+pub fn take_foreground(_window: WindowRef) -> bool {
     false
 }
 
-pub fn restore_foreground(_window: isize) {}
+pub fn restore_foreground(_window: WindowRef) {}
 
-pub fn foreground_window() -> isize {
-    0
+pub fn foreground_window() -> WindowRef {
+    WindowRef::default()
 }
 
-pub fn paste_into(_window: isize) {}
+pub fn paste_into(_window: WindowRef) {}
 
 pub struct ClipboardWatcher;
 
@@ -227,7 +227,7 @@ impl WinKeyHook {
     }
 }
 
-pub fn catch_windows_key(_window: isize, _on_press: impl Fn() -> bool + 'static) {}
+pub fn catch_windows_key(_window: WindowRef, _on_press: impl Fn() -> bool + 'static) {}
 
 fn unsupported() -> io::Error {
     io::Error::new(io::ErrorKind::Unsupported, "not available on Linux yet")

@@ -51,6 +51,28 @@ pub use linux::{
 #[cfg(not(any(windows, target_os = "linux")))]
 compile_error!("tex-platform only supports Windows and Linux");
 
+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+/// A top-level window the platform can address: the HWND on Windows, the X11 window id on
+/// Linux. Wayland windows have none, since only the compositor moves and focuses them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WindowRef(pub(crate) isize);
+
+impl WindowRef {
+    /// The window behind `window` (a winit window, for instance), when the platform can address it.
+    pub fn of(window: &impl HasWindowHandle) -> Option<Self> {
+        match window.window_handle().ok()?.as_raw() {
+            #[cfg(windows)]
+            RawWindowHandle::Win32(handle) => Some(Self(handle.hwnd.get())),
+            #[cfg(target_os = "linux")]
+            RawWindowHandle::Xlib(handle) => Some(Self(handle.window as isize)),
+            #[cfg(target_os = "linux")]
+            RawWindowHandle::Xcb(handle) => Some(Self(handle.window.get() as isize)),
+            _ => None,
+        }
+    }
+}
+
 /// Usable area of a monitor (screen minus taskbar) in physical pixels, with its DPI scale (1.0 = 96 DPI).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WorkArea {
@@ -113,4 +135,44 @@ pub struct ClipFormats {
 pub enum Payload {
     Text,
     Image,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use raw_window_handle::{HandleError, WindowHandle};
+
+    struct Fake(RawWindowHandle);
+
+    impl HasWindowHandle for Fake {
+        fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
+            Ok(unsafe { WindowHandle::borrow_raw(self.0) })
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_win32_window_is_its_hwnd() {
+        let hwnd = std::num::NonZeroIsize::new(0x1234).unwrap();
+        let raw = RawWindowHandle::Win32(raw_window_handle::Win32WindowHandle::new(hwnd));
+        assert_eq!(WindowRef::of(&Fake(raw)), Some(WindowRef(0x1234)));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn an_x11_window_is_its_id() {
+        let xlib = RawWindowHandle::Xlib(raw_window_handle::XlibWindowHandle::new(0x2a));
+        assert_eq!(WindowRef::of(&Fake(xlib)), Some(WindowRef(0x2a)));
+        let id = std::num::NonZeroU32::new(0x2b).unwrap();
+        let xcb = RawWindowHandle::Xcb(raw_window_handle::XcbWindowHandle::new(id));
+        assert_eq!(WindowRef::of(&Fake(xcb)), Some(WindowRef(0x2b)));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_wayland_window_has_no_ref() {
+        let surface = std::ptr::NonNull::<std::ffi::c_void>::dangling();
+        let raw = RawWindowHandle::Wayland(raw_window_handle::WaylandWindowHandle::new(surface));
+        assert_eq!(WindowRef::of(&Fake(raw)), None);
+    }
 }

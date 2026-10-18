@@ -20,6 +20,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WM_SYSKEYDOWN, WM_SYSKEYUP, WNDPROC,
 };
 
+use crate::WindowRef;
+
 static TRACKER: Mutex<Tracker> = Mutex::new(Tracker::new());
 type Callback = Box<dyn Fn() + Send>;
 static CALLBACK: Mutex<Option<Callback>> = Mutex::new(None);
@@ -102,7 +104,8 @@ thread_local! {
 /// Windows key before the window sees it, so this sends the mask key on the key-down, which
 /// makes the press a combination to Windows, and calls `on_press` on the lone release, swallowing
 /// it when `on_press` returns true. Call it on the window's own thread, once per window.
-pub fn catch_windows_key(window: isize, on_press: impl Fn() -> bool + 'static) {
+pub fn catch_windows_key(window: WindowRef, on_press: impl Fn() -> bool + 'static) {
+    let window = window.0;
     if CAUGHT.with_borrow(|caught| caught.iter().any(|entry| entry.window == window)) {
         return;
     }

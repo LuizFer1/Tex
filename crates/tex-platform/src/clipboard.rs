@@ -33,7 +33,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     SetForegroundWindow, TranslateMessage, WM_CLIPBOARDUPDATE, WM_QUIT, WNDCLASSW,
 };
 
-use crate::{Clip, ClipFormats, Payload};
+use crate::{Clip, ClipFormats, Payload, WindowRef};
 
 const TEX_FORMAT: &str = "Tex.Copy";
 const EXCLUDE_FORMAT: &str = "ExcludeClipboardContentFromMonitorProcessing";
@@ -382,14 +382,14 @@ fn global_copy(bytes: &[u8]) -> io::Result<HANDLE> {
 }
 
 /// The window in the foreground, to give the focus back to it later.
-pub fn foreground_window() -> isize {
-    (unsafe { GetForegroundWindow() }) as isize
+pub fn foreground_window() -> WindowRef {
+    WindowRef(unsafe { GetForegroundWindow() } as isize)
 }
 
 /// Gives `window` the focus back and sends Ctrl+V.
-pub fn paste_into(window: isize) {
-    if window != 0 {
-        unsafe { SetForegroundWindow(window as HWND) };
+pub fn paste_into(window: WindowRef) {
+    if window.0 != 0 {
+        unsafe { SetForegroundWindow(window.0 as HWND) };
     }
     let inputs = [
         key_input(VK_CONTROL, 0),

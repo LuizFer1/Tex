@@ -24,7 +24,6 @@ use std::time::Instant;
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use slint::language::ColorScheme;
 use slint::winit_030::winit::event::WindowEvent;
-use slint::winit_030::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::winit_030::winit::window::{ResizeDirection, Window as WinitWindow};
 use slint::winit_030::{EventResult, WinitWindowAccessor};
 use slint::{
@@ -36,10 +35,10 @@ use tex_clipboard::{
 };
 use tex_ipc::{Filter, VolumeState, VolumeStatus};
 use tex_platform::{
-    ClipboardWatcher, IconPixels, LocalTime, SingleInstance, catch_windows_key, foreground_window,
-    local_time, lock_foreground, open_path, paste_into, pick_file, pick_folder, primary_work_area,
-    restore_foreground, reveal_in_folder, round_corners, shape_tabbed_window, take_foreground,
-    work_area_under_cursor, write_image, write_text,
+    ClipboardWatcher, IconPixels, LocalTime, SingleInstance, WindowRef, catch_windows_key,
+    foreground_window, local_time, lock_foreground, open_path, paste_into, pick_file, pick_folder,
+    primary_work_area, restore_foreground, reveal_in_folder, round_corners, shape_tabbed_window,
+    take_foreground, work_area_under_cursor, write_image, write_text,
 };
 
 use crate::app::{AppState, HotkeyError, with_app};
@@ -1356,8 +1355,8 @@ fn show_settings(windows: &Windows, client: &SearchClient, tab: Option<i32>) {
     }
     send_history(ClipboardCommand::Usage);
     let _ = window.show();
-    if let Some(hwnd) = window_hwnd(window.window()) {
-        round_corners(hwnd);
+    if let Some(target) = window_ref(window.window()) {
+        round_corners(target);
     }
     window
         .window()
@@ -1382,8 +1381,8 @@ fn start_onboarding(windows: &Windows, upgrade: bool) {
         window.window().set_position(PhysicalPosition::new(x, y));
     }
     let _ = window.show();
-    if let Some(hwnd) = window_hwnd(window.window()) {
-        round_corners(hwnd);
+    if let Some(target) = window_ref(window.window()) {
+        round_corners(target);
     }
     window
         .window()
@@ -1579,7 +1578,7 @@ fn tray_toggle(windows: &Windows, client: &SearchClient) {
 }
 
 fn is_foreground(popup: &Popup) -> bool {
-    popup_hwnd(popup) == Some(foreground_window())
+    popup_ref(popup) == Some(foreground_window())
 }
 
 #[cfg(windows)]
@@ -1591,31 +1590,24 @@ fn skip_taskbar(window: &WinitWindow) {
 #[cfg(not(windows))]
 fn skip_taskbar(_window: &WinitWindow) {}
 
-fn window_hwnd(window: &slint::Window) -> Option<isize> {
-    window
-        .with_winit_window(
-            |window| match window.window_handle().map(|handle| handle.as_raw()) {
-                Ok(RawWindowHandle::Win32(handle)) => Some(handle.hwnd.get()),
-                _ => None,
-            },
-        )
-        .flatten()
+fn window_ref(window: &slint::Window) -> Option<WindowRef> {
+    window.with_winit_window(WindowRef::of).flatten()
 }
 
-fn popup_hwnd(popup: &Popup) -> Option<isize> {
-    window_hwnd(popup.window())
+fn popup_ref(popup: &Popup) -> Option<WindowRef> {
+    window_ref(popup.window())
 }
 
 /// Clips a popup window to its "tex -" tab and body.
 fn shape_window(window: &slint::Window, tab_width: f32, tab_height: f32) {
-    let Some(hwnd) = window_hwnd(window) else {
+    let Some(target) = window_ref(window) else {
         return;
     };
     let scale = window.scale_factor();
     let size = window.size();
     let radius = theme::design(theme::DEFAULT).shape.radius_tab;
     shape_tabbed_window(
-        hwnd,
+        target,
         size.width as i32,
         size.height as i32,
         placement::physical(tab_width, scale),
@@ -1693,7 +1685,7 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
         popup.get_tab_width(),
         popup.get_tab_height(),
     );
-    let Some(window) = popup_hwnd(&popup).filter(|window| take_foreground(*window)) else {
+    let Some(window) = popup_ref(&popup).filter(|window| take_foreground(*window)) else {
         hide_popup(&popup);
         return;
     };

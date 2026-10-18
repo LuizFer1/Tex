@@ -36,7 +36,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::winkey::{MASK_KEY, tap_key};
-use crate::{LocalTime, WorkArea};
+use crate::{LocalTime, WindowRef, WorkArea};
 
 pub struct SingleInstance(HANDLE);
 
@@ -76,13 +76,14 @@ pub fn work_area_under_cursor() -> Option<WorkArea> {
 /// caption of a captioned window over its content; the caption styles are removed first.
 /// winit sets them again whenever it shows the window, so call this after every show.
 pub fn shape_tabbed_window(
-    window: isize,
+    window: WindowRef,
     width: i32,
     height: i32,
     tab_width: i32,
     tab_height: i32,
     radius: i32,
 ) {
+    let window = window.0;
     let diameter = radius * 2;
     unsafe {
         let style = GetWindowLongW(window as HWND, GWL_STYLE) as u32;
@@ -122,11 +123,11 @@ pub fn shape_tabbed_window(
 }
 
 /// Asks Windows 11 to round a frameless window's corners; older versions ignore it.
-pub fn round_corners(window: isize) {
+pub fn round_corners(window: WindowRef) {
     let preference = DWMWCP_ROUND;
     unsafe {
         DwmSetWindowAttribute(
-            window as HWND,
+            window.0 as HWND,
             DWMWA_WINDOW_CORNER_PREFERENCE as u32,
             (&preference as *const i32).cast(),
             size_of::<i32>() as u32,
@@ -144,8 +145,8 @@ pub fn lock_foreground(lock: bool) {
 /// that got the last input take it, and a key the hook swallowed does not count, so when the
 /// direct call fails this sends the mask key first. winit sends Alt instead, which Windows can
 /// take as a lone key press and answer by opening the Start menu.
-pub fn take_foreground(window: isize) -> bool {
-    let window = window as HWND;
+pub fn take_foreground(window: WindowRef) -> bool {
+    let window = window.0 as HWND;
     let is_foreground = || unsafe { GetForegroundWindow() } == window;
     if is_foreground() {
         return true;
@@ -162,8 +163,8 @@ pub fn take_foreground(window: isize) -> bool {
 /// Gives the foreground back to `window` when it can still take it: it exists, is visible and
 /// not minimized, and is not cloaked (the Start menu and other shell windows stay "visible"
 /// while hidden). Call it while this process is in the foreground.
-pub fn restore_foreground(window: isize) {
-    let window = window as HWND;
+pub fn restore_foreground(window: WindowRef) {
+    let window = window.0 as HWND;
     if window.is_null()
         || unsafe { IsWindow(window) } == 0
         || unsafe { IsWindowVisible(window) } == 0
