@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{MAIN_SEPARATOR_STR, Path, PathBuf};
 

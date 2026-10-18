@@ -7,6 +7,7 @@ mod icons;
 mod onboarding;
 mod placement;
 mod reader;
+mod reader_client;
 mod results;
 mod search_client;
 mod settings;
@@ -1147,6 +1148,15 @@ fn apply_theme(windows: &Windows) {
             dark,
         );
     }
+    reader_client::each(|reader| {
+        reader.set_scheme(scheme);
+        apply_design(
+            &reader.global::<Tokens>(),
+            &reader.global::<Artwork>(),
+            design,
+            dark,
+        );
+    });
 }
 
 fn apply_categories(popup: &Popup, settings: &Settings) {
