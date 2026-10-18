@@ -40,6 +40,19 @@ def crop_ratio(image, ratio_w, ratio_h, y_ratio):
     return image.crop((0, top, width, top + crop_height))
 
 
+def cover(image, width, height, x_ratio, y_ratio):
+    """Crops the largest width:height area at the given position, like CSS object-fit: cover."""
+    source_width, source_height = image.size
+    if source_width * height > source_height * width:
+        crop_width, crop_height = source_height * width // height, source_height
+    else:
+        crop_width, crop_height = source_width, source_width * height // width
+    left = int((source_width - crop_width) * x_ratio)
+    top = int((source_height - crop_height) * y_ratio)
+    crop = image.crop((left, top, left + crop_width, top + crop_height))
+    return crop.resize((width, height), Image.LANCZOS)
+
+
 def main(source):
     source = Path(source)
     UI_ASSETS.mkdir(parents=True, exist_ok=True)
@@ -57,6 +70,12 @@ def main(source):
     clipboard.resize((264, 264), Image.LANCZOS).save(UI_ASSETS / "mascot-clipboard.png")
     banner = crop_ratio(Image.open(source / "tex-full.png").convert("RGB"), 132, 150, 0.12)
     banner.resize((264, 300), Image.LANCZOS).save(UI_ASSETS / "mascot-banner.png")
+
+    # Onboarding side panel: 240 x 378 logical pixels (body height), at 2x.
+    full = Image.open(source / "tex-full.png").convert("RGB")
+    cover(full, 480, 756, 0.5, 0.15).save(UI_ASSETS / "mascot-welcome.png")
+    found = Image.open(source / "tex-search.png").convert("RGB")
+    cover(found, 480, 756, 0.5, 0.35).save(UI_ASSETS / "mascot-done.png")
 
 
 if __name__ == "__main__":
