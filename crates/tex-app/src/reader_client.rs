@@ -73,7 +73,6 @@ enum Event {
 }
 
 /// Opens `path` in a reader window, or brings its open window to the front, then hides the popup.
-#[allow(dead_code)]
 pub fn open(windows: &Windows, path: &Path) {
     lock_foreground(false);
     let existing = READERS.with_borrow(|readers| {

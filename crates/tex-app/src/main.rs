@@ -54,7 +54,7 @@ use crate::history::{HistoryList, day_starts_through, size_parts, when_parts};
 use crate::icons::{IconCache, IconLoader, IconState};
 use crate::onboarding::{Onboarding, Outcome};
 use crate::results::{
-    Row, build_rows, file_icon, group_digits, header_counts, ready_summary, short_path,
+    Row, build_rows, file_icon, group_digits, header_counts, readable, ready_summary, short_path,
     status_parts, step_selection,
 };
 use crate::search_client::{Command, Event, Latest, SearchClient};
@@ -357,6 +357,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         start_onboarding(&windows, upgrade);
     }
 
+    #[cfg(debug_assertions)]
+    if let Some(path) = std::env::args().skip_while(|arg| arg != "--read").nth(1) {
+        reader_client::open(&windows, std::path::Path::new(&path));
+    }
+
     slint::run_event_loop_until_quit()?;
     Ok(())
 }
@@ -511,6 +516,24 @@ fn wire_popup(popup: &Popup, windows: &Windows, client: &SearchClient) {
         move |index, alternate| {
             if let Some(popup) = popup.upgrade() {
                 activate(&popup, index, alternate);
+            }
+        }
+    });
+    popup.on_read({
+        let popup = popup.as_weak();
+        let windows = windows.clone();
+        move |index| {
+            let Some(popup) = popup.upgrade() else {
+                return;
+            };
+            let Some(row) = usize::try_from(index)
+                .ok()
+                .and_then(|index| popup.get_rows().row_data(index))
+            else {
+                return;
+            };
+            if row.readable {
+                reader_client::open(&windows, std::path::Path::new(row.path.as_str()));
             }
         }
     });
@@ -1857,6 +1880,7 @@ fn to_result_row(row: &Row, count: usize, icons: &IconLoader) -> ResultRow {
                 path: path.as_str().into(),
                 is_dir: *is_dir,
                 is_app: *is_app,
+                readable: readable(name, *is_dir, *is_app),
                 file_icon: file_icon(name).index(),
                 ..Default::default()
             };

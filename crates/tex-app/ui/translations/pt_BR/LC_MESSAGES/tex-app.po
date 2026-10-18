@@ -722,3 +722,6 @@ msgstr "indexando linhas…"
 
 msgid "lines: {0} · {1}"
 msgstr "linhas: {0} · {1}"
+
+msgid "{0} · shift enter read"
+msgstr "{0} · shift enter ler"

@@ -221,7 +221,6 @@ pub fn ready_summary(volumes: &[VolumeStatus]) -> (String, u64) {
 }
 
 /// Whether Shift+Enter opens the row in the reader: a file of a kind the reader knows, or one without extension.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn readable(name: &str, is_dir: bool, is_app: bool) -> bool {
     !is_dir && !is_app && tex_reader::Kind::from_path(std::path::Path::new(name), &[]).is_some()
 }

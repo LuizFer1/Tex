@@ -9,6 +9,7 @@ export struct ResultRow {
     path: string,
     is-dir: bool,
     is-app: bool,
+    readable: bool,
     category: int,
     icon: image,
     has-icon: bool,
@@ -136,6 +137,8 @@ export component Popup inherits Window {
     in property <bool> service-unavailable;
     in property <bool> searching;
     in property <bool> enter-reveals;
+    property <bool> selected-readable: root.selected >= 0 && root.selected < root.rows.length && root.rows[root.selected].readable;
+    property <string> base-hints: @tr("↑↓ navigate · enter {0} · ctrl enter {1} · esc close", root.enter-reveals ? root.reveal-text : root.open-text, root.enter-reveals ? root.open-text : root.reveal-text);
     in-out property <int> filter: 0;
     in property <bool> show-apps: true;
     in property <bool> show-files: true;
@@ -152,6 +155,7 @@ export component Popup inherits Window {
     callback step(int);
     callback select(int);
     callback activate(int, bool);
+    callback read(int);
     callback open-settings();
 
     property <length> row-height: 36px;
@@ -209,7 +213,11 @@ export component Popup inherits Window {
                 return accept;
             }
             if event.text == Key.Return {
-                root.activate(root.selected, event.modifiers.control);
+                if event.modifiers.shift {
+                    root.read(root.selected);
+                } else {
+                    root.activate(root.selected, event.modifiers.control);
+                }
                 return accept;
             }
             if event.text == Key.Tab && !event.modifiers.shift {
@@ -364,7 +372,7 @@ export component Popup inherits Window {
             }
 
             Footer {
-                hints: @tr("↑↓ navigate · enter {0} · ctrl enter {1} · esc close", root.enter-reveals ? root.reveal-text : root.open-text, root.enter-reveals ? root.open-text : root.reveal-text);
+                hints: root.selected-readable ? @tr("{0} · shift enter read", root.base-hints) : root.base-hints;
                 status: root.status-text;
                 status-color: root.service-unavailable || root.status-failed != "" ? Tokens.warn-text : Tokens.muted;
             }
