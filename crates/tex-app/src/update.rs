@@ -7,6 +7,11 @@ use sha2::{Digest, Sha256};
 pub const PUBLIC_KEY: [u8; 32] = *include_bytes!("../update.pub");
 const REPOSITORY: &str = "LuizFer1/Tex";
 
+/// Exit code of `tex --apply-update` for a package that is not a signed Tex package newer
+/// than the installed one.
+#[cfg(not(windows))]
+pub const REFUSED_EXIT: i32 = 3;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Version {
     pub major: u32,

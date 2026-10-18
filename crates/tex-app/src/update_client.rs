@@ -14,6 +14,7 @@ const API_LIMIT: u64 = 1024 * 1024;
 const SIGNATURE_LIMIT: u64 = 1024;
 const INSTALLER_LIMIT: u64 = 200 * 1024 * 1024;
 const RECHECK_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
+#[cfg(windows)]
 const INSTALLER_ARGS: [&str; 4] = ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/UPDATE"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,6 +25,9 @@ pub enum UpdateStatus {
     Downloading(String),
     Ready(String),
     Installing(String),
+    /// Installed through `pkexec` on Linux: Tex starts the new version and exits.
+    #[cfg_attr(windows, allow(dead_code))]
+    Installed(String),
     Failed,
 }
 
@@ -37,14 +41,17 @@ impl UpdateStatus {
             UpdateStatus::Downloading(version) => (3, version),
             UpdateStatus::Ready(version) => (4, version),
             UpdateStatus::Failed => (5, ""),
-            UpdateStatus::Installing(version) => (6, version),
+            UpdateStatus::Installing(version) | UpdateStatus::Installed(version) => (6, version),
         }
     }
 
     pub fn busy(&self) -> bool {
         matches!(
             self,
-            UpdateStatus::Checking | UpdateStatus::Downloading(_) | UpdateStatus::Installing(_)
+            UpdateStatus::Checking
+                | UpdateStatus::Downloading(_)
+                | UpdateStatus::Installing(_)
+                | UpdateStatus::Installed(_)
         )
     }
 
@@ -220,6 +227,7 @@ impl<F: Fn(&str, u64) -> io::Result<Vec<u8>>> Checker<F> {
             return Err(invalid("the installer does not match its signature"));
         }
         fs::create_dir_all(&self.folder)?;
+        make_private(&self.folder)?;
         save(&ready.signature, &signature)?;
         save(&ready.installer, &installer)?;
         Ok(Some(ready))
@@ -243,9 +251,8 @@ impl<F: Fn(&str, u64) -> io::Result<Vec<u8>>> Checker<F> {
         })
     }
 
-    /// Verifies the installer again while holding it open without write sharing, so nothing
-    /// can swap it before Windows elevates it, then runs it and waits. Setup closes Tex before
-    /// installing, so returning means it did not install (UAC cancelled or setup failed).
+    /// Verifies the package again while holding it open (on Windows without write sharing, so
+    /// nothing can swap it before it is elevated), then installs it and waits.
     fn install(&self, ready: &Ready, emit: &dyn Fn(UpdateStatus)) -> UpdateStatus {
         let Ok(mut file) = open_locked(&ready.installer) else {
             return UpdateStatus::Failed;
@@ -257,7 +264,16 @@ impl<F: Fn(&str, u64) -> io::Result<Vec<u8>>> Checker<F> {
         }
         let version = ready.version.to_string();
         emit(UpdateStatus::Installing(version.clone()));
-        let status = match process::Command::new(&ready.installer)
+        let status = self.launch(ready, version);
+        drop(file);
+        status
+    }
+
+    /// Runs the installer. Setup closes Tex before installing, so returning means it did not
+    /// install (UAC cancelled or setup failed).
+    #[cfg(windows)]
+    fn launch(&self, ready: &Ready, version: String) -> UpdateStatus {
+        match process::Command::new(&ready.installer)
             .args(INSTALLER_ARGS)
             .spawn()
         {
@@ -269,8 +285,33 @@ impl<F: Fn(&str, u64) -> io::Result<Vec<u8>>> Checker<F> {
                 eprintln!("update: {error}");
                 UpdateStatus::Failed
             }
+        }
+    }
+
+    /// Asks for the administrator password with `pkexec` and waits while `tex --apply-update`
+    /// verifies the package again as root and installs it.
+    #[cfg(not(windows))]
+    fn launch(&self, ready: &Ready, version: String) -> UpdateStatus {
+        let Some(exe) = tex_platform::current_executable() else {
+            return UpdateStatus::Failed;
         };
-        drop(file);
+        let code = match process::Command::new("pkexec")
+            .arg(exe)
+            .arg("--apply-update")
+            .arg(&ready.installer)
+            .arg(&version)
+            .status()
+        {
+            Ok(status) => status.code(),
+            Err(error) => {
+                eprintln!("update: pkexec: {error}");
+                return UpdateStatus::Failed;
+            }
+        };
+        let status = after_apply(code, version);
+        if status == UpdateStatus::Failed {
+            remove_installers(&self.folder, self.kind.prefix(), None);
+        }
         status
     }
 
@@ -297,6 +338,30 @@ impl<F: Fn(&str, u64) -> io::Result<Vec<u8>>> Checker<F> {
 
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.to_owned())
+}
+
+/// What `pkexec tex --apply-update` exiting with `code` means: installed, a package the root
+/// refused, or anything else (password dialog cancelled, installation failed), which leaves
+/// the update ready to try again.
+#[cfg(not(windows))]
+fn after_apply(code: Option<i32>, version: String) -> UpdateStatus {
+    match code {
+        Some(0) => UpdateStatus::Installed(version),
+        Some(update::REFUSED_EXIT) => UpdateStatus::Failed,
+        _ => UpdateStatus::Ready(version),
+    }
+}
+
+/// Only this user may open the downloads folder, so nobody else can swap a package.
+#[cfg(unix)]
+fn make_private(folder: &Path) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(folder, fs::Permissions::from_mode(0o700))
+}
+
+#[cfg(windows)]
+fn make_private(_folder: &Path) -> io::Result<()> {
+    Ok(())
 }
 
 /// Writes next to `path` and renames, so a cut download never looks complete.
@@ -691,6 +756,15 @@ mod tests {
             UpdateStatus::Installing("0.5.0".into()).ready_version(),
             None
         );
+        assert_eq!(
+            UpdateStatus::Installed("0.5.0".into()).parts(),
+            (6, "0.5.0")
+        );
+        assert_eq!(
+            UpdateStatus::Installed("0.5.0".into()).ready_version(),
+            None
+        );
+        assert!(UpdateStatus::Installed("0.5.0".into()).busy());
         assert!(UpdateStatus::Checking.busy());
         assert!(UpdateStatus::Downloading("0.5.0".into()).busy());
         assert!(UpdateStatus::Installing("0.5.0".into()).busy());
@@ -786,5 +860,36 @@ mod tests {
             statuses.into_inner(),
             [UpdateStatus::UpToDate, UpdateStatus::UpToDate]
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn downloads_go_to_a_private_folder() {
+        use std::os::unix::fs::PermissionsExt;
+        let folder = folder("private");
+        let server = server("0.5.0", b"setup", signature(b"setup", "0.5.0"));
+        checker(&server, &folder).check(&|_| {}).unwrap();
+        let mode = fs::metadata(&folder).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn the_exit_code_of_the_root_install_decides_what_follows() {
+        assert_eq!(
+            after_apply(Some(0), "0.5.0".into()),
+            UpdateStatus::Installed("0.5.0".into())
+        );
+        assert_eq!(
+            after_apply(Some(update::REFUSED_EXIT), "0.5.0".into()),
+            UpdateStatus::Failed
+        );
+        for code in [Some(126), Some(127), Some(1), Some(4), None] {
+            assert_eq!(
+                after_apply(code, "0.5.0".into()),
+                UpdateStatus::Ready("0.5.0".into())
+            );
+        }
     }
 }
