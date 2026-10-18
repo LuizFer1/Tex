@@ -12,20 +12,21 @@ export component Button inherits Rectangle {
     in property <bool> has-icon;
     in property <ButtonKind> kind: ButtonKind.secondary;
     in property <bool> enabled: true;
+    in property <bool> on-banner;
     callback clicked();
 
     property <bool> keyboard;
     property <bool> filled: root.kind == ButtonKind.primary || root.kind == ButtonKind.danger-filled;
     property <bool> dangerous: root.kind == ButtonKind.danger || root.kind == ButtonKind.danger-filled;
     property <color> base: root.kind == ButtonKind.primary ? Tokens.action : root.dangerous ? (touch.has-hover ? Tokens.danger-hover : Tokens.danger) : root.kind == ButtonKind.tertiary ? Tokens.control-off : Tokens.ink;
-    property <color> label: root.filled ? Tokens.on-action : root.kind == ButtonKind.danger ? Tokens.danger : Tokens.ink;
+    property <color> label: root.on-banner ? Tokens.banner-ink : root.filled ? Tokens.on-action : root.kind == ButtonKind.danger ? Tokens.danger : Tokens.ink;
 
     height: 30px;
     min-width: max(30px, content.min-width);
     border-radius: Tokens.radius-control;
     border-width: root.kind == ButtonKind.primary ? Tokens.border-strong : Tokens.border-control;
-    border-color: root.base;
-    background: root.filled ? root.base : touch.has-hover && root.enabled ? (root.kind == ButtonKind.danger ? Tokens.danger-bg : Tokens.paper-2) : transparent;
+    border-color: root.on-banner ? Tokens.banner-ink : root.base;
+    background: root.filled ? root.base : touch.has-hover && root.enabled ? (root.on-banner ? Tokens.banner-hover : root.kind == ButtonKind.danger ? Tokens.danger-bg : Tokens.paper-2) : transparent;
     opacity: root.enabled ? 1 : 0.45;
     accessible-role: button;
     accessible-label: root.text != "" ? root.text : root.tip;
