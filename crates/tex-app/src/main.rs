@@ -13,6 +13,8 @@ mod shortcut;
 mod theme;
 #[allow(dead_code)]
 mod update;
+#[allow(dead_code)]
+mod update_client;
 
 use std::cell::RefCell;
 use std::collections::HashSet;
