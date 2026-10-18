@@ -1,14 +1,20 @@
+#[cfg(windows)]
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::iter;
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
+#[cfg(windows)]
+use tex_ipc::PIPE_NAME;
+#[cfg(unix)]
+use tex_ipc::SOCKET_PATH;
 use tex_ipc::{
-    Filter, PIPE_NAME, Request, Response, Results, SearchQuery, VolumeStatus, read_message,
-    write_message,
+    Filter, Request, Response, Results, SearchQuery, VolumeStatus, read_message, write_message,
 };
 
 const LIMIT: u16 = 50;
@@ -133,13 +139,28 @@ pub fn coalesce(commands: impl Iterator<Item = Command>) -> Vec<Command> {
         .collect()
 }
 
+#[cfg(windows)]
+type Connection = File;
+#[cfg(unix)]
+type Connection = UnixStream;
+
+#[cfg(windows)]
+fn connect() -> io::Result<Connection> {
+    OpenOptions::new().read(true).write(true).open(PIPE_NAME)
+}
+
+#[cfg(unix)]
+fn connect() -> io::Result<Connection> {
+    UnixStream::connect(SOCKET_PATH)
+}
+
 /// Sends one request and waits for the answer, reconnecting once if the pipe broke
 /// (for example after the service restarted).
-fn exchange(connection: &mut Option<File>, request: &Request) -> io::Result<Response> {
+fn exchange(connection: &mut Option<Connection>, request: &Request) -> io::Result<Response> {
     let mut retried = false;
     loop {
         if connection.is_none() {
-            *connection = Some(OpenOptions::new().read(true).write(true).open(PIPE_NAME)?);
+            *connection = Some(connect()?);
         }
         let file = connection.as_ref().expect("connected above");
         match write_message(&mut &*file, request).and_then(|()| read_message(&mut &*file)) {

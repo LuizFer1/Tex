@@ -4,7 +4,10 @@ use std::io::{self, Read, Write};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+#[cfg(windows)]
 pub const PIPE_NAME: &str = r"\\.\pipe\tex-indexer";
+#[cfg(unix)]
+pub const SOCKET_PATH: &str = "/run/tex/indexer.sock";
 pub const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
