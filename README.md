@@ -90,7 +90,7 @@ What you copy can be anything: notes, addresses, links, private messages. Tex tr
 
 - The history is stored **locally**, on your computer only, in `%LOCALAPPDATA%\Tex`.
 - Names and content are **encrypted** (XChaCha20-Poly1305). The key is protected by Windows for your account, so another user of the computer cannot read the history. If the key is lost, Tex sets the old history aside and starts an empty one.
-- Nothing is sent to the internet. There is no account, no cloud, and no tracking.
+- The only connection Tex makes is to check GitHub for a new version of Tex and download it, which you can turn off in Settings. Nothing about you or your files is sent. There is no account, no cloud, and no tracking.
 - You stay responsible for what you keep. Tex does not try to detect passwords on its own. Instead you can pause capture, ignore specific apps, let Tex skip what password managers mark as private, and review and delete entries.
 
 ---
@@ -116,13 +116,13 @@ What you copy can be anything: notes, addresses, links, private messages. Tex tr
 - Text and images are both stored in the history, so their size is measured to enforce the storage limit.
 - Names and content are encrypted at rest, with a key protected by Windows (DPAPI).
 
-**No external services.** No account SDK, no analytics SDK, no backend SDK, no network calls. Every new dependency has to fit an app that works with no network and no telemetry.
+**No external services.** No account SDK, no analytics SDK, no backend SDK. The only network call is the optional update check against this repository's GitHub Releases. Every other feature works with no network and no telemetry.
 
 ---
 
 ## Install
 
-Download `Tex-Setup-<version>.exe` from [Releases](https://github.com/LuizFer1/Tex/releases) and run it. It asks for administrator rights because the search service reads the NTFS file tables, and it asks whether only your account or everyone who signs in to the computer can search. Tex then starts with Windows; you can turn that off in Settings (tray menu, or Ctrl+, in the search box), along with the shortcuts, theme, language, what search includes, and how the clipboard history works.
+Download `Tex-Setup-<version>.exe` from [Releases](https://github.com/LuizFer1/Tex/releases) and run it. It asks for administrator rights because the search service reads the NTFS file tables, and it asks whether only your account or everyone who signs in to the computer can search. Tex then starts with Windows; you can turn that off in Settings (tray menu, or Ctrl+, in the search box), along with the shortcuts, theme, language, what search includes, and how the clipboard history works. From then on Tex downloads new versions in the background and installs them when you click "Update and restart" in the tray menu or in Settings.
 
 ---
 
