@@ -235,7 +235,7 @@ fn wire(window: &ReaderWindow, windows: &Windows, id: u64, path: &Path) {
         let window = window.as_weak();
         move || {
             if let Some(window) = window.upgrade() {
-                window.set_banner(0);
+                show_banner(&window, Banner::None);
             }
         }
     });
@@ -485,13 +485,7 @@ fn deliver(id: u64, load: u64, event: Event) {
             if widest > window.get_longest() {
                 window.set_longest(widest);
             }
-            let model = READERS.with_borrow(|readers| {
-                readers
-                    .iter()
-                    .find(|reader| reader.id == id)
-                    .and_then(|reader| reader.lines.clone())
-            });
-            if let Some(model) = model {
+            if let Some(model) = with_reader(id, |reader| reader.lines.clone()).flatten() {
                 model.page_loaded(page, lines);
             }
         }
@@ -506,6 +500,21 @@ fn store_document(id: u64, document: Document, markdown: bool, search_rows: Vec<
         reader.stale = false;
         reader.search_rows = Arc::new(search_rows);
     });
+}
+
+/// The banners of `reader.slint`, by the code its `banner` property takes.
+#[derive(Clone, Copy)]
+enum Banner {
+    None = 0,
+    TooLarge = 1,
+    Outside = 2,
+    Deleted = 3,
+    SaveFailed = 4,
+    Lossy = 5,
+}
+
+fn show_banner(window: &ReaderWindow, banner: Banner) {
+    window.set_banner(banner as i32);
 }
 
 fn with_reader<T>(id: u64, f: impl FnOnce(&mut Reader) -> T) -> Option<T> {

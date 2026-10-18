@@ -163,13 +163,16 @@ impl Document {
         self.stamp != current
     }
 
-    pub fn set_text(&mut self, text: String) {
+    /// Replaces the text and marks the document dirty; returns whether the text changed.
+    pub fn set_text(&mut self, text: String) -> bool {
         if let Body::Text(current) = &mut self.body
             && *current != text
         {
             *current = text;
             self.dirty = true;
+            return true;
         }
+        false
     }
 
     pub fn save_bytes(&self) -> Option<Vec<u8>> {
@@ -309,9 +312,11 @@ mod tests {
         assert_eq!(preview[0], "linha 0");
         assert!(preview.last().unwrap().starts_with("linha "));
         assert!(preview.len() < 300_000);
-        let document = probed.load(&AtomicBool::new(false)).unwrap().unwrap();
+        let mut document = probed.load(&AtomicBool::new(false)).unwrap().unwrap();
         assert!(!document.editable());
         assert!(document.save_bytes().is_none());
+        assert!(!document.set_text("x".into()));
+        assert!(!document.dirty);
         let Body::Lines(index) = &document.body else {
             panic!("expected lines")
         };
@@ -328,9 +333,9 @@ mod tests {
         let file = temp("a.txt", b"um");
         let path = &file.path;
         let mut document = open(path);
-        document.set_text("um".into());
+        assert!(!document.set_text("um".into()));
         assert!(!document.dirty);
-        document.set_text("dois".into());
+        assert!(document.set_text("dois".into()));
         assert!(document.dirty);
         std::fs::write(path, b"dois").unwrap();
         let stamp = Stamp::read(path).unwrap();

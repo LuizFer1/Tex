@@ -6,15 +6,14 @@ use tex_platform::replace_file;
 use tex_reader::{Body, Stamp};
 
 use super::search::{clear_search_view, reset_search};
-use super::{Reader, build, show_built, spawn, window_of, with_reader};
+use super::{Banner, Reader, build, show_banner, show_built, spawn, window_of, with_reader};
 use crate::reader::{Outside, SaveCheck, outside_change, save_check};
 
 /// Records what the editor holds in the document, remembering that the view no longer shows it.
 fn record_text(reader: &mut Reader, text: String) {
     if let Some(document) = &mut reader.document
-        && matches!(&document.body, Body::Text(current) if *current != text)
+        && document.set_text(text)
     {
-        document.set_text(text);
         reader.stale = true;
     }
 }
@@ -54,10 +53,10 @@ pub(super) fn start_edit(id: u64) {
         Some(Some(text)) => {
             window.set_edit_original(text.clone().into());
             window.set_edit_text(text.into());
-            window.set_banner(0);
+            show_banner(&window, Banner::None);
             window.set_editing(true);
         }
-        Some(None) => window.set_banner(1),
+        Some(None) => show_banner(&window, Banner::TooLarge),
         None => {}
     }
 }
@@ -97,7 +96,8 @@ pub(super) fn finish_edit(id: u64) {
 
 enum SaveOutcome {
     Skip,
-    Ask(i32),
+    AskOutside,
+    AskLossy,
     Failed(String),
     Saved,
 }
@@ -124,8 +124,8 @@ pub(super) fn save(id: u64, overwrite: bool, lossy: bool) -> bool {
             Err(_) => false,
         };
         match save_check(changed, document.fits(), overwrite, lossy) {
-            SaveCheck::AskOutside => return SaveOutcome::Ask(2),
-            SaveCheck::AskLossy => return SaveOutcome::Ask(5),
+            SaveCheck::AskOutside => return SaveOutcome::AskOutside,
+            SaveCheck::AskLossy => return SaveOutcome::AskLossy,
             SaveCheck::Write => {}
         }
         let Some(bytes) = document.save_bytes() else {
@@ -144,13 +144,17 @@ pub(super) fn save(id: u64, overwrite: bool, lossy: bool) -> bool {
     .unwrap_or(SaveOutcome::Skip);
     match outcome {
         SaveOutcome::Skip => false,
-        SaveOutcome::Ask(banner) => {
-            window.set_banner(banner);
+        SaveOutcome::AskOutside => {
+            show_banner(&window, Banner::Outside);
+            false
+        }
+        SaveOutcome::AskLossy => {
+            show_banner(&window, Banner::Lossy);
             false
         }
         SaveOutcome::Failed(detail) => {
             window.set_banner_detail(detail.into());
-            window.set_banner(4);
+            show_banner(&window, Banner::SaveFailed);
             false
         }
         SaveOutcome::Saved => {
@@ -158,7 +162,7 @@ pub(super) fn save(id: u64, overwrite: bool, lossy: bool) -> bool {
             if window.get_editing() {
                 window.set_edit_original(window.get_edit_text());
             }
-            window.set_banner(0);
+            show_banner(&window, Banner::None);
             window.invoke_saved();
             true
         }
@@ -185,7 +189,7 @@ pub(super) fn reload(id: u64) {
     window.set_state(0);
     window.set_editing(false);
     window.set_dirty(false);
-    window.set_banner(0);
+    show_banner(&window, Banner::None);
     window.set_searching(false);
     clear_search_view(&window);
     if let Some((load, path, cancel)) = started {
@@ -216,8 +220,8 @@ pub(super) fn check_outside(id: u64) {
     .flatten();
     match verdict {
         Some(Outside::Reload) => reload(id),
-        Some(Outside::Conflict) => window.set_banner(2),
-        Some(Outside::Deleted) => window.set_banner(3),
+        Some(Outside::Conflict) => show_banner(&window, Banner::Outside),
+        Some(Outside::Deleted) => show_banner(&window, Banner::Deleted),
         Some(Outside::Nothing) | None => {}
     }
 }
