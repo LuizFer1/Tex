@@ -220,6 +220,7 @@ fn read_clip(window: HWND, wanted: &Wanted) -> Option<Clip> {
     Some(Clip {
         text,
         dib,
+        png: None,
         excluded: formats.excluded,
         history_disallowed: formats.history_disallowed,
         from_tex: formats.from_tex,

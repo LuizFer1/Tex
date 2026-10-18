@@ -11,8 +11,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tex_clipboard::{
     CaptureSettings, ClipFacts, Content, Decision, EditError, HistoryFilter, KEY_LEN, Key,
-    LastCopy, NewEntry, OpenError, Retention, Store, Summary, dib_to_rgba, encode_png, fits,
-    image_fingerprint, is_repeat, new_key, should_capture, text_fingerprint, thumbnail,
+    LastCopy, NewEntry, OpenError, Retention, Rgba, Store, Summary, decode_png, dib_to_rgba,
+    encode_png, fits, image_fingerprint, is_repeat, new_key, should_capture, text_fingerprint,
+    thumbnail,
 };
 use tex_platform::{Clip, ClipFormats, Payload, protect, unprotect};
 
@@ -328,7 +329,18 @@ fn facts_from_clip(clip: &Clip) -> ClipFacts<'_> {
         history_disallowed: clip.history_disallowed,
         owner_exe: clip.owner_exe.as_deref(),
         has_text: clip.text.as_deref().is_some_and(|text| !text.is_empty()),
-        has_image: clip.dib.as_deref().is_some_and(|dib| !dib.is_empty()),
+        has_image: [&clip.dib, &clip.png]
+            .iter()
+            .any(|image| image.as_deref().is_some_and(|bytes| !bytes.is_empty())),
+    }
+}
+
+/// The copied image as pixels: a DIB on Windows, a PNG on Linux.
+fn clip_image(clip: &Clip) -> Option<Rgba> {
+    match (&clip.dib, &clip.png) {
+        (Some(dib), _) => dib_to_rgba(dib),
+        (None, Some(png)) => decode_png(png),
+        (None, None) => None,
     }
 }
 
@@ -371,7 +383,7 @@ fn entry_from_clip(
             Some((NewEntry::Text(text), fingerprint))
         }
         Decision::Image => {
-            let image = dib_to_rgba(clip.dib.as_deref()?)?;
+            let image = clip_image(&clip)?;
             let fingerprint = image_fingerprint(&image);
             if is_repeat(last, fingerprint, now) {
                 return None;
@@ -514,7 +526,7 @@ mod tests {
     #[cfg(windows)]
     use std::fs;
 
-    use tex_clipboard::{DAY_MS, Kind, Preview, REPEAT_WINDOW_MS, Rgba, decode_png, rgba_to_dib};
+    use tex_clipboard::{DAY_MS, Kind, Preview, REPEAT_WINDOW_MS, rgba_to_dib};
     #[cfg(windows)]
     use tex_platform::protect;
 
@@ -709,6 +721,7 @@ mod tests {
         let clip = Clip {
             text: Some("hello".into()),
             dib: Some(vec![1, 2, 3]),
+            png: None,
             excluded: true,
             history_disallowed: true,
             from_tex: true,
@@ -732,6 +745,12 @@ mod tests {
         assert_eq!(facts.owner_exe, None);
         assert!(!facts.has_text);
         assert!(!facts.has_image);
+
+        let png = Clip {
+            png: Some(vec![1]),
+            ..Clip::default()
+        };
+        assert!(facts_from_clip(&png).has_image);
     }
 
     fn client(settings: ClientSettings) -> (ClipboardClient, Receiver<Command>) {
@@ -926,6 +945,39 @@ mod tests {
             panic!("image content expected");
         };
         assert_eq!(decode_png(&png), Some(image));
+    }
+
+    #[test]
+    fn captured_png_is_added_like_a_dib() {
+        let image = Rgba {
+            width: 3,
+            height: 2,
+            pixels: (0..24).collect(),
+        };
+        let clip = Clip {
+            png: Some(encode_png(&image)),
+            ..Clip::default()
+        };
+        let mut worker = worker(settings());
+        let events = run(&mut worker, Command::Captured(clip.clone()));
+        let rows = added(&events);
+        assert_eq!(rows.len(), 1);
+        assert_eq!((rows[0].width, rows[0].height), (Some(3), Some(2)));
+        let Some(Content::Image { png, .. }) = worker.store.content(rows[0].id).unwrap() else {
+            panic!("image content expected");
+        };
+        assert_eq!(decode_png(&png), Some(image));
+        assert!(run(&mut worker, Command::Captured(clip)).is_empty());
+    }
+
+    #[test]
+    fn broken_png_is_not_captured() {
+        let clip = Clip {
+            png: Some(b"not a png".to_vec()),
+            ..Clip::default()
+        };
+        let mut worker = worker(settings());
+        assert!(run(&mut worker, Command::Captured(clip)).is_empty());
     }
 
     #[test]
