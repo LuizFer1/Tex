@@ -2,6 +2,7 @@
 
 mod app;
 mod clipboard_client;
+mod frame;
 mod history;
 mod icons;
 mod onboarding;
@@ -28,7 +29,6 @@ use slint::language::ColorScheme;
 use slint::winit_030::winit::event::WindowEvent;
 use slint::winit_030::winit::platform::windows::WindowExtWindows;
 use slint::winit_030::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use slint::winit_030::winit::window::ResizeDirection;
 use slint::winit_030::{EventResult, WinitWindowAccessor};
 use slint::{
     CloseRequestResponse, ComponentHandle, Image, Model, ModelRc, PhysicalPosition, Rgba8Pixel,
@@ -550,59 +550,7 @@ fn wire_popup(popup: &Popup, windows: &Windows, client: &SearchClient) {
 }
 
 fn wire_settings(window: &SettingsWindow, windows: &Windows, client: &SearchClient) {
-    window.on_drag({
-        let weak = window.as_weak();
-        move || {
-            let Some(window) = weak.upgrade() else {
-                return;
-            };
-            let now = Instant::now();
-            if with_app(|app| app::is_double_click(app.title_pressed_at.take(), now)) {
-                toggle_maximized(&window);
-                return;
-            }
-            with_app(|app| app.title_pressed_at = Some(now));
-            window.window().with_winit_window(|window| {
-                let _ = window.drag_window();
-            });
-        }
-    });
-    window.on_resize({
-        let weak = window.as_weak();
-        move |direction| {
-            if let Some(window) = weak.upgrade() {
-                window.window().with_winit_window(|window| {
-                    let _ = window.drag_resize_window(resize_direction(direction));
-                });
-            }
-        }
-    });
-    window.on_minimize({
-        let weak = window.as_weak();
-        move || {
-            if let Some(window) = weak.upgrade() {
-                window.window().set_minimized(true);
-            }
-        }
-    });
-    window.on_toggle_maximize({
-        let weak = window.as_weak();
-        move || {
-            if let Some(window) = weak.upgrade() {
-                toggle_maximized(&window);
-            }
-        }
-    });
-    window.on_close_window({
-        let weak = window.as_weak();
-        move || {
-            if let Some(window) = weak.upgrade() {
-                window
-                    .window()
-                    .dispatch_event(slint::platform::WindowEvent::CloseRequested);
-            }
-        }
-    });
+    frame::wire_frame!(window);
     window.on_edited({
         let windows = windows.clone();
         let client = client.clone();
@@ -826,25 +774,6 @@ fn hotkey_error(result: Result<(), HotkeyError>, previous_failed: bool) -> i32 {
         Err(HotkeyError::Register) if previous_failed => 3,
         Err(HotkeyError::Register) => 1,
         Err(HotkeyError::Conflict) => 2,
-    }
-}
-
-fn toggle_maximized(window: &SettingsWindow) {
-    let maximized = !window.window().is_maximized();
-    window.window().set_maximized(maximized);
-    window.set_window_maximized(maximized);
-}
-
-fn resize_direction(direction: i32) -> ResizeDirection {
-    match direction {
-        0 => ResizeDirection::North,
-        1 => ResizeDirection::South,
-        2 => ResizeDirection::East,
-        3 => ResizeDirection::West,
-        4 => ResizeDirection::NorthEast,
-        5 => ResizeDirection::NorthWest,
-        6 => ResizeDirection::SouthEast,
-        _ => ResizeDirection::SouthWest,
     }
 }
 

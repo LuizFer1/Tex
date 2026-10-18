@@ -5,9 +5,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
-use std::time::Instant;
 
-use slint::winit_030::WinitWindowAccessor;
 use slint::{
     CloseRequestResponse, ComponentHandle, LogicalSize, Model, ModelNotify, ModelRc, ModelTracker,
     PhysicalPosition, SharedString, StyledText, VecModel,
@@ -18,7 +16,7 @@ use tex_platform::{
 };
 use tex_reader::{Body, Document, Encoding, Kind, LineIndex, LoadError, blocks, probe};
 
-use crate::app::{self, with_app};
+use crate::frame;
 use crate::reader::{
     BlockRow, CACHED_PAGES, LinkTarget, Lookup, PAGE_LINES, PageCache, block_rows, display_line,
     display_lines, encoding_index, line_count, link_target, longest, reader_size, same_file,
@@ -155,59 +153,7 @@ fn present(window: &ReaderWindow, is_new: bool) {
 }
 
 fn wire(window: &ReaderWindow, windows: &Windows, id: u64, path: &Path) {
-    window.on_drag({
-        let weak = window.as_weak();
-        move || {
-            let Some(window) = weak.upgrade() else {
-                return;
-            };
-            let now = Instant::now();
-            if with_app(|app| app::is_double_click(app.title_pressed_at.take(), now)) {
-                toggle_maximized(&window);
-                return;
-            }
-            with_app(|app| app.title_pressed_at = Some(now));
-            window.window().with_winit_window(|window| {
-                let _ = window.drag_window();
-            });
-        }
-    });
-    window.on_resize({
-        let weak = window.as_weak();
-        move |direction| {
-            if let Some(window) = weak.upgrade() {
-                window.window().with_winit_window(|window| {
-                    let _ = window.drag_resize_window(crate::resize_direction(direction));
-                });
-            }
-        }
-    });
-    window.on_minimize({
-        let weak = window.as_weak();
-        move || {
-            if let Some(window) = weak.upgrade() {
-                window.window().set_minimized(true);
-            }
-        }
-    });
-    window.on_toggle_maximize({
-        let weak = window.as_weak();
-        move || {
-            if let Some(window) = weak.upgrade() {
-                toggle_maximized(&window);
-            }
-        }
-    });
-    window.on_close_window({
-        let weak = window.as_weak();
-        move || {
-            if let Some(window) = weak.upgrade() {
-                window
-                    .window()
-                    .dispatch_event(slint::platform::WindowEvent::CloseRequested);
-            }
-        }
-    });
+    frame::wire_frame!(window);
     window.window().on_close_requested(move || {
         let _ = slint::invoke_from_event_loop(move || close(id));
         CloseRequestResponse::HideWindow
@@ -217,12 +163,6 @@ fn wire(window: &ReaderWindow, windows: &Windows, id: u64, path: &Path) {
         let file = path.to_path_buf();
         move |url| follow_link(&windows, &file, &url)
     });
-}
-
-fn toggle_maximized(window: &ReaderWindow) {
-    let maximized = !window.window().is_maximized();
-    window.window().set_maximized(maximized);
-    window.set_window_maximized(maximized);
 }
 
 fn close(id: u64) {
