@@ -126,14 +126,16 @@ pub(super) fn apply_text(id: u64, window: &ReaderWindow, text: String) -> bool {
 
 enum SaveOutcome {
     Skip,
+    Unchanged,
     AskOutside,
     AskLossy,
     Failed(String),
     Saved,
 }
 
-/// Saves the document; returns whether it was written. Asks through the banner first when the file
-/// changed outside (unless `overwrite`) or characters would be lost (unless `lossy`).
+/// Saves the document; returns whether the file now holds it. Asks through the banner first when
+/// the file changed outside or characters would be lost (unless `lossy`). `overwrite` and `lossy`
+/// confirm writing over the outside version the banner asked about (`acknowledged`), and only it.
 pub(super) fn save(id: u64, overwrite: bool, lossy: bool) -> bool {
     let Some(window) = window_of(id) else {
         return false;
@@ -148,14 +150,19 @@ pub(super) fn save(id: u64, overwrite: bool, lossy: bool) -> bool {
         };
         let current = Stamp::read(&reader.path).ok();
         if !needs_write(document.dirty, document.stamp, current) {
-            return SaveOutcome::Saved;
+            return SaveOutcome::Unchanged;
         }
-        if overwrite {
-            reader.acknowledged = current;
-        }
-        let changed = changed_outside(document.stamp, current, reader.acknowledged);
-        match save_check(changed, document.fits(), overwrite, lossy) {
-            SaveCheck::AskOutside => return SaveOutcome::AskOutside,
+        let changed = changed_outside(
+            document.stamp,
+            current,
+            reader.acknowledged,
+            overwrite || lossy,
+        );
+        match save_check(changed, document.fits(), lossy) {
+            SaveCheck::AskOutside => {
+                reader.acknowledged = current;
+                return SaveOutcome::AskOutside;
+            }
             SaveCheck::AskLossy => return SaveOutcome::AskLossy,
             SaveCheck::Write => {}
         }
@@ -177,6 +184,7 @@ pub(super) fn save(id: u64, overwrite: bool, lossy: bool) -> bool {
     .unwrap_or(SaveOutcome::Skip);
     match outcome {
         SaveOutcome::Skip => false,
+        SaveOutcome::Unchanged => true,
         SaveOutcome::AskOutside => {
             show_banner(&window, Banner::Outside);
             false
@@ -197,6 +205,11 @@ pub(super) fn save(id: u64, overwrite: bool, lossy: bool) -> bool {
             }
             show_banner(&window, Banner::None);
             window.invoke_saved();
+            let outdated = !window.get_editing()
+                && with_reader(id, |reader| reader.viewer && reader.view_outdated).unwrap_or(false);
+            if outdated {
+                reload(id);
+            }
             true
         }
     }
@@ -214,6 +227,10 @@ pub(super) fn reload(id: u64) {
         if let Some(stop) = reader.viewer_cancel.take() {
             stop.cancel();
         }
+        if let Some(stop) = reader.tool_cancel.take() {
+            stop.cancel();
+        }
+        reader.run += 1;
         reader.viewer = false;
         reader.view_outdated = false;
         reader.tools = None;
@@ -260,7 +277,11 @@ pub(super) fn check_outside(id: u64) {
             Err(_) => return None,
         };
         let savable = reader.document.is_some();
-        Some((outside_change(known, current, dirty), savable))
+        let verdict = outside_change(known, current, dirty, reader.acknowledged);
+        if verdict == Outside::Conflict {
+            reader.acknowledged = current;
+        }
+        Some((verdict, savable))
     })
     .flatten();
     match verdict {

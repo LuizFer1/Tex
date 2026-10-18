@@ -435,8 +435,8 @@ pub enum SaveCheck {
 }
 
 /// Whether a save can go ahead, or must first ask about an outside change or lost characters.
-pub fn save_check(changed_outside: bool, fits: bool, overwrite: bool, lossy: bool) -> SaveCheck {
-    if changed_outside && !overwrite {
+pub fn save_check(changed_outside: bool, fits: bool, lossy: bool) -> SaveCheck {
+    if changed_outside {
         SaveCheck::AskOutside
     } else if !fits && !lossy {
         SaveCheck::AskLossy
@@ -445,10 +445,15 @@ pub fn save_check(changed_outside: bool, fits: bool, overwrite: bool, lossy: boo
     }
 }
 
-/// Whether the file's stamp is now `current` after being `known`, unless the user already accepted
-/// overwriting that very version (`acknowledged`).
-pub fn changed_outside(known: Stamp, current: Option<Stamp>, acknowledged: Option<Stamp>) -> bool {
-    current.is_some_and(|current| current != known && acknowledged != Some(current))
+/// Whether the file's stamp is now `current` after being `known`, unless the user `confirmed`
+/// writing over the very version they were asked about (`asked`).
+pub fn changed_outside(
+    known: Stamp,
+    current: Option<Stamp>,
+    asked: Option<Stamp>,
+    confirmed: bool,
+) -> bool {
+    current.is_some_and(|current| current != known && !(confirmed && asked == Some(current)))
 }
 
 /// Whether saving must write: the document has changes, or the file is gone or not the one loaded.
@@ -464,11 +469,18 @@ pub enum Outside {
     Deleted,
 }
 
-/// What to do when the window comes back and the file's stamp is `current` (`None`: it is gone).
-pub fn outside_change(known: Stamp, current: Option<Stamp>, dirty: bool) -> Outside {
+/// What to do when the window comes back and the file's stamp is `current` (`None`: it is gone);
+/// a conflict about the version already `asked` about is not raised again.
+pub fn outside_change(
+    known: Stamp,
+    current: Option<Stamp>,
+    dirty: bool,
+    asked: Option<Stamp>,
+) -> Outside {
     match current {
         None => Outside::Deleted,
         Some(current) if current == known => Outside::Nothing,
+        Some(current) if dirty && asked == Some(current) => Outside::Nothing,
         Some(_) if dirty => Outside::Conflict,
         Some(_) => Outside::Reload,
     }
@@ -709,11 +721,11 @@ mod tests {
 
     #[test]
     fn saving_asks_before_overwriting_or_losing_characters() {
-        assert_eq!(save_check(false, true, false, false), SaveCheck::Write);
-        assert_eq!(save_check(true, true, false, false), SaveCheck::AskOutside);
-        assert_eq!(save_check(true, false, true, false), SaveCheck::AskLossy);
-        assert_eq!(save_check(true, false, true, true), SaveCheck::Write);
-        assert_eq!(save_check(false, false, false, false), SaveCheck::AskLossy);
+        assert_eq!(save_check(false, true, false), SaveCheck::Write);
+        assert_eq!(save_check(true, true, false), SaveCheck::AskOutside);
+        assert_eq!(save_check(true, true, true), SaveCheck::AskOutside);
+        assert_eq!(save_check(false, false, false), SaveCheck::AskLossy);
+        assert_eq!(save_check(false, false, true), SaveCheck::Write);
     }
 
     #[test]
@@ -726,10 +738,40 @@ mod tests {
             modified: None,
             len: 4,
         };
-        assert_eq!(outside_change(known, Some(known), false), Outside::Nothing);
-        assert_eq!(outside_change(known, Some(other), false), Outside::Reload);
-        assert_eq!(outside_change(known, Some(other), true), Outside::Conflict);
-        assert_eq!(outside_change(known, None, false), Outside::Deleted);
+        assert_eq!(
+            outside_change(known, Some(known), false, None),
+            Outside::Nothing
+        );
+        assert_eq!(
+            outside_change(known, Some(other), false, None),
+            Outside::Reload
+        );
+        assert_eq!(
+            outside_change(known, Some(other), true, None),
+            Outside::Conflict
+        );
+        assert_eq!(outside_change(known, None, false, None), Outside::Deleted);
+    }
+
+    #[test]
+    fn a_conflict_already_shown_is_not_shown_again() {
+        let (known, other, third) = (stamp(3), stamp(4), stamp(5));
+        assert_eq!(
+            outside_change(known, Some(other), true, Some(other)),
+            Outside::Nothing
+        );
+        assert_eq!(
+            outside_change(known, Some(third), true, Some(other)),
+            Outside::Conflict
+        );
+        assert_eq!(
+            outside_change(known, Some(other), false, Some(other)),
+            Outside::Reload
+        );
+        assert_eq!(
+            outside_change(known, None, true, Some(other)),
+            Outside::Deleted
+        );
     }
 
     fn stamp(len: u64) -> Stamp {
@@ -740,13 +782,15 @@ mod tests {
     }
 
     #[test]
-    fn an_acknowledged_outside_change_is_not_asked_again() {
+    fn only_a_confirmed_save_writes_over_the_version_that_was_shown() {
         let (known, other, third) = (stamp(3), stamp(4), stamp(5));
-        assert!(!changed_outside(known, Some(known), None));
-        assert!(changed_outside(known, Some(other), None));
-        assert!(!changed_outside(known, Some(other), Some(other)));
-        assert!(changed_outside(known, Some(third), Some(other)));
-        assert!(!changed_outside(known, None, None));
+        assert!(!changed_outside(known, Some(known), None, false));
+        assert!(changed_outside(known, Some(other), None, false));
+        assert!(changed_outside(known, Some(other), None, true));
+        assert!(changed_outside(known, Some(other), Some(other), false));
+        assert!(!changed_outside(known, Some(other), Some(other), true));
+        assert!(changed_outside(known, Some(third), Some(other), true));
+        assert!(!changed_outside(known, None, None, false));
     }
 
     #[test]
