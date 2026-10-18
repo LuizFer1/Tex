@@ -1029,6 +1029,7 @@ fn apply_design(tokens: &Tokens<'_>, artwork: &Artwork<'_>, design: &Design, dar
     tokens.set_close_hover(rgb(c.close_hover));
     tokens.set_close_hover_ink(rgb(c.close_hover_ink));
     tokens.set_action_tint(rgb(c.action_tint));
+    tokens.set_window_ring(rgb(c.window_ring));
     let shadow = rgb(c.shadow);
     tokens.set_shadow(slint::Color::from_argb_u8(
         46,

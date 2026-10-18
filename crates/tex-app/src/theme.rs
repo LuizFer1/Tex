@@ -49,6 +49,7 @@ pub struct Colors {
     pub close_hover_ink: u32,
     pub action_tint: u32,
     pub shadow: u32,
+    pub window_ring: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -135,6 +136,7 @@ pub const MASCOT: Design = Design {
         close_hover_ink: 0xFFFFFF,
         action_tint: 0xE6F2DC,
         shadow: 0x000000,
+        window_ring: 0x2E9E3F,
     },
     dark: Colors {
         action: 0x2E9E3F,
@@ -174,6 +176,7 @@ pub const MASCOT: Design = Design {
         close_hover_ink: 0xFFFFFF,
         action_tint: 0x243A22,
         shadow: 0x000000,
+        window_ring: 0x4A3F2A,
     },
     shape: Shape {
         radius_control: 3.0,
@@ -237,6 +240,12 @@ mod tests {
         assert_eq!(MASCOT.typography.size_hero, 26.0);
         assert_eq!(MASCOT.typography.size_question, 22.0);
         assert_eq!(MASCOT.typography.size_badge, 10.0);
+    }
+
+    #[test]
+    fn the_window_ring_is_green_only_in_light() {
+        assert_eq!(MASCOT.light.window_ring, MASCOT.light.action);
+        assert_eq!(MASCOT.dark.window_ring, MASCOT.dark.border);
     }
 
     #[test]
