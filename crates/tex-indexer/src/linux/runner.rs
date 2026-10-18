@@ -8,37 +8,46 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use tex_index::{DenseIds, Record, SnapshotError, SnapshotHeader, Viewer, VolumeIndex};
-use tex_ipc::{Request, Response, VolumeState};
+use tex_ipc::{PasteOutcome, Request, Response, VolumeState};
 
 use crate::desktop::{SYSTEM_APP_DIRS, is_app_folder, user_app_dirs};
 use crate::engine::{Engine, Handler, Volume};
 use crate::events::ITSELF;
 use crate::linux::apps::{home_of, read_apps};
 use crate::linux::disk;
+use crate::linux::keyboard::Keyboard;
 use crate::linux::watch::{Batch, Watcher};
 use crate::log::log;
 use crate::mounts::{Mount, boundaries, indexable, parse_mountinfo, volume_key};
+use crate::paste::{SEAT0, active_uid, may_paste};
 use crate::store;
 use crate::tree::{self, Node};
 
 const SAVE_EVERY: Duration = Duration::from_secs(10 * 60);
 
 /// Indexes every local file system: a thread per volume loads its snapshot, scans it and then
-/// applies the watcher's changes.
+/// applies the watcher's changes. Also presses Ctrl+V for the active user when asked.
 pub struct Runner {
     engine: Arc<Engine>,
     index_dir: PathBuf,
     watcher: Option<Watcher>,
+    keyboard: Option<Mutex<Keyboard>>,
     homes: Mutex<HashMap<u32, String>>,
     me: Weak<Runner>,
 }
 
 impl Runner {
-    pub fn new(engine: Arc<Engine>, index_dir: PathBuf, watcher: Option<Watcher>) -> Arc<Self> {
+    pub fn new(
+        engine: Arc<Engine>,
+        index_dir: PathBuf,
+        watcher: Option<Watcher>,
+        keyboard: Option<Keyboard>,
+    ) -> Arc<Self> {
         Arc::new_cyclic(|me| Self {
             engine,
             index_dir,
             watcher,
+            keyboard: keyboard.map(Mutex::new),
             homes: Mutex::new(HashMap::new()),
             me: me.clone(),
         })
@@ -317,6 +326,30 @@ impl Runner {
         }
     }
 
+    /// Presses Ctrl+V when `uid` is the user of the active session of seat0.
+    fn paste(&self, uid: u32) -> PasteOutcome {
+        let Some(keyboard) = &self.keyboard else {
+            return PasteOutcome::Unavailable;
+        };
+        let active = fs::read_to_string(SEAT0)
+            .ok()
+            .and_then(|text| active_uid(&text));
+        if !may_paste(uid, active) {
+            log(format!(
+                "paste refused: uid {uid} is not the active user ({active:?})"
+            ));
+            return PasteOutcome::Refused;
+        }
+        let keyboard = keyboard.lock().unwrap_or_else(|e| e.into_inner());
+        match keyboard.paste() {
+            Ok(()) => PasteOutcome::Sent,
+            Err(error) => {
+                log(format!("paste failed ({error})"));
+                PasteOutcome::Unavailable
+            }
+        }
+    }
+
     fn load(&self, volume: &Volume) -> Option<VolumeIndex> {
         match store::load(&self.index_dir, volume.serial) {
             Ok((index, header))
@@ -357,7 +390,8 @@ impl Handler for Runner {
         self.handle_as(request, None)
     }
 
-    /// Answers as `viewer`, with that user's home (from the user database) and apps.
+    /// Answers as `viewer` (`None` is root), with that user's home (from the user database)
+    /// and apps; `Paste` types only for the active user.
     fn handle_as(&self, request: Request, viewer: Option<&Viewer>) -> Response {
         match request {
             Request::Status => {
@@ -370,7 +404,7 @@ impl Handler for Runner {
                 }
                 self.engine.handle_as(Request::Search(query), viewer)
             }
-            Request::Paste => self.engine.handle_as(Request::Paste, viewer),
+            Request::Paste => Response::Paste(self.paste(viewer.map_or(0, |viewer| viewer.uid))),
         }
     }
 }

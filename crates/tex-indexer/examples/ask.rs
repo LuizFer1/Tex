@@ -1,7 +1,8 @@
-//! Development tool: asks the search service for its status, or searches as the current user.
-//! Debug builds use `TEX_INDEXER_SOCKET` when set. `--wait N` waits up to N seconds for the
-//! socket and for every volume to finish indexing.
-//! Usage: cargo run -p tex-indexer --example ask -- [--wait 60] [query]
+//! Development tool: asks the search service for its status, searches as the current user, or
+//! asks it to press Ctrl+V for the current user (`--paste`: prints Sent, Refused or
+//! Unavailable). Debug builds use `TEX_INDEXER_SOCKET` when set. `--wait N` waits up to N
+//! seconds for the socket (and, for status and search, for every volume to finish indexing).
+//! Usage: cargo run -p tex-indexer --example ask -- [--wait 60] [--paste | query]
 
 #[cfg(unix)]
 fn main() {
@@ -29,6 +30,21 @@ fn main() {
         write_message(&mut &stream, request)?;
         read_message(&mut &stream)
     };
+    if args.first().map(String::as_str) == Some("--paste") {
+        loop {
+            match ask(&Request::Paste) {
+                Ok(Response::Paste(outcome)) => {
+                    println!("{outcome:?}");
+                    return;
+                }
+                Err(_) if Instant::now() < deadline => thread::sleep(Duration::from_millis(500)),
+                other => {
+                    eprintln!("ask: unexpected answer {other:?}");
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
     let volumes = loop {
         match ask(&Request::Status) {
             Ok(Response::Status(volumes))

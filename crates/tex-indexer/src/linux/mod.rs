@@ -14,6 +14,7 @@ use std::thread;
 
 use crate::engine::Engine;
 use crate::log::{self, Logger, log};
+use keyboard::Keyboard;
 use runner::Runner;
 use watch::Watcher;
 
@@ -28,8 +29,8 @@ pub fn data_dir() -> PathBuf {
     PathBuf::from("/var/lib/tex")
 }
 
-/// Creates the private data folder, starts the log, reads the apps and begins indexing every
-/// local file system.
+/// Creates the private data folder, starts the log, reads the apps, begins indexing every
+/// local file system and creates the virtual keyboard for automatic paste (root only).
 pub fn start(echo_log: bool) -> io::Result<Arc<Runner>> {
     let data = data_dir();
     fs::create_dir_all(&data)?;
@@ -44,7 +45,17 @@ pub fn start(echo_log: bool) -> io::Result<Arc<Runner>> {
             None
         }
     };
-    let runner = Runner::new(Arc::new(Engine::new()), index_dir, watcher);
+    let keyboard = match Keyboard::create() {
+        Ok(keyboard) => {
+            log("virtual keyboard ready for automatic paste");
+            Some(keyboard)
+        }
+        Err(error) => {
+            log(format!("automatic paste unavailable ({error})"));
+            None
+        }
+    };
+    let runner = Runner::new(Arc::new(Engine::new()), index_dir, watcher, keyboard);
     runner.reload_apps();
     runner.discover();
     Ok(runner)
