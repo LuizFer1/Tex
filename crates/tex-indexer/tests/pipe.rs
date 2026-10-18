@@ -7,7 +7,9 @@ use std::time::Duration;
 
 use tex_indexer::engine::Handler;
 use tex_indexer::{account, pipe};
-use tex_ipc::{Filter, Request, Response, Results, SearchQuery, read_message, write_message};
+use tex_ipc::{
+    Filter, PasteOutcome, Request, Response, Results, SearchQuery, read_message, write_message,
+};
 
 struct Fixed;
 
@@ -20,6 +22,7 @@ impl Handler for Fixed {
                 total: 7,
             }),
             Request::Status => Response::Status(Vec::new()),
+            Request::Paste => Response::Paste(PasteOutcome::Unavailable),
         }
     }
 }

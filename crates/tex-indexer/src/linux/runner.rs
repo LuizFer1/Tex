@@ -370,6 +370,7 @@ impl Handler for Runner {
                 }
                 self.engine.handle_as(Request::Search(query), viewer)
             }
+            Request::Paste => self.engine.handle_as(Request::Paste, viewer),
         }
     }
 }
