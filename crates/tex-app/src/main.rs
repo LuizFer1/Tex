@@ -1265,7 +1265,7 @@ fn refresh_onboarding(windows: &Windows) {
         (
             app.shortcut(),
             app.history_shortcut(),
-            onboarding.windows_key(&app.settings),
+            app.settings.general.windows_key,
         )
     });
     window.set_step(onboarding.step as i32);
@@ -1283,14 +1283,12 @@ fn onboarding_select(windows: &Windows, option: i32) {
     let Ok(option) = usize::try_from(option) else {
         return;
     };
-    if with_onboarding(|onboarding| onboarding.select(option)) == Some(true) {
-        let saved = with_app(|app| app.settings.general.theme);
-        let preview = ONBOARDING.with_borrow(|onboarding| {
-            onboarding
-                .as_ref()
-                .map(|onboarding| onboarding.theme(saved))
-        });
-        with_app(|app| app.theme_preview = preview);
+    let saved = with_app(|app| app.settings.general.theme);
+    let preview =
+        with_onboarding(|onboarding| onboarding.select(option).then(|| onboarding.theme(saved)))
+            .flatten();
+    if let Some(theme) = preview {
+        with_app(|app| app.theme_preview = Some(theme));
         apply_theme(windows);
     }
     refresh_onboarding(windows);

@@ -3,7 +3,6 @@ use crate::settings::{Cleanup, EnterAction, OnPick, Settings, Theme};
 pub const QUESTIONS: usize = 9;
 pub const DONE: usize = QUESTIONS + 1;
 const THEME: usize = 0;
-const WINDOWS_KEY: usize = 1;
 const WEEK_DAYS: u32 = 7;
 const LIMIT_MB: u32 = 1024;
 
@@ -84,11 +83,6 @@ impl Onboarding {
         concluded
     }
 
-    #[cfg(test)]
-    pub fn is_done(&self) -> bool {
-        self.step == DONE
-    }
-
     pub fn progress(&self) -> f32 {
         self.step.min(QUESTIONS) as f32 / QUESTIONS as f32
     }
@@ -100,11 +94,6 @@ impl Onboarding {
             Some(_) => Theme::Dark,
             None => saved,
         }
-    }
-
-    /// Whether the Windows key opens Tex once the answers are applied over `settings`.
-    pub fn windows_key(&self, settings: &Settings) -> bool {
-        self.answers[WINDOWS_KEY].map_or(settings.general.windows_key, |option| option == 0)
     }
 
     /// Writes the answered questions over `settings` and marks the onboarding done.
@@ -212,11 +201,11 @@ mod tests {
             assert_eq!(onboarding.step, step);
         }
         assert_eq!(onboarding.next(), Outcome::Concluded);
-        assert!(onboarding.is_done());
+        assert_eq!(onboarding.step, DONE);
         onboarding.back();
-        assert!(onboarding.is_done());
+        assert_eq!(onboarding.step, DONE);
         assert_eq!(onboarding.next(), Outcome::OpenSearch);
-        assert!(onboarding.is_done());
+        assert_eq!(onboarding.step, DONE);
     }
 
     #[test]
@@ -248,7 +237,7 @@ mod tests {
         let mut onboarding = at_step(3);
         onboarding.select(1);
         assert!(onboarding.skip());
-        assert!(onboarding.is_done());
+        assert_eq!(onboarding.step, DONE);
         assert_eq!(onboarding.answers[2], Some(1));
         assert!(!onboarding.skip());
     }
@@ -318,14 +307,5 @@ mod tests {
         assert_eq!(Onboarding::new(&settings, true).answers[8], None);
         settings.clipboard.cleanup_limit_mb = 1024;
         assert_eq!(Onboarding::new(&settings, true).answers[8], Some(1));
-    }
-
-    #[test]
-    fn windows_key_follows_the_answer() {
-        let settings = Settings::default();
-        let mut onboarding = at_step(2);
-        assert!(onboarding.windows_key(&settings));
-        onboarding.select(1);
-        assert!(!onboarding.windows_key(&settings));
     }
 }
