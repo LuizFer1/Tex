@@ -48,6 +48,7 @@ struct Reader {
     document: Option<Document>,
     index: Option<Arc<LineIndex>>,
     stamp: Option<Stamp>,
+    acknowledged: Option<Stamp>,
     markdown: bool,
     stale: bool,
     search_rows: Arc<Vec<String>>,
@@ -157,6 +158,7 @@ fn create(windows: &Windows, path: &Path) -> Option<ReaderWindow> {
             document: None,
             index: None,
             stamp: None,
+            acknowledged: None,
             markdown: false,
             stale: false,
             search_rows: Arc::new(Vec::new()),
@@ -227,7 +229,7 @@ fn wire(window: &ReaderWindow, windows: &Windows, id: u64, path: &Path) {
                 _ => reload(id),
             },
             3 => {
-                save(id, true, true);
+                save(id, false, true);
             }
             _ => {}
         }
@@ -523,6 +525,7 @@ enum Banner {
     Deleted = 3,
     SaveFailed = 4,
     Lossy = 5,
+    Gone = 6,
 }
 
 fn show_banner(window: &ReaderWindow, banner: Banner) {

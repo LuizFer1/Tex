@@ -171,7 +171,8 @@ export component ReaderWindow inherits Window {
     in-out property <bool> editing;
     in-out property <string> edit-text;
     in-out property <string> edit-original;
-    // 0 none, 1 too large to edit, 2 changed outside, 3 deleted, 4 save failed, 5 characters would be lost
+    // 0 none, 1 too large to edit, 2 changed outside, 3 deleted (Ctrl+S recreates it), 4 save failed,
+    // 5 characters would be lost, 6 deleted (read-only file)
     in property <int> banner;
     in property <string> banner-detail;
     in-out property <bool> asking-close;
@@ -430,7 +431,7 @@ export component ReaderWindow inherits Window {
                         padding-left: 16px;
                         spacing: 8px;
                         Text {
-                            text: root.banner == 1 ? @tr("This file is too large to edit in Tex (more than {0} KB).", 128) : root.banner == 2 ? @tr("The file changed outside Tex.") : root.banner == 3 ? @tr("The file no longer exists. Ctrl+S saves it again.") : root.banner == 4 ? @tr("Could not save: {0}", root.banner-detail) : @tr("Some characters cannot be kept in {0}. They will be replaced.", root.encoding-name);
+                            text: root.banner == 1 ? @tr("This file is too large to edit in Tex (more than {0} KB).", 128) : root.banner == 2 ? @tr("The file changed outside Tex.") : root.banner == 3 ? @tr("The file no longer exists. Ctrl+S saves it again.") : root.banner == 4 ? @tr("Could not save: {0}", root.banner-detail) : root.banner == 6 ? @tr("The file no longer exists.") : @tr("Some characters cannot be kept in {0}. They will be replaced.", root.encoding-name);
                             color: Tokens.banner-ink;
                             font-size: Tokens.size-label;
                             wrap: word-wrap;

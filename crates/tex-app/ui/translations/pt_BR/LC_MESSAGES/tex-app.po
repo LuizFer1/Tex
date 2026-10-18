@@ -776,3 +776,6 @@ msgstr "esc fechar · ctrl e editar · ctrl f buscar · alt z quebrar linhas"
 
 msgid "Reload and discard the changes to {0}?"
 msgstr "Recarregar e descartar as mudanças em {0}?"
+
+msgid "The file no longer exists."
+msgstr "O arquivo não existe mais."

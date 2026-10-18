@@ -445,6 +445,17 @@ pub fn save_check(changed_outside: bool, fits: bool, overwrite: bool, lossy: boo
     }
 }
 
+/// Whether the file's stamp is now `current` after being `known`, unless the user already accepted
+/// overwriting that very version (`acknowledged`).
+pub fn changed_outside(known: Stamp, current: Option<Stamp>, acknowledged: Option<Stamp>) -> bool {
+    current.is_some_and(|current| current != known && acknowledged != Some(current))
+}
+
+/// Whether saving must write: the document has changes, or the file is gone or not the one loaded.
+pub fn needs_write(dirty: bool, known: Stamp, current: Option<Stamp>) -> bool {
+    dirty || current != Some(known)
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Outside {
     Nothing,
@@ -719,5 +730,31 @@ mod tests {
         assert_eq!(outside_change(known, Some(other), false), Outside::Reload);
         assert_eq!(outside_change(known, Some(other), true), Outside::Conflict);
         assert_eq!(outside_change(known, None, false), Outside::Deleted);
+    }
+
+    fn stamp(len: u64) -> Stamp {
+        Stamp {
+            modified: None,
+            len,
+        }
+    }
+
+    #[test]
+    fn an_acknowledged_outside_change_is_not_asked_again() {
+        let (known, other, third) = (stamp(3), stamp(4), stamp(5));
+        assert!(!changed_outside(known, Some(known), None));
+        assert!(changed_outside(known, Some(other), None));
+        assert!(!changed_outside(known, Some(other), Some(other)));
+        assert!(changed_outside(known, Some(third), Some(other)));
+        assert!(!changed_outside(known, None, None));
+    }
+
+    #[test]
+    fn a_clean_document_of_an_unchanged_file_is_not_written() {
+        let (known, other) = (stamp(3), stamp(4));
+        assert!(!needs_write(false, known, Some(known)));
+        assert!(needs_write(true, known, Some(known)));
+        assert!(needs_write(false, known, Some(other)));
+        assert!(needs_write(false, known, None));
     }
 }

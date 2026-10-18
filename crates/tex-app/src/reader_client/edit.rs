@@ -8,7 +8,7 @@ use tex_reader::{Body, Stamp};
 use super::search::{clear_search_view, reset_search};
 use super::{Banner, Reader, build, show_banner, show_built, spawn, window_of, with_reader};
 use crate::ReaderWindow;
-use crate::reader::{Outside, SaveCheck, outside_change, save_check};
+use crate::reader::{Outside, SaveCheck, changed_outside, needs_write, outside_change, save_check};
 
 /// Records what the editor holds in the document, remembering that the view no longer shows it.
 fn record_text(reader: &mut Reader, text: String) {
@@ -116,10 +116,14 @@ pub(super) fn save(id: u64, overwrite: bool, lossy: bool) -> bool {
         let Some(document) = reader.document.as_mut() else {
             return SaveOutcome::Skip;
         };
-        let changed = match Stamp::read(&reader.path) {
-            Ok(stamp) => document.changed(stamp),
-            Err(_) => false,
-        };
+        let current = Stamp::read(&reader.path).ok();
+        if !needs_write(document.dirty, document.stamp, current) {
+            return SaveOutcome::Saved;
+        }
+        if overwrite {
+            reader.acknowledged = current;
+        }
+        let changed = changed_outside(document.stamp, current, reader.acknowledged);
         match save_check(changed, document.fits(), overwrite, lossy) {
             SaveCheck::AskOutside => return SaveOutcome::AskOutside,
             SaveCheck::AskLossy => return SaveOutcome::AskLossy,
@@ -134,6 +138,7 @@ pub(super) fn save(id: u64, overwrite: bool, lossy: bool) -> bool {
                 let stamp = Stamp::read(&reader.path).unwrap_or(document.stamp);
                 document.saved(stamp);
                 reader.stamp = Some(stamp);
+                reader.acknowledged = None;
                 SaveOutcome::Saved
             }
         }
@@ -179,6 +184,7 @@ pub(super) fn reload(id: u64) {
         reader.index = None;
         reader.lines = None;
         reader.stamp = None;
+        reader.acknowledged = None;
         reader.search_rows = Arc::new(Vec::new());
         reset_search(reader);
         (reader.load, reader.path.clone(), reader.cancel.clone())
@@ -208,13 +214,15 @@ pub(super) fn check_outside(id: u64) {
             Err(error) if error.kind() == ErrorKind::NotFound => None,
             Err(_) => return None,
         };
-        Some(outside_change(known, current, dirty))
+        let savable = reader.document.is_some();
+        Some((outside_change(known, current, dirty), savable))
     })
     .flatten();
     match verdict {
-        Some(Outside::Reload) => reload(id),
-        Some(Outside::Conflict) => show_banner(&window, Banner::Outside),
-        Some(Outside::Deleted) => show_banner(&window, Banner::Deleted),
-        Some(Outside::Nothing) | None => {}
+        Some((Outside::Reload, _)) => reload(id),
+        Some((Outside::Conflict, _)) => show_banner(&window, Banner::Outside),
+        Some((Outside::Deleted, true)) => show_banner(&window, Banner::Deleted),
+        Some((Outside::Deleted, false)) => show_banner(&window, Banner::Gone),
+        Some((Outside::Nothing, _)) | None => {}
     }
 }
