@@ -8,3 +8,5 @@ publish.workspace = true
 
 [dependencies]
 pulldown-cmark.workspace = true
+serde.workspace = true
+toml.workspace = true

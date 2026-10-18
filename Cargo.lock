@@ -4682,6 +4682,8 @@ name = "tex-reader"
 version = "0.4.2"
 dependencies = [
  "pulldown-cmark",
+ "serde",
+ "toml",
 ]
 
 [[package]]
