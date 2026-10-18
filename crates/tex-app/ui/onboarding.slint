@@ -1,0 +1,704 @@
+import { Tokens } from "theme.slint";
+import { FocusRing, Icon, Icons, Keycap, OptionCard, TitleButton } from "kit/kit.slint";
+
+struct OnboardingChoice {
+    label: string,
+    // 0 icon, 1 light theme, 2 dark theme, 3 shortcut or Win, 4 shortcut only, 5 paste keys
+    preview: int,
+    icon: image,
+}
+
+struct OnboardingQuestion {
+    tab: string,
+    title: string,
+    hint: string,
+    first: OnboardingChoice,
+    second: OnboardingChoice,
+}
+
+component KeySeparator inherits HorizontalLayout {
+    in property <string> text;
+    padding-left: 4px;
+    padding-right: 4px;
+    Text {
+        text: root.text;
+        font-family: Tokens.mono-font;
+        font-size: Tokens.size-path;
+        font-weight: 500;
+        color: Tokens.muted;
+        vertical-alignment: center;
+    }
+}
+
+component ThemePreview inherits VerticalLayout {
+    in property <bool> dark;
+
+    property <color> box: root.dark ? Tokens.preview-dark-box : Tokens.preview-light-box;
+    property <color> ink: root.dark ? Tokens.preview-dark-ink : Tokens.preview-light-ink;
+    property <color> line: root.dark ? Tokens.preview-dark-line : Tokens.preview-light-line;
+
+    width: 150px;
+
+    HorizontalLayout {
+        alignment: start;
+        Rectangle {
+            width: 46px;
+            height: 10px;
+            background: Tokens.action;
+            border-top-left-radius: 3px;
+            border-top-right-radius: 3px;
+        }
+    }
+    Rectangle {
+        background: root.box;
+        border-width: 1px;
+        border-color: Tokens.action;
+        border-top-left-radius: 0px;
+        border-top-right-radius: 4px;
+        border-bottom-left-radius: 4px;
+        border-bottom-right-radius: 4px;
+        drop-shadow-offset-y: 6px;
+        drop-shadow-blur: 14px;
+        drop-shadow-color: Tokens.shadow;
+        VerticalLayout {
+            padding: 8px;
+            spacing: 5px;
+            HorizontalLayout {
+                alignment: start;
+                Rectangle {
+                    width: 79px;
+                    height: 7px;
+                    border-radius: 1px;
+                    background: root.ink;
+                }
+            }
+            Rectangle {
+                height: 12px;
+                border-radius: 2px;
+                background: Tokens.action;
+            }
+            HorizontalLayout {
+                alignment: start;
+                Rectangle {
+                    width: 106px;
+                    height: 7px;
+                    border-radius: 1px;
+                    background: root.line;
+                }
+            }
+            HorizontalLayout {
+                alignment: start;
+                Rectangle {
+                    width: 92px;
+                    height: 7px;
+                    border-radius: 1px;
+                    background: root.line;
+                }
+            }
+        }
+    }
+}
+
+component ChoicePreview inherits Rectangle {
+    in property <OnboardingChoice> choice;
+    in property <bool> selected;
+    in property <[string]> hotkey-keys;
+    in property <string> or-text;
+
+    VerticalLayout {
+        alignment: center;
+        HorizontalLayout {
+            alignment: center;
+            spacing: 6px;
+            if root.choice.preview == 0: Icon {
+                width: 44px;
+                height: 44px;
+                source: root.choice.icon;
+                tint: root.selected ? Tokens.action : Tokens.ink-2;
+            }
+            if root.choice.preview == 1 || root.choice.preview == 2: ThemePreview {
+                dark: root.choice.preview == 2;
+            }
+            if root.choice.preview == 3 || root.choice.preview == 4: HorizontalLayout {
+                spacing: 6px;
+                for key in root.hotkey-keys: Keycap {
+                    text: key;
+                    large: true;
+                }
+                if root.choice.preview == 3: KeySeparator {
+                    text: root.or-text;
+                }
+                if root.choice.preview == 3: Keycap {
+                    text: "Win";
+                    large: true;
+                }
+            }
+            if root.choice.preview == 5: HorizontalLayout {
+                spacing: 6px;
+                Keycap {
+                    text: "↵";
+                    large: true;
+                }
+                KeySeparator {
+                    text: "→";
+                }
+                Keycap {
+                    text: "Ctrl";
+                    large: true;
+                }
+                Keycap {
+                    text: "V";
+                    large: true;
+                }
+            }
+        }
+    }
+}
+
+component StepButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    callback clicked();
+
+    property <bool> keyboard;
+    property <color> fill: touch.has-hover ? Tokens.action-strong : Tokens.action;
+
+    height: 34px;
+    min-width: content.min-width;
+    horizontal-stretch: 0;
+    border-radius: Tokens.radius-control;
+    border-width: Tokens.border-strong;
+    border-color: root.primary ? root.fill : Tokens.ink;
+    background: root.primary ? root.fill : touch.has-hover ? Tokens.border-2 : transparent;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => {
+        root.clicked();
+    }
+
+    content := HorizontalLayout {
+        padding-left: root.primary ? 16px : 14px;
+        padding-right: root.primary ? 16px : 14px;
+        spacing: 10px;
+        alignment: center;
+        Text {
+            text: root.text;
+            font-size: Tokens.size-body;
+            font-weight: root.primary ? 600 : 500;
+            color: root.primary ? Tokens.on-action : Tokens.ink;
+            vertical-alignment: center;
+        }
+        if root.primary: Text {
+            text: "↵";
+            font-family: Tokens.mono-font;
+            font-size: Tokens.size-kicker;
+            font-weight: 500;
+            color: Tokens.highlight;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    focus := FocusScope {
+        focus-on-click: false;
+        key-pressed(event) => {
+            if event.text == " " || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+        focus-gained(reason) => {
+            root.keyboard = reason == FocusReason.tab-navigation;
+        }
+    }
+
+    FocusRing {
+        show: focus.has-focus && root.keyboard;
+    }
+}
+
+component FooterLink inherits Rectangle {
+    in property <string> text;
+    callback clicked();
+
+    property <bool> keyboard;
+
+    height: 34px;
+    horizontal-stretch: 0;
+    min-width: label.preferred-width;
+    preferred-width: label.preferred-width;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => {
+        root.clicked();
+    }
+
+    label := Text {
+        text: root.text;
+        font-size: Tokens.size-body;
+        font-weight: 500;
+        color: touch.has-hover ? Tokens.ink : Tokens.ink-2;
+        vertical-alignment: center;
+    }
+    Rectangle {
+        y: parent.height / 2 + Tokens.size-body / 2 + 2px;
+        height: 1px;
+        background: Tokens.control-off-2;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    focus := FocusScope {
+        focus-on-click: false;
+        key-pressed(event) => {
+            if event.text == " " || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+        focus-gained(reason) => {
+            root.keyboard = reason == FocusReason.tab-navigation;
+        }
+    }
+
+    FocusRing {
+        show: focus.has-focus && root.keyboard;
+    }
+}
+
+export component OnboardingWindow inherits Window {
+    title: @tr("Welcome to Tex");
+    icon: Tokens.app-icon;
+    no-frame: true;
+    width: 640px;
+    height: 480px;
+    background: Tokens.paper;
+    default-font-family: Tokens.ui-font;
+    forward-focus: keys;
+
+    // 0 welcome, 1 to 9 questions, 10 all set
+    in property <int> step;
+    // -1 none, 0 first option, 1 second option
+    in property <int> selected: -1;
+    in property <bool> upgrade;
+    in property <float> progress;
+    in property <string> hotkey-text;
+    in property <[string]> hotkey-keys;
+    in property <string> history-hotkey-text;
+    in property <bool> done-win;
+
+    callback select(int);
+    callback next();
+    callback back();
+    callback skip();
+    callback close-window();
+    callback drag();
+
+    property <int> question-count: 9;
+    property <bool> is-question: root.step >= 1 && root.step <= root.question-count;
+    property <bool> is-done: root.step > root.question-count;
+    property <string> or-text: @tr("or");
+    property <length> card-width: (root.width - 2 * Tokens.border-control - 72px - 14px) / 2;
+    property <[OnboardingQuestion]> questions: [
+        {
+            tab: @tr("General"),
+            title: @tr("Light or dark?"),
+            hint: @tr("Following the system is also available in Settings › General."),
+            first: { label: @tr("Light"), preview: 1 },
+            second: { label: @tr("Dark"), preview: 2 },
+        },
+        {
+            tab: @tr("General"),
+            title: @tr("Also open search with the Windows key?"),
+            hint: @tr("{0} always works. Win + other keys keep working as usual.", root.hotkey-text),
+            first: { label: @tr("Yes, {0} or Win", root.hotkey-text), preview: 3 },
+            second: { label: @tr("Only {0}", root.hotkey-text), preview: 4 },
+        },
+        {
+            tab: @tr("General"),
+            title: @tr("Open Tex when Windows starts?"),
+            hint: @tr("I stay in the tray, with no window, waiting for the shortcut."),
+            first: { label: @tr("Yes, start with Windows"), preview: 0, icon: Icons.power },
+            second: { label: @tr("No, I'll open it when I need it"), preview: 0, icon: Icons.hand-pointing },
+        },
+        {
+            tab: @tr("General"),
+            title: @tr("Check for updates automatically?"),
+            hint: @tr("It only asks Tex's GitHub. Nothing about you is sent."),
+            first: { label: @tr("Yes, keep me up to date"), preview: 0, icon: Icons.arrows-clockwise },
+            second: { label: @tr("No, I'll check when I want"), preview: 0, icon: Icons.bell-slash },
+        },
+        {
+            tab: @tr("Search"),
+            title: @tr("What does Enter do on a result?"),
+            hint: @tr("Ctrl+Enter does the other action."),
+            first: { label: @tr("Open the item"), preview: 0, icon: Icons.arrow-square-out },
+            second: { label: @tr("Show in Explorer"), preview: 0, icon: Icons.folder-open },
+        },
+        {
+            tab: @tr("Search"),
+            title: @tr("Include hidden files and folders?"),
+            hint: @tr("System files stay out either way."),
+            first: { label: @tr("Include hidden"), preview: 0, icon: Icons.eye },
+            second: { label: @tr("Only what is visible"), preview: 0, icon: Icons.eye-slash },
+        },
+        {
+            tab: @tr("Clipboard"),
+            title: @tr("Can I keep what you copy?"),
+            hint: @tr("It stays on this computer only. Open the history with {0}.", root.history-hotkey-text),
+            first: { label: @tr("Yes, keep it"), preview: 0, icon: Icons.clipboard-text },
+            second: { label: @tr("Leave it paused"), preview: 0, icon: Icons.pause-circle },
+        },
+        {
+            tab: @tr("Clipboard"),
+            title: @tr("When you pick a history item…"),
+            hint: @tr("Applies to Enter and click. Ctrl+Enter does the other action."),
+            first: { label: @tr("Copy only"), preview: 0, icon: Icons.copy-duotone },
+            second: { label: @tr("Copy and paste"), preview: 5 },
+        },
+        {
+            tab: @tr("Clipboard"),
+            title: @tr("When should old history be deleted?"),
+            hint: @tr("Favorites are never deleted."),
+            first: { label: @tr("After 1 week"), preview: 0, icon: Icons.calendar-check },
+            second: { label: @tr("Past 1 GB"), preview: 0, icon: Icons.hard-drives },
+        },
+    ];
+    property <OnboardingQuestion> current: root.questions[max(0, min(root.step - 1, root.question-count - 1))];
+
+    pure function preview-background(choice: OnboardingChoice, selected: bool) -> color {
+        if choice.preview == 1 {
+            return Tokens.preview-light-background;
+        }
+        if choice.preview == 2 {
+            return Tokens.preview-dark-background;
+        }
+        return selected ? Tokens.action-tint : Tokens.paper-2;
+    }
+
+    changed step => {
+        keys.focus();
+    }
+
+    keys := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Return {
+                root.next();
+                return accept;
+            }
+            if event.text == Key.Escape {
+                if root.is-done {
+                    root.close-window();
+                } else if root.is-question {
+                    root.back();
+                }
+                return accept;
+            }
+            if root.is-question {
+                if event.text == "1" || event.text == Key.LeftArrow {
+                    root.select(0);
+                    return accept;
+                }
+                if event.text == "2" || event.text == Key.RightArrow {
+                    root.select(1);
+                    return accept;
+                }
+            }
+            reject
+        }
+
+        Rectangle {
+            border-width: Tokens.border-control;
+            border-color: Tokens.action;
+            border-radius: Tokens.radius-window;
+
+            VerticalLayout {
+                padding: Tokens.border-control;
+
+                Rectangle {
+                    height: 36px;
+                    background: Tokens.paper-2;
+                    border-top-left-radius: Tokens.radius-window - Tokens.border-control;
+                    border-top-right-radius: Tokens.radius-window - Tokens.border-control;
+                    TouchArea {
+                        pointer-event(event) => {
+                            if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                                root.drag();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        padding-left: 14px;
+                        spacing: 9px;
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 16px;
+                                height: 16px;
+                                border-radius: 4px;
+                                clip: true;
+                                Image {
+                                    width: 16px;
+                                    height: 16px;
+                                    source: Tokens.app-icon;
+                                }
+                            }
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            text: @tr("Welcome to Tex");
+                            font-size: Tokens.size-path;
+                            color: Tokens.ink-2;
+                            vertical-alignment: center;
+                        }
+                        TitleButton {
+                            icon: Icons.close;
+                            icon-size: 14px;
+                            close: true;
+                            tip: @tr("Close");
+                            clicked => {
+                                root.close-window();
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    height: 3px;
+                    background: Tokens.border-2;
+                    Rectangle {
+                        x: 0px;
+                        y: 0px;
+                        width: parent.width * root.progress;
+                        height: parent.height;
+                        background: Tokens.action;
+                        animate width { duration: 200ms; }
+                    }
+                }
+
+                Rectangle {
+                    vertical-stretch: 1;
+
+                    if !root.is-question: HorizontalLayout {
+                        Rectangle {
+                            width: 240px;
+                            background: Tokens.highlight;
+                            clip: true;
+                            Image {
+                                width: parent.width;
+                                height: parent.height;
+                                source: root.is-done ? Tokens.art-done : Tokens.art-welcome;
+                                image-fit: cover;
+                            }
+                        }
+                        VerticalLayout {
+                            padding: 36px;
+                            alignment: center;
+                            spacing: root.is-done ? 16px : 12px;
+                            if !root.is-done: Text {
+                                text: @tr("Hi! I'm Tex.");
+                                font-size: Tokens.size-hero;
+                                font-weight: 700;
+                                letter-spacing: -0.26px;
+                                color: Tokens.ink;
+                                wrap: word-wrap;
+                            }
+                            if !root.is-done: Text {
+                                text: root.upgrade
+                                    ? @tr("Nine quick questions to review your choices. What you already use is selected — if it looks good, just press Enter.")
+                                    : @tr("Nine quick questions and we're ready. The default option is already selected — if it looks good, just press Enter.");
+                                font-size: Tokens.size-result;
+                                color: Tokens.ink-2;
+                                wrap: word-wrap;
+                            }
+                            if root.is-done: Text {
+                                text: @tr("All set!");
+                                font-size: Tokens.size-hero;
+                                font-weight: 700;
+                                letter-spacing: -0.26px;
+                                color: Tokens.ink;
+                            }
+                            if root.is-done: HorizontalLayout {
+                                alignment: start;
+                                spacing: 6px;
+                                for key in root.hotkey-keys: Keycap {
+                                    text: key;
+                                }
+                                if root.done-win: KeySeparator {
+                                    text: root.or-text;
+                                }
+                                if root.done-win: Keycap {
+                                    text: "Win";
+                                }
+                                Text {
+                                    text: @tr("to call me");
+                                    font-size: Tokens.size-label;
+                                    color: Tokens.ink-2;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            if root.is-done: Text {
+                                text: @tr("I stay in the tray. Everything can be changed in Settings.");
+                                font-size: Tokens.size-body;
+                                color: Tokens.muted;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+
+                    if root.is-question: VerticalLayout {
+                        padding-top: 28px;
+                        padding-left: 36px;
+                        padding-right: 36px;
+                        padding-bottom: 20px;
+
+                        HorizontalLayout {
+                            alignment: start;
+                            spacing: 8px;
+                            Text {
+                                text: root.current.tab.to-uppercase();
+                                font-family: Tokens.mono-font;
+                                font-size: Tokens.size-kicker;
+                                font-weight: 500;
+                                letter-spacing: Tokens.size-kicker * 0.08;
+                                color: Tokens.action-strong;
+                            }
+                            Text {
+                                text: "·";
+                                font-family: Tokens.mono-font;
+                                font-size: Tokens.size-kicker;
+                                font-weight: 500;
+                                color: Tokens.muted;
+                            }
+                            Text {
+                                text: @tr("{0} of {1}", root.step, root.question-count).to-uppercase();
+                                font-family: Tokens.mono-font;
+                                font-size: Tokens.size-kicker;
+                                font-weight: 500;
+                                letter-spacing: Tokens.size-kicker * 0.08;
+                                color: Tokens.muted;
+                            }
+                        }
+                        Rectangle {
+                            height: 10px;
+                        }
+                        Text {
+                            text: root.current.title;
+                            font-size: Tokens.size-question;
+                            font-weight: 700;
+                            letter-spacing: -0.22px;
+                            color: Tokens.ink;
+                            wrap: word-wrap;
+                        }
+                        Rectangle {
+                            height: 22px;
+                        }
+                        Rectangle {
+                            accessible-role: radio-group;
+                            accessible-label: root.current.title;
+                            HorizontalLayout {
+                                spacing: 14px;
+                                OptionCard {
+                                    width: root.card-width;
+                                    label: root.current.first.label;
+                                    selected: root.selected == 0;
+                                    is-default: true;
+                                    badge: @tr("DEFAULT");
+                                    preview-background: root.preview-background(root.current.first, root.selected == 0);
+                                    picked => {
+                                        root.select(0);
+                                    }
+                                    ChoicePreview {
+                                        choice: root.current.first;
+                                        selected: root.selected == 0;
+                                        hotkey-keys: root.hotkey-keys;
+                                        or-text: root.or-text;
+                                    }
+                                }
+                                OptionCard {
+                                    width: root.card-width;
+                                    label: root.current.second.label;
+                                    selected: root.selected == 1;
+                                    badge: @tr("DEFAULT");
+                                    preview-background: root.preview-background(root.current.second, root.selected == 1);
+                                    picked => {
+                                        root.select(1);
+                                    }
+                                    ChoicePreview {
+                                        choice: root.current.second;
+                                        selected: root.selected == 1;
+                                        hotkey-keys: root.hotkey-keys;
+                                        or-text: root.or-text;
+                                    }
+                                }
+                            }
+                        }
+                        Rectangle {
+                            height: 14px;
+                        }
+                        Text {
+                            text: root.current.hint;
+                            font-size: Tokens.size-body;
+                            color: Tokens.muted;
+                            wrap: word-wrap;
+                        }
+                        Rectangle {
+                            vertical-stretch: 1;
+                        }
+                    }
+                }
+
+                Rectangle {
+                    height: 63px;
+                    Rectangle {
+                        y: 0px;
+                        height: 1px;
+                        background: Tokens.border;
+                    }
+                    HorizontalLayout {
+                        padding-top: 15px;
+                        padding-bottom: 14px;
+                        padding-left: 36px;
+                        padding-right: 36px;
+                        spacing: 8px;
+                        if !root.is-done: FooterLink {
+                            text: root.upgrade ? @tr("Keep the rest as it is") : @tr("Use defaults for everything");
+                            clicked => {
+                                root.skip();
+                            }
+                        }
+                        Rectangle {
+                            horizontal-stretch: 1;
+                        }
+                        if root.is-question: StepButton {
+                            text: @tr("Back");
+                            clicked => {
+                                root.back();
+                            }
+                        }
+                        StepButton {
+                            primary: true;
+                            text: root.step == 0 ? @tr("Start") : root.is-done ? @tr("Open search") : root.step == root.question-count ? @tr("Finish") : @tr("Continue");
+                            clicked => {
+                                root.next();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
