@@ -1,5 +1,4 @@
 mod apps;
-#[allow(dead_code)]
 mod clipboard;
 mod dbus;
 mod hotkeys;
@@ -9,6 +8,7 @@ mod service;
 mod shell;
 mod x11;
 
+pub use clipboard::{ClipboardWatcher, write_image, write_text};
 pub use hotkeys::Hotkeys;
 pub use service::{AppBus, send_command};
 
@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
 
-use crate::{Clip, ClipFormats, IconPixels, LocalTime, Payload, WindowRef, WorkArea};
+use crate::{IconPixels, LocalTime, WindowRef, WorkArea};
 
 /// Held while this process is the only Tex of the user; the lock goes away with the process.
 pub struct SingleInstance {
@@ -257,25 +257,6 @@ pub fn foreground_window() -> WindowRef {
 }
 
 pub fn paste_into(_window: WindowRef) {}
-
-pub struct ClipboardWatcher;
-
-impl ClipboardWatcher {
-    pub fn start(
-        _wanted: impl Fn(&ClipFormats) -> Option<Payload> + Send + 'static,
-        _on_change: impl Fn(Clip) + Send + 'static,
-    ) -> io::Result<ClipboardWatcher> {
-        Err(unsupported())
-    }
-}
-
-pub fn write_text(_text: &str) -> io::Result<()> {
-    Err(unsupported())
-}
-
-pub fn write_image(_dib: &[u8], _png: &[u8]) -> io::Result<()> {
-    Err(unsupported())
-}
 
 pub fn protect(_data: &[u8]) -> io::Result<Vec<u8>> {
     Err(unsupported())

@@ -114,6 +114,18 @@ impl ClipboardWatcher {
     }
 }
 
+impl ClipboardWatcher {
+    /// Copies always say which app made them on Windows.
+    pub fn knows_owner(&self) -> bool {
+        true
+    }
+
+    /// Windows has no GNOME Shell extension.
+    pub fn through_shell(&self) -> bool {
+        false
+    }
+}
+
 impl Drop for ClipboardWatcher {
     fn drop(&mut self) {
         unsafe { PostThreadMessageW(self.thread_id, WM_QUIT, 0, 0) };
