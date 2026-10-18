@@ -4616,7 +4616,7 @@ dependencies = [
 
 [[package]]
 name = "tex-app"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "ed25519-dalek",
  "embed-resource",
@@ -4637,7 +4637,7 @@ dependencies = [
 
 [[package]]
 name = "tex-clipboard"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "chacha20poly1305",
  "png",
@@ -4647,14 +4647,14 @@ dependencies = [
 
 [[package]]
 name = "tex-index"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "unicode-normalization",
 ]
 
 [[package]]
 name = "tex-indexer"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "tex-index",
  "tex-ipc",
@@ -4664,7 +4664,7 @@ dependencies = [
 
 [[package]]
 name = "tex-ipc"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "postcard",
  "serde",
@@ -4672,14 +4672,14 @@ dependencies = [
 
 [[package]]
 name = "tex-platform"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "windows-sys 0.59.0",
 ]
 
 [[package]]
 name = "tex-reader"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "libc",
  "pulldown-cmark",
