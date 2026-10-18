@@ -88,6 +88,16 @@ begin
   Result := not Everyone;
 end;
 
+function IsUpdate: Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+    if CompareText(ParamStr(I), '/UPDATE') = 0 then
+      Result := True;
+end;
+
 procedure InitializeWizard;
 begin
   AccessPage := CreateInputOptionPage(wpSelectDir, CustomMessage('AccessTitle'),
@@ -124,6 +134,11 @@ var
   Params: String;
   ResultCode: Integer;
 begin
+  if (CurStep = ssDone) and IsUpdate then
+  begin
+    ExecAsOriginalUser(ExpandConstant('{app}	ex.exe'), '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+    Exit;
+  end;
   if CurStep <> ssPostInstall then
     Exit;
   if Everyone then
