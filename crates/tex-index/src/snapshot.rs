@@ -1,16 +1,18 @@
 use std::fmt;
 use std::io::{self, Read, Write};
 
-use crate::entry::Entry;
+use crate::access::Owner;
+use crate::entry::{Entry, Record};
 use crate::volume::VolumeIndex;
 
 const MAGIC: [u8; 8] = *b"TEXINDEX";
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 const NO_RECORD: u32 = u32::MAX;
 const MAX_ROOT_LEN: u32 = 4096;
 #[cfg(test)]
 const FIXED_HEADER_LEN: usize = 60;
 const ENTRY_LEN: usize = 11;
+const OWNER_LEN: usize = 14;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SnapshotHeader {
@@ -48,8 +50,8 @@ impl fmt::Display for SnapshotError {
 
 impl std::error::Error for SnapshotError {}
 
-/// Writes the header (with the volume's root), every entry (11 bytes each) and the name buffer.
-/// Wrap `out` in a `BufWriter` when writing to a file.
+/// Writes the header (with the volume's root), every entry (11 bytes each), the name buffer and
+/// the owners of the directories (14 bytes each). Wrap `out` in a `BufWriter` when writing to a file.
 pub fn write_snapshot(
     out: &mut impl Write,
     index: &VolumeIndex,
@@ -74,6 +76,19 @@ pub fn write_snapshot(
         out.write_all(&[entry.flags])?;
     }
     out.write_all(names)?;
+    let mut owners: Vec<(Record, Owner)> = index
+        .owners()
+        .iter()
+        .map(|(&record, &owner)| (record, owner))
+        .collect();
+    owners.sort_unstable_by_key(|&(record, _)| record);
+    out.write_all(&(owners.len() as u64).to_le_bytes())?;
+    for (record, owner) in owners {
+        out.write_all(&record.to_le_bytes())?;
+        out.write_all(&owner.uid.to_le_bytes())?;
+        out.write_all(&owner.gid.to_le_bytes())?;
+        out.write_all(&owner.mode.to_le_bytes())?;
+    }
     out.flush()
 }
 
@@ -132,8 +147,24 @@ pub fn read_snapshot(
         return Err(SnapshotError::Corrupt("truncated name buffer"));
     }
 
-    let index = VolumeIndex::from_raw_parts(&root, entries, names, windows_dir)
+    let mut index = VolumeIndex::from_raw_parts(&root, entries, names, windows_dir)
         .map_err(SnapshotError::Corrupt)?;
+    let owner_count = u64::from_le_bytes(read_array(input)?);
+    if owner_count > u64::from(u32::MAX) {
+        return Err(SnapshotError::Corrupt("owner count"));
+    }
+    for _ in 0..owner_count {
+        let bytes = read_array::<OWNER_LEN>(input)?;
+        let owner = Owner {
+            uid: u32::from_le_bytes(bytes[4..8].try_into().unwrap()),
+            gid: u32::from_le_bytes(bytes[8..12].try_into().unwrap()),
+            mode: u16::from_le_bytes(bytes[12..14].try_into().unwrap()),
+        };
+        index.set_owner(
+            u32::from_le_bytes(bytes[0..4].try_into().unwrap()),
+            Some(owner),
+        );
+    }
     Ok((index, header))
 }
 
@@ -219,6 +250,48 @@ mod tests {
         assert_eq!(restored_header, header);
         assert_eq!(restored.root(), "/home");
         assert_eq!(restored.path(21).as_deref(), Some("/home/luis/notes.txt"));
+    }
+
+    #[test]
+    fn round_trip_keeps_directory_owners() {
+        let mut volume = VolumeIndex::new("/home");
+        volume.upsert(20, ROOT, "ana", DIR);
+        volume.upsert(21, 20, "notes.txt", FILE);
+        volume.set_owner(
+            ROOT,
+            Some(Owner {
+                uid: 0,
+                gid: 0,
+                mode: 0o755,
+            }),
+        );
+        volume.set_owner(
+            20,
+            Some(Owner {
+                uid: 1000,
+                gid: 1000,
+                mode: 0o700,
+            }),
+        );
+        let header = SnapshotHeader {
+            serial: 9,
+            journal_id: 0,
+            next_usn: 0,
+        };
+        let mut bytes = Vec::new();
+        write_snapshot(&mut bytes, &volume, &header).unwrap();
+        assert_eq!(&bytes[8..12], &3u32.to_le_bytes());
+        let (restored, _) = read_snapshot(&mut bytes.as_slice()).unwrap();
+        assert_eq!(restored.owner(ROOT).map(|owner| owner.mode), Some(0o755));
+        assert_eq!(
+            restored.owner(20),
+            Some(Owner {
+                uid: 1000,
+                gid: 1000,
+                mode: 0o700,
+            })
+        );
+        assert_eq!(restored.owner(21), None);
     }
 
     #[test]
