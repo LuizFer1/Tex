@@ -22,6 +22,12 @@ pub struct AppState {
     pub history_hotkey_failed: bool,
     pub winkey_error: String,
     pub capture_error: String,
+    /// The desktop gives apps no access to the clipboard.
+    pub capture_unsupported: bool,
+    /// Capture goes through Tex's GNOME Shell extension.
+    pub capture_via_shell: bool,
+    /// Copies do not say which app made them, so ignored apps cannot apply.
+    pub owner_unknown: bool,
     pub paste_target: WindowRef,
     pub previous_foreground: WindowRef,
     /// The popup got the focus since it was last shown. Wayland reports a focus loss before
@@ -137,6 +143,9 @@ impl AppState {
             history_hotkey_failed: false,
             winkey_error: String::new(),
             capture_error: String::new(),
+            capture_unsupported: false,
+            capture_via_shell: false,
+            owner_unknown: false,
             paste_target: WindowRef::default(),
             previous_foreground: WindowRef::default(),
             popup_focused: false,
@@ -150,6 +159,15 @@ impl AppState {
             registered: [false, false],
             winkey: None,
         }
+    }
+
+    /// [`capture_missing`] for the watcher Tex started and the extension as last seen.
+    pub fn capture_missing(&self) -> i32 {
+        capture_missing(
+            self.capture_unsupported,
+            self.capture_via_shell,
+            self.shell_active,
+        )
     }
 
     pub fn shortcut(&self) -> Shortcut {
@@ -355,6 +373,19 @@ pub fn search_options(search: &Search) -> SearchOptions {
     }
 }
 
+/// Why new copies cannot be saved, for the history and the Clipboard tab: 1 while capture
+/// waits for the GNOME extension, 2 when the desktop gives apps no access to the clipboard,
+/// 0 when capture works.
+pub fn capture_missing(unsupported: bool, via_shell: bool, shell_active: bool) -> i32 {
+    if unsupported {
+        2
+    } else if via_shell && !shell_active {
+        1
+    } else {
+        0
+    }
+}
+
 /// Whether copies are kept: until the onboarding is done the capture stays paused, since one
 /// of its questions is whether Tex may keep what is copied.
 pub fn capture_paused(settings: &Settings) -> bool {
@@ -388,6 +419,15 @@ mod tests {
             client_settings(&settings).retention,
             settings.clipboard.retention()
         );
+    }
+
+    #[test]
+    fn missing_capture_says_why() {
+        assert_eq!(capture_missing(false, false, false), 0);
+        assert_eq!(capture_missing(false, true, true), 0);
+        assert_eq!(capture_missing(false, true, false), 1);
+        assert_eq!(capture_missing(true, false, false), 2);
+        assert_eq!(capture_missing(true, true, false), 2);
     }
 
     #[test]
