@@ -1,10 +1,10 @@
 use std::fs::{File, Metadata};
-use std::io::{self, Read};
+use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::time::SystemTime;
 
-use crate::encoding::{Encoding, LineEnding, decode, decode_body, detect, encode};
+use crate::encoding::{Encoding, LineEnding, decode, decode_body, detect, encode, fits};
 use crate::kind::{Kind, Sniff, sniff};
 use crate::lines::LineIndex;
 
@@ -94,10 +94,16 @@ impl Probe {
         lines
     }
 
-    /// Reads the whole file (up to `TEXT_LIMIT`) or indexes its lines; `None` when cancelled.
+    /// Opens the file once and reads it whole (up to `TEXT_LIMIT`) or indexes its lines, whatever its size was at the probe; `None` when cancelled.
     pub fn load(self, cancel: &AtomicBool) -> Result<Option<Document>, LoadError> {
-        if self.large() {
-            let mut file = File::open(&self.path)?;
+        let mut file = File::open(&self.path)?;
+        let stamp = Stamp::of(&file.metadata()?);
+        let mut bytes = Vec::new();
+        if stamp.len <= TEXT_LIMIT {
+            (&file).take(TEXT_LIMIT + 1).read_to_end(&mut bytes)?;
+        }
+        if bytes.len() as u64 > TEXT_LIMIT || stamp.len > TEXT_LIMIT {
+            file.seek(SeekFrom::Start(0))?;
             let Some(index) = LineIndex::build(&mut file, self.encoding, cancel)? else {
                 return Ok(None);
             };
@@ -106,18 +112,18 @@ impl Probe {
                 kind: self.kind,
                 encoding: self.encoding,
                 line_ending: LineEnding::native(),
-                stamp: self.stamp,
+                stamp,
                 body: Body::Lines(index),
                 dirty: false,
             }));
         }
-        let decoded = decode(&std::fs::read(&self.path)?);
+        let decoded = decode(&bytes);
         Ok(Some(Document {
             path: self.path,
             kind: self.kind,
             encoding: decoded.encoding,
             line_ending: decoded.line_ending,
-            stamp: self.stamp,
+            stamp,
             body: Body::Text(decoded.text),
             dirty: false,
         }))
@@ -166,6 +172,14 @@ impl Document {
         }
     }
 
+    /// Whether saving keeps every character; the UI must warn before saving when it is false.
+    pub fn fits(&self) -> bool {
+        match &self.body {
+            Body::Text(text) => fits(text, self.encoding),
+            Body::Lines(_) => true,
+        }
+    }
+
     pub fn saved(&mut self, stamp: Stamp) {
         self.stamp = stamp;
         self.dirty = false;
@@ -177,7 +191,18 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    fn temp(name: &str, bytes: &[u8]) -> PathBuf {
+    struct Temp {
+        dir: PathBuf,
+        path: PathBuf,
+    }
+
+    impl Drop for Temp {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    fn fresh_dir() -> PathBuf {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let dir = std::env::temp_dir().join(format!(
             "tex-reader-{}-{}",
@@ -185,9 +210,14 @@ mod tests {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn temp(name: &str, bytes: &[u8]) -> Temp {
+        let dir = fresh_dir();
         let path = dir.join(name);
         std::fs::write(&path, bytes).unwrap();
-        path
+        Temp { dir, path }
     }
 
     fn open(path: &Path) -> Document {
@@ -198,13 +228,20 @@ mod tests {
             .unwrap()
     }
 
+    fn many_lines() -> String {
+        let text: String = (0..300_000).map(|i| format!("linha {i}\n")).collect();
+        assert!(text.len() as u64 > TEXT_LIMIT);
+        text
+    }
+
     #[test]
     fn small_markdown_loads_as_editable_text() {
-        let path = temp("n.md", b"# T\r\nx\r\n");
-        let probed = probe(&path, &[]).unwrap();
+        let file = temp("n.md", b"# T\r\nx\r\n");
+        let path = &file.path;
+        let probed = probe(path, &[]).unwrap();
         assert_eq!(probed.kind, Kind::Markdown);
         assert!(!probed.large());
-        let document = open(&path);
+        let document = open(path);
         assert!(matches!(&document.body, Body::Text(text) if text == "# T\nx\n"));
         assert_eq!(document.line_ending, LineEnding::Crlf);
         assert!(document.editable());
@@ -213,44 +250,53 @@ mod tests {
 
     #[test]
     fn text_without_extension_is_plain() {
-        let path = temp("README", b"hello");
-        assert_eq!(probe(&path, &[]).unwrap().kind, Kind::Plain { wrap: true });
+        let file = temp("README", b"hello");
+        assert_eq!(
+            probe(&file.path, &[]).unwrap().kind,
+            Kind::Plain { wrap: true }
+        );
     }
 
     #[test]
     fn binary_without_extension_is_refused() {
-        let path = temp("blob", &[1, 0, 2]);
-        assert!(matches!(probe(&path, &[]), Err(LoadError::Binary)));
+        let file = temp("blob", &[1, 0, 2]);
+        assert!(matches!(probe(&file.path, &[]), Err(LoadError::Binary)));
     }
 
     #[test]
     fn other_extensions_are_unsupported() {
-        let path = temp("a.exe", b"MZ");
-        assert!(matches!(probe(&path, &[]), Err(LoadError::Unsupported)));
+        let file = temp("a.exe", b"MZ");
+        assert!(matches!(
+            probe(&file.path, &[]),
+            Err(LoadError::Unsupported)
+        ));
     }
 
     #[test]
     fn missing_files_are_io_errors() {
-        let path = std::env::temp_dir()
-            .join("tex-reader-missing")
-            .join("x.txt");
-        assert!(matches!(probe(&path, &[]), Err(LoadError::Io(_))));
+        let dir = fresh_dir();
+        let guard = Temp {
+            path: dir.join("x.txt"),
+            dir,
+        };
+        assert!(matches!(probe(&guard.path, &[]), Err(LoadError::Io(_))));
     }
 
     #[test]
     fn medium_files_are_text_but_not_editable() {
         let text = "x".repeat(EDIT_LIMIT as usize + 1);
-        let document = open(&temp("m.md", text.as_bytes()));
+        let file = temp("m.md", text.as_bytes());
+        let document = open(&file.path);
         assert!(matches!(document.body, Body::Text(_)));
         assert!(!document.editable());
     }
 
     #[test]
     fn large_files_are_read_only_lines() {
-        let text: String = (0..300_000).map(|i| format!("linha {i}\n")).collect();
-        assert!(text.len() as u64 > TEXT_LIMIT);
-        let path = temp("big.log", text.as_bytes());
-        let probed = probe(&path, &[]).unwrap();
+        let text = many_lines();
+        let file = temp("big.log", text.as_bytes());
+        let path = &file.path;
+        let probed = probe(path, &[]).unwrap();
         assert!(probed.large());
         let preview = probed.preview_lines();
         assert_eq!(preview[0], "linha 0");
@@ -263,26 +309,106 @@ mod tests {
             panic!("expected lines")
         };
         assert_eq!(index.len(), 300_000);
-        let mut file = std::fs::File::open(&path).unwrap();
+        let mut handle = std::fs::File::open(path).unwrap();
         assert_eq!(
-            index.read_lines(&mut file, 299_999..300_000).unwrap(),
+            index.read_lines(&mut handle, 299_999..300_000).unwrap(),
             ["linha 299999"]
         );
     }
 
     #[test]
     fn edits_mark_the_document_dirty_until_saved() {
-        let path = temp("a.txt", b"um");
-        let mut document = open(&path);
+        let file = temp("a.txt", b"um");
+        let path = &file.path;
+        let mut document = open(path);
         document.set_text("um".into());
         assert!(!document.dirty);
         document.set_text("dois".into());
         assert!(document.dirty);
-        std::fs::write(&path, b"dois").unwrap();
-        let stamp = Stamp::read(&path).unwrap();
+        std::fs::write(path, b"dois").unwrap();
+        let stamp = Stamp::read(path).unwrap();
         assert!(document.changed(stamp));
         document.saved(stamp);
         assert!(!document.dirty);
         assert!(!document.changed(stamp));
+    }
+
+    #[test]
+    fn cancelled_loads_of_large_files_give_none() {
+        let file = temp("big.log", many_lines().as_bytes());
+        let probed = probe(&file.path, &[]).unwrap();
+        assert!(probed.load(&AtomicBool::new(true)).unwrap().is_none());
+    }
+
+    #[test]
+    fn the_edit_limit_is_inclusive() {
+        let at = temp("e.txt", &vec![b'x'; EDIT_LIMIT as usize]);
+        assert!(open(&at.path).editable());
+        let over = temp("o.txt", &vec![b'x'; EDIT_LIMIT as usize + 1]);
+        assert!(!open(&over.path).editable());
+    }
+
+    #[test]
+    fn a_file_of_exactly_the_text_limit_is_text() {
+        let file = temp("t.txt", &vec![b'x'; TEXT_LIMIT as usize]);
+        let probed = probe(&file.path, &[]).unwrap();
+        assert!(!probed.large());
+        let document = probed.load(&AtomicBool::new(false)).unwrap().unwrap();
+        assert!(matches!(document.body, Body::Text(_)));
+        assert_eq!(document.stamp.len, TEXT_LIMIT);
+    }
+
+    #[test]
+    fn a_file_that_grows_after_the_probe_is_indexed() {
+        let file = temp("grow.log", b"um\n");
+        let probed = probe(&file.path, &[]).unwrap();
+        assert!(!probed.large());
+        let text = many_lines();
+        std::fs::write(&file.path, text.as_bytes()).unwrap();
+        let document = probed.load(&AtomicBool::new(false)).unwrap().unwrap();
+        assert!(matches!(&document.body, Body::Lines(index) if index.len() == 300_000));
+        assert_eq!(document.stamp.len, text.len() as u64);
+        assert!(!document.editable());
+    }
+
+    #[test]
+    fn utf16_with_crlf_round_trips() {
+        let mut bytes = vec![0xFF, 0xFE];
+        for unit in "olá\r\nmundo".encode_utf16() {
+            bytes.extend(unit.to_le_bytes());
+        }
+        let file = temp("u.txt", &bytes);
+        let probed = probe(&file.path, &[]).unwrap();
+        assert_eq!(probed.preview_lines(), ["olá", "mundo"]);
+        let document = open(&file.path);
+        assert_eq!(document.encoding, Encoding::Utf16Le);
+        assert_eq!(document.line_ending, LineEnding::Crlf);
+        assert!(matches!(&document.body, Body::Text(text) if text == "olá\nmundo"));
+        assert_eq!(document.save_bytes().unwrap(), bytes);
+    }
+
+    #[test]
+    fn preview_of_a_short_file_keeps_the_last_line() {
+        let file = temp("p.txt", b"a\r\nb");
+        let probed = probe(&file.path, &[]).unwrap();
+        assert_eq!(probed.preview_lines(), ["a", "b"]);
+    }
+
+    #[test]
+    fn saving_uses_the_original_line_ending() {
+        let file = temp("s.txt", b"a\r\nb\r\n");
+        let mut document = open(&file.path);
+        document.set_text("x\ny\n".into());
+        assert_eq!(document.save_bytes().unwrap(), b"x\r\ny\r\n");
+    }
+
+    #[test]
+    fn fits_is_false_when_windows_1252_would_lose_characters() {
+        let file = temp("w.txt", &[b'c', 0xE9, b'!', b'\n']);
+        let mut document = open(&file.path);
+        assert_eq!(document.encoding, Encoding::Windows1252);
+        assert!(document.fits());
+        document.set_text("日本\n".into());
+        assert!(!document.fits());
     }
 }
