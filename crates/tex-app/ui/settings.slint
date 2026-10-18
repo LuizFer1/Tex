@@ -43,8 +43,16 @@ export component SettingsWindow inherits Window {
     in property <string> hotkey-text;
     in property <[string]> hotkey-keys;
     in-out property <bool> recording;
-    // 0 none, 1 could not register (previous kept), 2 conflict, 3 could not register at startup
+    // 0 none, 1 could not register (previous kept), 2 conflict, 3 could not register at startup,
+    // 4 refused by the desktop (GlobalShortcuts portal)
     in property <int> hotkey-error;
+    // 0 Tex sets the keys, 1 the desktop picks them (portal), 2 no global shortcut here
+    in property <int> hotkey-support;
+    in property <bool> linux;
+    // Tex can place its windows (X11, or GNOME with the extension)
+    in property <bool> can-place: true;
+    // GNOME without Tex's extension active
+    in property <bool> shell-missing;
     in-out property <bool> windows-key;
     in property <string> winkey-error;
     in-out property <bool> start-with-windows;
@@ -353,14 +361,19 @@ export component SettingsWindow inherits Window {
 
                                 Section {
                                     title: @tr("Open Tex");
+                                    if root.shell-missing: SettingRow {
+                                        label: @tr("GNOME extension");
+                                        error: @tr("The Tex extension for GNOME is not active. Log out and back in after installing Tex, or turn it on in the Extensions app.");
+                                    }
                                     SettingRow {
                                         label: @tr("Shortcut to open Tex");
-                                        description: root.recording ? @tr("Use at least one of Ctrl, Alt, Shift or Win plus a key. Esc cancels.") : "";
-                                        error: root.hotkey-error == 1 ? @tr("That shortcut is already used by another program. The previous one was kept.") : root.hotkey-error == 3 ? @tr("That shortcut is already used by another program, so it is not active. Choose another one.") : root.hotkey-error == 2 ? @tr("Already used to open the clipboard history") : "";
+                                        separator: !root.linux || root.can-place;
+                                        description: root.recording ? @tr("Use at least one of Ctrl, Alt, Shift or Win plus a key. Esc cancels.") : root.hotkey-support == 2 ? @tr("This desktop does not let apps set global shortcuts. Use the Tex icon in the panel, or create a shortcut in the system settings that runs: {0}", "tex --toggle") : root.hotkey-support == 1 ? @tr("The system chooses the keys and may ask you to confirm.") : "";
+                                        error: root.hotkey-error == 1 ? @tr("That shortcut is already used by another program. The previous one was kept.") : root.hotkey-error == 3 ? @tr("That shortcut is already used by another program, so it is not active. Choose another one.") : root.hotkey-error == 4 ? @tr("The system did not accept this shortcut.") : root.hotkey-error == 2 ? @tr("Already used to open the clipboard history") : "";
                                         ShortcutField {
                                             keys: root.hotkey-keys;
                                             recording: root.recording;
-                                            enabled: !root.history-recording;
+                                            enabled: !root.history-recording && root.hotkey-support != 2;
                                             reset-tip: @tr("Restore default ({0})", "Alt+Space");
                                             record => {
                                                 root.change-hotkey();
@@ -374,7 +387,7 @@ export component SettingsWindow inherits Window {
                                             }
                                         }
                                     }
-                                    SettingRow {
+                                    if !root.linux: SettingRow {
                                         label: @tr("Open Tex with the Windows key");
                                         description: @tr("Win plus other keys keeps working, and Ctrl+Esc opens the Start menu. Does not work while an administrator window has focus.");
                                         error: root.winkey-error != "" ? @tr("Could not watch the Windows key: {}", root.winkey-error) : "";
@@ -386,7 +399,7 @@ export component SettingsWindow inherits Window {
                                             }
                                         }
                                     }
-                                    SettingRow {
+                                    if root.can-place: SettingRow {
                                         label: @tr("Popup monitor");
                                         separator: false;
                                         Select {
@@ -404,9 +417,9 @@ export component SettingsWindow inherits Window {
                                 Section {
                                     title: @tr("System");
                                     SettingRow {
-                                        label: @tr("Start with Windows");
+                                        label: root.linux ? @tr("Start with the system") : @tr("Start with Windows");
                                         Toggle {
-                                            label: @tr("Start with Windows");
+                                            label: root.linux ? @tr("Start with the system") : @tr("Start with Windows");
                                             checked <=> root.start-with-windows;
                                             toggled => {
                                                 root.edited();
@@ -634,12 +647,12 @@ export component SettingsWindow inherits Window {
                                     first: true;
                                     SettingRow {
                                         label: @tr("Shortcut to open the clipboard history");
-                                        description: root.history-recording ? @tr("Use at least one of Ctrl, Alt, Shift or Win plus a key. Esc cancels.") : "";
-                                        error: root.history-hotkey-error == 1 ? @tr("That shortcut is already used by another program. The previous one was kept.") : root.history-hotkey-error == 3 ? @tr("That shortcut is already used by another program, so it is not active. Choose another one.") : root.history-hotkey-error == 2 ? @tr("Already used to open Tex") : "";
+                                        description: root.history-recording ? @tr("Use at least one of Ctrl, Alt, Shift or Win plus a key. Esc cancels.") : root.hotkey-support == 2 ? @tr("This desktop does not let apps set global shortcuts. Use the Tex icon in the panel, or create a shortcut in the system settings that runs: {0}", "tex --history") : root.hotkey-support == 1 ? @tr("The system chooses the keys and may ask you to confirm.") : "";
+                                        error: root.history-hotkey-error == 1 ? @tr("That shortcut is already used by another program. The previous one was kept.") : root.history-hotkey-error == 3 ? @tr("That shortcut is already used by another program, so it is not active. Choose another one.") : root.history-hotkey-error == 4 ? @tr("The system did not accept this shortcut.") : root.history-hotkey-error == 2 ? @tr("Already used to open Tex") : "";
                                         ShortcutField {
                                             keys: root.history-hotkey-keys;
                                             recording: root.history-recording;
-                                            enabled: !root.recording;
+                                            enabled: !root.recording && root.hotkey-support != 2;
                                             reset-tip: @tr("Restore default ({0})", "Alt+V");
                                             record => {
                                                 root.change-history-hotkey();

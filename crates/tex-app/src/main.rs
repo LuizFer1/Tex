@@ -35,11 +35,12 @@ use tex_clipboard::{
 use tex_ipc::{Filter, VolumeState, VolumeStatus};
 use tex_platform::{
     AppBus, AppCommand, ClipboardWatcher, HotkeyEvent, HotkeySlot, HotkeySupport, Hotkeys,
-    IconPixels, LocalTime, SingleInstance, WindowRef, catch_windows_key, enable_shell_extension,
-    foreground_window, is_gnome, local_time, lock_foreground, open_path, paste_into, pick_file,
-    pick_folder, present_window, primary_work_area, restore_foreground, reveal_in_folder,
-    round_corners, send_command, shape_tabbed_window, take_foreground, transparent_windows,
-    watch_shell_extension, watch_theme, work_area_under_cursor, write_image, write_text,
+    IconPixels, LocalTime, SingleInstance, WindowRef, can_place_windows, catch_windows_key,
+    enable_shell_extension, foreground_window, is_gnome, local_time, lock_foreground, open_path,
+    paste_into, pick_file, pick_folder, present_window, primary_work_area, restore_foreground,
+    reveal_in_folder, round_corners, send_command, shape_tabbed_window, take_foreground,
+    transparent_windows, watch_shell_extension, watch_theme, work_area_under_cursor, write_image,
+    write_text,
 };
 
 use crate::app::{AppState, HotkeyError, with_app};
@@ -436,6 +437,10 @@ fn shell_changed(windows: &Windows, active: bool) {
     if let Some(tray) = windows.tray.upgrade() {
         let _ = if active { tray.hide() } else { tray.show() };
     }
+    if let Some(window) = windows.settings.upgrade() {
+        window.set_can_place(can_place_windows());
+        window.set_shell_missing(!active);
+    }
     refresh_onboarding(windows);
 }
 
@@ -574,12 +579,18 @@ fn hotkeys_changed(windows: &Windows) {
 }
 
 fn show_hotkeys(window: &SettingsWindow, app: &AppState) {
+    let support = app.hotkey_support();
+    window.set_hotkey_support(match support {
+        HotkeySupport::Free => 0,
+        HotkeySupport::System => 1,
+        HotkeySupport::Unavailable => 2,
+    });
     window.set_hotkey_text(app.hotkey_text(HotkeySlot::Tex).into());
     window.set_hotkey_keys(keys_model(app.hotkey_keys(HotkeySlot::Tex)));
-    window.set_hotkey_error(if app.hotkey_failed { 3 } else { 0 });
+    window.set_hotkey_error(app::inactive_error(support, app.hotkey_failed));
     window.set_history_hotkey_text(app.hotkey_text(HotkeySlot::History).into());
     window.set_history_hotkey_keys(keys_model(app.hotkey_keys(HotkeySlot::History)));
-    window.set_history_hotkey_error(if app.history_hotkey_failed { 3 } else { 0 });
+    window.set_history_hotkey_error(app::inactive_error(support, app.history_hotkey_failed));
 }
 
 fn open_from_key(windows: &Windows, client: &SearchClient) {
@@ -1354,6 +1365,9 @@ fn fill_settings(window: &SettingsWindow, app: &AppState) {
         Theme::Light => 1,
         Theme::Dark => 2,
     });
+    window.set_linux(cfg!(target_os = "linux"));
+    window.set_can_place(can_place_windows());
+    window.set_shell_missing(is_gnome() && !app.shell_active);
     show_hotkeys(window, app);
     window.set_recording(false);
     window.set_windows_key(general.windows_key);

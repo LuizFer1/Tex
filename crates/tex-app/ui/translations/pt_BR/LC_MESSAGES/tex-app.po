@@ -725,3 +725,21 @@ msgstr "Clique no ícone do Tex no painel para me chamar."
 
 msgid "Log out and back in to turn on the panel icon and the clipboard history."
 msgstr "Saia e entre de novo para ativar o ícone no painel e o histórico do clipboard."
+
+msgid "Start with the system"
+msgstr "Iniciar com o sistema"
+
+msgid "GNOME extension"
+msgstr "Extensão do GNOME"
+
+msgid "The Tex extension for GNOME is not active. Log out and back in after installing Tex, or turn it on in the Extensions app."
+msgstr "A extensão do Tex para o GNOME não está ativa. Saia e entre de novo depois de instalar o Tex ou ative-a no app Extensões."
+
+msgid "This desktop does not let apps set global shortcuts. Use the Tex icon in the panel, or create a shortcut in the system settings that runs: {0}"
+msgstr "Esta área de trabalho não deixa apps criarem atalhos globais. Use o ícone do Tex no painel ou crie nas configurações do sistema um atalho que rode: {0}"
+
+msgid "The system chooses the keys and may ask you to confirm."
+msgstr "O sistema escolhe as teclas e pode pedir sua confirmação."
+
+msgid "The system did not accept this shortcut."
+msgstr "O sistema não aceitou este atalho."

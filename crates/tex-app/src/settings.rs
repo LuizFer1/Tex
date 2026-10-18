@@ -274,9 +274,9 @@ impl Settings {
         toml::to_string(self).expect("settings always serialize")
     }
 
-    /// The Windows key hook only runs once the onboarding is done.
+    /// The Windows key hook only runs on Windows, once the onboarding is done.
     pub fn winkey_active(&self) -> bool {
-        self.general.windows_key && self.general.onboarding_done
+        cfg!(windows) && self.general.windows_key && self.general.onboarding_done
     }
 
     /// Canonical hotkeys that differ, clean folder and app lists, values from the fixed lists
@@ -459,7 +459,7 @@ mod tests {
         let mut settings = Settings::default();
         assert!(!settings.winkey_active());
         settings.general.onboarding_done = true;
-        assert!(settings.winkey_active());
+        assert_eq!(settings.winkey_active(), cfg!(windows));
         settings.general.windows_key = false;
         assert!(!settings.winkey_active());
     }

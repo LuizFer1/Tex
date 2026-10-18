@@ -75,6 +75,17 @@ pub fn with_app<R>(f: impl FnOnce(&mut AppState) -> R) -> R {
     APP.with_borrow_mut(|app| f(app.as_mut().expect("app state initialized")))
 }
 
+/// The error a shortcut field shows for a shortcut that is not active: 3 when another program
+/// has it, 4 when the desktop refused it, and none when the session has no global shortcuts
+/// at all, which the field explains instead.
+pub fn inactive_error(support: HotkeySupport, failed: bool) -> i32 {
+    match (failed, support) {
+        (false, _) | (true, HotkeySupport::Unavailable) => 0,
+        (true, HotkeySupport::System) => 4,
+        (true, HotkeySupport::Free) => 3,
+    }
+}
+
 /// The command on the command line, such as `--toggle`: what a second Tex sends to the one
 /// running, or what the first one does once it starts.
 pub fn command_from_args(args: impl IntoIterator<Item = String>) -> Option<AppCommand> {
@@ -377,6 +388,15 @@ mod tests {
             client_settings(&settings).retention,
             settings.clipboard.retention()
         );
+    }
+
+    #[test]
+    fn an_inactive_shortcut_says_why() {
+        assert_eq!(inactive_error(HotkeySupport::Free, false), 0);
+        assert_eq!(inactive_error(HotkeySupport::Free, true), 3);
+        assert_eq!(inactive_error(HotkeySupport::System, true), 4);
+        assert_eq!(inactive_error(HotkeySupport::System, false), 0);
+        assert_eq!(inactive_error(HotkeySupport::Unavailable, true), 0);
     }
 
     #[test]
