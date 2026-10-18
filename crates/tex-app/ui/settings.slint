@@ -112,6 +112,7 @@ export component SettingsWindow inherits Window {
     callback clear-history();
     callback check-updates();
     callback install-update();
+    callback redo-onboarding();
 
     callback drag();
     callback resize(int);
@@ -404,12 +405,22 @@ export component SettingsWindow inherits Window {
                                     title: @tr("System");
                                     SettingRow {
                                         label: @tr("Start with Windows");
-                                        separator: false;
                                         Toggle {
                                             label: @tr("Start with Windows");
                                             checked <=> root.start-with-windows;
                                             toggled => {
                                                 root.edited();
+                                            }
+                                        }
+                                    }
+                                    SettingRow {
+                                        label: @tr("Setup questions");
+                                        description: @tr("Answer the first-run questions again.");
+                                        separator: false;
+                                        Button {
+                                            text: @tr("Redo");
+                                            clicked => {
+                                                root.redo-onboarding();
                                             }
                                         }
                                     }

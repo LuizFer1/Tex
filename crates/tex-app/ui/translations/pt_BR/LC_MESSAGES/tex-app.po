@@ -243,6 +243,15 @@ msgstr "Mostrar na pasta"
 msgid "Start with Windows"
 msgstr "Iniciar com o Windows"
 
+msgid "Setup questions"
+msgstr "Perguntas iniciais"
+
+msgid "Answer the first-run questions again."
+msgstr "Responda de novo as perguntas da primeira execução."
+
+msgid "Redo"
+msgstr "Refazer"
+
 msgid "Storage limit"
 msgstr "Limite de espaço"
 

@@ -591,6 +591,10 @@ fn wire_settings(window: &SettingsWindow, windows: &Windows, client: &SearchClie
         let windows = windows.clone();
         move || install_update(&windows)
     });
+    window.on_redo_onboarding({
+        let windows = windows.clone();
+        move || redo_onboarding(&windows)
+    });
     window.on_change_hotkey({
         let window = window.as_weak();
         move || {
@@ -1383,6 +1387,23 @@ fn start_onboarding(windows: &Windows, upgrade: bool) {
     window
         .window()
         .with_winit_window(|window| window.focus_window());
+}
+
+/// Hides the settings window and opens the onboarding again with the current settings
+/// selected, or focuses it when it is already open. `onboarding_done` stays true meanwhile.
+fn redo_onboarding(windows: &Windows) {
+    if let Some(window) = windows.settings.upgrade() {
+        window
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::CloseRequested);
+    }
+    if ONBOARDING.with_borrow(Option::is_none) {
+        start_onboarding(windows, true);
+    } else if let Some(window) = windows.onboarding.upgrade() {
+        window
+            .window()
+            .with_winit_window(|window| window.focus_window());
+    }
 }
 
 fn refresh_onboarding(windows: &Windows) {
