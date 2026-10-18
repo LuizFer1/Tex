@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::time::SystemTime;
 
-use crate::encoding::{Encoding, LineEnding, decode, decode_body, detect, encode, fits};
+use crate::encoding::{
+    Encoding, LineEnding, decode, decode_body, detect, detect_line_ending, encode, fits,
+};
 use crate::kind::{Kind, Sniff, sniff};
 use crate::lines::LineIndex;
 
@@ -107,14 +109,17 @@ impl Probe {
             let Some(index) = LineIndex::build(&mut file, self.encoding, cancel)? else {
                 return Ok(None);
             };
+            let head = &self.head[self.encoding.bom_len().min(self.head.len())..];
+            let line_ending = detect_line_ending(&decode_body(head, self.encoding));
             return Ok(Some(Document {
                 path: self.path,
                 kind: self.kind,
                 encoding: self.encoding,
-                line_ending: LineEnding::native(),
+                line_ending,
                 stamp,
                 body: Body::Lines(index),
                 dirty: false,
+                lossless: true,
             }));
         }
         let decoded = decode(&bytes);
@@ -126,6 +131,7 @@ impl Probe {
             stamp,
             body: Body::Text(decoded.text),
             dirty: false,
+            lossless: decoded.lossless,
         }))
     }
 }
@@ -145,6 +151,7 @@ pub struct Document {
     pub stamp: Stamp,
     pub body: Body,
     pub dirty: bool,
+    pub lossless: bool,
 }
 
 impl Document {
@@ -172,10 +179,10 @@ impl Document {
         }
     }
 
-    /// Whether saving keeps every character; the UI must warn before saving when it is false.
+    /// Whether saving keeps every character and byte read; the UI must warn before saving when it is false.
     pub fn fits(&self) -> bool {
         match &self.body {
-            Body::Text(text) => fits(text, self.encoding),
+            Body::Text(text) => self.lossless && fits(text, self.encoding),
             Body::Lines(_) => true,
         }
     }
@@ -410,5 +417,22 @@ mod tests {
         assert!(document.fits());
         document.set_text("日本\n".into());
         assert!(!document.fits());
+    }
+
+    #[test]
+    fn invalid_bytes_after_a_bom_do_not_fit() {
+        let file = temp("b.txt", &[0xEF, 0xBB, 0xBF, b'a', 0xFF]);
+        let document = open(&file.path);
+        assert!(matches!(document.body, Body::Text(_)));
+        assert!(!document.fits());
+    }
+
+    #[test]
+    fn large_files_keep_their_line_ending() {
+        let text = many_lines().replace('\n', "\r\n");
+        let file = temp("crlf.log", text.as_bytes());
+        let document = open(&file.path);
+        assert!(matches!(document.body, Body::Lines(_)));
+        assert_eq!(document.line_ending, LineEnding::Crlf);
     }
 }

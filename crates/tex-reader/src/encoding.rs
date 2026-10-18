@@ -30,6 +30,7 @@ pub struct Decoded {
     pub text: String,
     pub encoding: Encoding,
     pub line_ending: LineEnding,
+    pub lossless: bool,
 }
 
 impl Encoding {
@@ -101,8 +102,13 @@ pub fn detect(bytes: &[u8]) -> Encoding {
 
 /// Decodes a whole file: text with `\n` breaks, plus what is needed to write it back the same way.
 pub fn decode(bytes: &[u8]) -> Decoded {
-    let encoding = detect(bytes);
-    let raw = decode_body(&bytes[encoding.bom_len()..], encoding);
+    let mut encoding = detect(bytes);
+    if encoding == (Encoding::Utf8 { bom: false }) && std::str::from_utf8(bytes).is_err() {
+        encoding = Encoding::Windows1252;
+    }
+    let body = &bytes[encoding.bom_len()..];
+    let lossless = is_lossless(body, encoding);
+    let raw = decode_body(body, encoding);
     let line_ending = detect_line_ending(&raw);
     let text = if raw.contains('\r') {
         raw.replace("\r\n", "\n")
@@ -113,6 +119,25 @@ pub fn decode(bytes: &[u8]) -> Decoded {
         text,
         encoding,
         line_ending,
+        lossless,
+    }
+}
+
+/// Whether decoding `body` replaces nothing (always true for Windows-1252).
+fn is_lossless(body: &[u8], encoding: Encoding) -> bool {
+    match encoding {
+        Encoding::Utf8 { .. } => std::str::from_utf8(body).is_ok(),
+        Encoding::Utf16Le | Encoding::Utf16Be => {
+            let unit = if encoding == Encoding::Utf16Le {
+                u16::from_le_bytes
+            } else {
+                u16::from_be_bytes
+            };
+            let (pairs, rest) = body.as_chunks::<2>();
+            rest.is_empty()
+                && char::decode_utf16(pairs.iter().map(|pair| unit(*pair))).all(|c| c.is_ok())
+        }
+        Encoding::Windows1252 => true,
     }
 }
 
@@ -132,7 +157,7 @@ fn decode_utf16(body: &[u8], unit: fn([u8; 2]) -> u16) -> String {
         .collect()
 }
 
-fn detect_line_ending(text: &str) -> LineEnding {
+pub(crate) fn detect_line_ending(text: &str) -> LineEnding {
     let bytes = text.as_bytes();
     let (mut crlf, mut lf) = (0usize, 0usize);
     for (at, _) in text.match_indices('\n').take(1000) {
@@ -270,7 +295,7 @@ mod tests {
     #[test]
     fn cut_utf8_tail_is_still_utf8() {
         assert_eq!(
-            decode(&"olá".as_bytes()[..3]).encoding,
+            detect(&"olá".as_bytes()[..3]),
             Encoding::Utf8 { bom: false }
         );
     }
@@ -289,5 +314,29 @@ mod tests {
         assert!(!fits("日本", Encoding::Windows1252));
         assert!(fits("日本", Encoding::Utf8 { bom: false }));
         assert_eq!(encode("日", Encoding::Windows1252, LineEnding::Lf), b"?");
+    }
+
+    #[test]
+    fn a_whole_file_cut_in_a_character_is_windows_1252() {
+        let decoded = round_trip(b"abc\xC3");
+        assert_eq!(decoded.encoding, Encoding::Windows1252);
+        assert_eq!(decoded.text, "abc\u{C3}");
+        assert!(decoded.lossless);
+        assert_eq!(detect(b"abc\xC3"), Encoding::Utf8 { bom: false });
+    }
+
+    #[test]
+    fn lossy_decodes_are_reported() {
+        let mut bad_utf8 = UTF8_BOM.to_vec();
+        bad_utf8.extend([b'a', 0xFF]);
+        let mut odd = utf16("a", true);
+        odd.push(0x41);
+        let mut lone = UTF16LE_BOM.to_vec();
+        lone.extend(0xD800u16.to_le_bytes());
+        for bytes in [bad_utf8, odd, lone] {
+            assert!(!decode(&bytes).lossless);
+        }
+        assert!(decode(&utf16("a", false)).lossless);
+        assert!(decode("olá".as_bytes()).lossless);
     }
 }
