@@ -21,7 +21,6 @@ use std::io;
 use std::rc::Rc;
 use std::time::Instant;
 
-use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use slint::language::ColorScheme;
 use slint::winit_030::winit::event::WindowEvent;
 use slint::winit_030::winit::window::{ResizeDirection, Window as WinitWindow};
@@ -35,10 +34,12 @@ use tex_clipboard::{
 };
 use tex_ipc::{Filter, VolumeState, VolumeStatus};
 use tex_platform::{
-    ClipboardWatcher, IconPixels, LocalTime, SingleInstance, WindowRef, catch_windows_key,
-    foreground_window, local_time, lock_foreground, open_path, paste_into, pick_file, pick_folder,
-    primary_work_area, restore_foreground, reveal_in_folder, round_corners, shape_tabbed_window,
-    take_foreground, transparent_windows, watch_theme, work_area_under_cursor, write_image,
+    AppBus, AppCommand, ClipboardWatcher, HotkeyEvent, HotkeySlot, HotkeySupport, Hotkeys,
+    IconPixels, LocalTime, SingleInstance, WindowRef, can_place_windows, catch_windows_key,
+    enable_shell_extension, foreground_window, is_gnome, local_time, lock_foreground, open_path,
+    paste_into, pick_file, pick_folder, present_window, primary_work_area, restore_foreground,
+    reveal_in_folder, round_corners, send_command, shape_tabbed_window, take_foreground,
+    transparent_windows, watch_shell_extension, watch_theme, work_area_under_cursor, write_image,
     write_text,
 };
 
@@ -75,6 +76,7 @@ thread_local! {
     static HISTORY: RefCell<Option<HistoryState>> = const { RefCell::new(None) };
     static ONBOARDING: RefCell<Option<Onboarding>> = const { RefCell::new(None) };
     static UPDATES: RefCell<Option<Updates>> = const { RefCell::new(None) };
+    static BUS: RefCell<Option<AppBus>> = const { RefCell::new(None) };
 }
 
 /// Weak handles to every window, cheap to clone into callbacks and across threads.
@@ -133,13 +135,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     if std::env::args().any(|arg| arg == "--autostart") && !settings.general.start_with_windows {
         return Ok(());
     }
+    let command = app::command_from_args(std::env::args());
     let Some(_instance) = SingleInstance::acquire("Local\\Tex.SingleInstance")? else {
+        if cfg!(target_os = "linux") {
+            let _ = send_command(command.unwrap_or(AppCommand::Settings));
+        }
         return Ok(());
     };
 
     slint::BackendSelector::new()
         .backend_name("winit".into())
         .select()?;
+    #[cfg(target_os = "linux")]
+    slint::set_xdg_app_id("io.github.LuizFer1.Tex")?;
 
     let popup = Popup::new()?;
     let about = AboutWindow::new()?;
@@ -158,7 +166,53 @@ fn main() -> Result<(), Box<dyn Error>> {
         onboarding: onboarding.as_weak(),
     };
 
-    app::init(AppState::new(settings, path, GlobalHotKeyManager::new()?));
+    let icons = IconLoader::start({
+        let popup = popup.as_weak();
+        move |path, pixels| {
+            let _ = popup.upgrade_in_event_loop(move |popup| icon_loaded(&popup, path, pixels));
+        }
+    });
+
+    let latest = Latest::default();
+    let client = SearchClient::start(
+        std::env::home_dir()
+            .map(|home| home.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        latest.clone(),
+        {
+            let windows = windows.clone();
+            let icons = icons.clone();
+            move |event| {
+                let windows = windows.clone();
+                let icons = icons.clone();
+                let latest = latest.clone();
+                let _ = slint::invoke_from_event_loop(move || {
+                    show_event(&windows, event, &icons, &latest)
+                });
+            }
+        },
+    );
+
+    let hotkeys = Hotkeys::start({
+        let windows = windows.clone();
+        let client = client.clone();
+        move |event| {
+            let windows = windows.clone();
+            let client = client.clone();
+            let _ = slint::invoke_from_event_loop(move || hotkey_event(&windows, &client, event));
+        }
+    })?;
+    app::init(AppState::new(settings, path, hotkeys));
+    let bus = AppBus::start({
+        let windows = windows.clone();
+        let client = client.clone();
+        move |command| {
+            let windows = windows.clone();
+            let client = client.clone();
+            let _ = slint::invoke_from_event_loop(move || run_command(&windows, &client, command));
+        }
+    });
+    BUS.with_borrow_mut(|slot| *slot = bus);
     let language = with_app(|app| app.settings.general.language);
     app::apply_language(language);
     apply_theme(&windows);
@@ -214,56 +268,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     };
     tray.set_paused(with_app(|app| app::capture_paused(&app.settings)));
+    publish_state(&windows);
 
-    let icons = IconLoader::start({
-        let popup = popup.as_weak();
-        move |path, pixels| {
-            let _ = popup.upgrade_in_event_loop(move |popup| icon_loaded(&popup, path, pixels));
-        }
-    });
-
-    let latest = Latest::default();
-    let client = SearchClient::start(
-        std::env::home_dir()
-            .map(|home| home.to_string_lossy().into_owned())
-            .unwrap_or_default(),
-        latest.clone(),
-        {
-            let windows = windows.clone();
-            let icons = icons.clone();
-            move |event| {
-                let windows = windows.clone();
-                let icons = icons.clone();
-                let latest = latest.clone();
-                let _ = slint::invoke_from_event_loop(move || {
-                    show_event(&windows, event, &icons, &latest)
-                });
-            }
-        },
-    );
-
+    update_hotkey_labels(&windows);
     with_app(|app| {
         app.resume_hotkey();
         app.resume_history_hotkey();
     });
-    GlobalHotKeyEvent::set_event_handler(Some({
-        let windows = windows.clone();
-        let client = client.clone();
-        move |event: GlobalHotKeyEvent| {
-            if event.state != HotKeyState::Pressed {
-                return;
-            }
-            let windows = windows.clone();
-            let client = client.clone();
-            let _ = slint::invoke_from_event_loop(move || {
-                if with_app(|app| app.is_history_hotkey(event.id)) {
-                    toggle_history(&windows);
-                } else {
-                    toggle_popup(&windows, &client);
-                }
-            });
-        }
-    }));
     if with_app(|app| app.settings.winkey_active()) {
         let on_press = winkey_handler(&windows, &client);
         if with_app(|app| app.set_winkey(true, on_press)).is_err() {
@@ -350,7 +361,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         let windows = windows.clone();
         move || install_update(&windows)
     });
-    tray.show()?;
+    if is_gnome() {
+        watch_shell_extension({
+            let windows = windows.clone();
+            move |active| {
+                let windows = windows.clone();
+                let _ = slint::invoke_from_event_loop(move || shell_changed(&windows, active));
+            }
+        });
+    } else {
+        tray.show()?;
+    }
     if !with_app(|app| app.settings.general.onboarding_done) {
         start_onboarding(&windows, upgrade);
     }
@@ -360,9 +381,67 @@ fn main() -> Result<(), Box<dyn Error>> {
         let client = client.clone();
         let _ = slint::invoke_from_event_loop(move || show_on_start(&windows, &client));
     }
+    if cfg!(target_os = "linux")
+        && let Some(command) = command
+    {
+        let windows = windows.clone();
+        let client = client.clone();
+        let _ = slint::invoke_from_event_loop(move || run_command(&windows, &client, command));
+    }
 
     slint::run_event_loop_until_quit()?;
     Ok(())
+}
+
+/// Runs a command from the session bus: another Tex, the GNOME extension or a system shortcut.
+fn run_command(windows: &Windows, client: &SearchClient, command: AppCommand) {
+    match command {
+        AppCommand::Toggle => tray_toggle(windows, client),
+        AppCommand::History => toggle_history(windows),
+        AppCommand::Settings => show_settings(windows, client, None),
+        AppCommand::About => show_about(windows),
+        AppCommand::TogglePause => toggle_pause(windows),
+        AppCommand::ApplyUpdate => install_update(windows),
+        AppCommand::Quit => {
+            let _ = slint::quit_event_loop();
+        }
+    }
+}
+
+/// Shows the pause, the update and the menu texts on the session bus, for the GNOME extension.
+fn publish_state(windows: &Windows) {
+    let Some(tray) = windows.tray.upgrade() else {
+        return;
+    };
+    BUS.with_borrow(|bus| {
+        let Some(bus) = bus else {
+            return;
+        };
+        bus.set_paused(tray.get_paused());
+        bus.set_update_ready(&tray.get_update_version());
+        bus.set_labels(vec![
+            tray.get_open_label().to_string(),
+            tray.get_history_label().to_string(),
+            tray.get_settings_label().to_string(),
+            tray.get_about_label().to_string(),
+            tray.get_pause_label().to_string(),
+            tray.get_update_label().to_string(),
+            tray.get_quit_label().to_string(),
+        ]);
+    });
+}
+
+/// The GNOME extension came or went: its panel button replaces the tray icon.
+fn shell_changed(windows: &Windows, active: bool) {
+    with_app(|app| app.shell_active = active);
+    if let Some(tray) = windows.tray.upgrade() {
+        let _ = if active { tray.hide() } else { tray.show() };
+    }
+    if let Some(window) = windows.settings.upgrade() {
+        window.set_can_place(can_place_windows());
+        window.set_shell_missing(!active);
+    }
+    refresh_onboarding(windows);
 }
 
 fn show_about(windows: &Windows) {
@@ -447,10 +526,71 @@ fn show_update_status(windows: &Windows, status: &UpdateStatus) {
     if let Some(tray) = windows.tray.upgrade() {
         tray.set_update_version(status.ready_version().unwrap_or_default().into());
     }
+    publish_state(windows);
     if let Some(window) = windows.settings.upgrade() {
         window.set_update_state(state);
         window.set_update_version(version.into());
     }
+}
+
+/// A shortcut press, or news from the platform about the shortcuts.
+fn hotkey_event(windows: &Windows, client: &SearchClient, event: HotkeyEvent) {
+    match event {
+        HotkeyEvent::Pressed(HotkeySlot::Tex) => toggle_popup(windows, client),
+        HotkeyEvent::Pressed(HotkeySlot::History) => toggle_history(windows),
+        HotkeyEvent::Bound { tex, history } => {
+            with_app(|app| app.hotkeys_bound(tex, history));
+            hotkeys_changed(windows);
+        }
+        HotkeyEvent::Changed => {
+            if !recording(windows) {
+                suspend_hotkeys();
+                resume_hotkeys();
+            }
+            hotkeys_changed(windows);
+        }
+    }
+}
+
+/// The shortcut descriptions the portal shows, in the current language.
+fn update_hotkey_labels(windows: &Windows) {
+    if let Some(tray) = windows.tray.upgrade() {
+        let labels = [
+            tray.get_open_label().to_string(),
+            tray.get_history_label().to_string(),
+        ];
+        with_app(|app| app.hotkey_labels = labels);
+    }
+}
+
+fn recording(windows: &Windows) -> bool {
+    windows
+        .settings
+        .upgrade()
+        .is_some_and(|window| window.get_recording() || window.get_history_recording())
+}
+
+/// Shows the shortcuts as they work now in the settings window and the onboarding.
+fn hotkeys_changed(windows: &Windows) {
+    if let Some(window) = windows.settings.upgrade() {
+        with_app(|app| show_hotkeys(&window, app));
+    }
+    refresh_onboarding(windows);
+}
+
+fn show_hotkeys(window: &SettingsWindow, app: &AppState) {
+    let support = app.hotkey_support();
+    window.set_hotkey_support(match support {
+        HotkeySupport::Free => 0,
+        HotkeySupport::System => 1,
+        HotkeySupport::Unavailable => 2,
+    });
+    window.set_hotkey_text(app.hotkey_text(HotkeySlot::Tex).into());
+    window.set_hotkey_keys(keys_model(app.hotkey_keys(HotkeySlot::Tex)));
+    window.set_hotkey_error(app::inactive_error(support, app.hotkey_failed));
+    window.set_history_hotkey_text(app.hotkey_text(HotkeySlot::History).into());
+    window.set_history_hotkey_keys(keys_model(app.hotkey_keys(HotkeySlot::History)));
+    window.set_history_hotkey_error(app::inactive_error(support, app.history_hotkey_failed));
 }
 
 fn open_from_key(windows: &Windows, client: &SearchClient) {
@@ -853,12 +993,8 @@ fn resize_direction(direction: i32) -> ResizeDirection {
     }
 }
 
-fn keys_model(shortcut: &Shortcut) -> ModelRc<SharedString> {
-    let keys: Vec<SharedString> = shortcut
-        .display_keys()
-        .into_iter()
-        .map(Into::into)
-        .collect();
+fn keys_model(keys: Vec<String>) -> ModelRc<SharedString> {
+    let keys: Vec<SharedString> = keys.into_iter().map(Into::into).collect();
     ModelRc::new(VecModel::from(keys))
 }
 
@@ -870,8 +1006,10 @@ fn change_history_hotkey(window: &SettingsWindow, shortcut: &Shortcut) {
         result,
         with_app(|app| app.history_hotkey_failed),
     ));
-    window.set_history_hotkey_text(with_app(|app| app.history_shortcut().display()).into());
-    window.set_history_hotkey_keys(with_app(|app| keys_model(&app.history_shortcut())));
+    window.set_history_hotkey_text(with_app(|app| app.hotkey_text(HotkeySlot::History)).into());
+    window.set_history_hotkey_keys(keys_model(with_app(|app| {
+        app.hotkey_keys(HotkeySlot::History)
+    })));
     if result.is_ok() {
         save_settings(window);
     }
@@ -903,6 +1041,7 @@ fn clipboard_changed(windows: &Windows) {
     if let Some(tray) = windows.tray.upgrade() {
         tray.set_paused(capture_paused);
     }
+    publish_state(windows);
     if let Some(history) = windows.history.upgrade() {
         history.set_paused(capture_paused);
         history.set_paste_by_default(paste);
@@ -917,8 +1056,8 @@ fn change_hotkey(window: &SettingsWindow, shortcut: &Shortcut) {
     resume_hotkeys();
     window.set_recording(false);
     window.set_hotkey_error(hotkey_error(result, with_app(|app| app.hotkey_failed)));
-    window.set_hotkey_text(with_app(|app| app.shortcut().display()).into());
-    window.set_hotkey_keys(with_app(|app| keys_model(&app.shortcut())));
+    window.set_hotkey_text(with_app(|app| app.hotkey_text(HotkeySlot::Tex)).into());
+    window.set_hotkey_keys(keys_model(with_app(|app| app.hotkey_keys(HotkeySlot::Tex))));
     if result.is_ok() {
         save_settings(window);
     }
@@ -961,6 +1100,11 @@ fn apply_settings(
     with_app(|app| app.settings = new.clone());
     if new.general.language != old.general.language {
         app::apply_language(new.general.language);
+        update_hotkey_labels(windows);
+        publish_state(windows);
+    }
+    if new.general.onboarding_done && !old.general.onboarding_done {
+        resume_hotkeys();
     }
     if new.general.theme != old.general.theme {
         apply_theme(windows);
@@ -1221,9 +1365,10 @@ fn fill_settings(window: &SettingsWindow, app: &AppState) {
         Theme::Light => 1,
         Theme::Dark => 2,
     });
-    window.set_hotkey_text(app.shortcut().display().into());
-    window.set_hotkey_keys(keys_model(&app.shortcut()));
-    window.set_hotkey_error(if app.hotkey_failed { 3 } else { 0 });
+    window.set_linux(cfg!(target_os = "linux"));
+    window.set_can_place(can_place_windows());
+    window.set_shell_missing(is_gnome() && !app.shell_active);
+    show_hotkeys(window, app);
     window.set_recording(false);
     window.set_windows_key(general.windows_key);
     window.set_winkey_error(app.winkey_error.as_str().into());
@@ -1252,9 +1397,6 @@ fn fill_settings(window: &SettingsWindow, app: &AppState) {
     window.set_selected_excluded(-1);
     fill_folders(window, &app.settings);
     let clipboard = &app.settings.clipboard;
-    window.set_history_hotkey_text(app.history_shortcut().display().into());
-    window.set_history_hotkey_keys(keys_model(&app.history_shortcut()));
-    window.set_history_hotkey_error(if app.history_hotkey_failed { 3 } else { 0 });
     window.set_history_recording(false);
     window.set_paused(clipboard.paused);
     window.set_capture_text(clipboard.capture_text);
@@ -1401,11 +1543,13 @@ fn show_settings(windows: &Windows, client: &SearchClient, tab: Option<i32>) {
     if let Some(target) = window_ref(window.window()) {
         round_corners(target);
     }
-    focus_window(window.window());
+    focus_window(window.window(), None);
 }
 
 /// Opens the onboarding centered on the primary monitor, with the current settings selected.
+/// On GNOME it also turns the extension on, which a new install needs.
 fn start_onboarding(windows: &Windows, upgrade: bool) {
+    enable_shell_extension();
     let onboarding = with_app(|app| Onboarding::new(&app.settings, upgrade));
     ONBOARDING.with_borrow_mut(|state| *state = Some(onboarding));
     let Some(window) = windows.onboarding.upgrade() else {
@@ -1413,19 +1557,21 @@ fn start_onboarding(windows: &Windows, upgrade: bool) {
     };
     refresh_onboarding(windows);
     apply_theme(windows);
-    if let Some(area) = primary_work_area() {
-        let (x, y) = placement::centered_origin(
+    let origin = primary_work_area().map(|area| {
+        placement::centered_origin(
             &area,
             placement::ONBOARDING_WIDTH,
             placement::ONBOARDING_HEIGHT,
-        );
+        )
+    });
+    if let Some((x, y)) = origin {
         window.window().set_position(PhysicalPosition::new(x, y));
     }
     let _ = window.show();
     if let Some(target) = window_ref(window.window()) {
         round_corners(target);
     }
-    focus_window(window.window());
+    focus_window(window.window(), origin);
 }
 
 /// Hides the settings window and opens the onboarding again with the current settings
@@ -1439,7 +1585,7 @@ fn redo_onboarding(windows: &Windows) {
     if ONBOARDING.with_borrow(Option::is_none) {
         start_onboarding(windows, true);
     } else if let Some(window) = windows.onboarding.upgrade() {
-        focus_window(window.window());
+        focus_window(window.window(), None);
     }
 }
 
@@ -1450,21 +1596,28 @@ fn refresh_onboarding(windows: &Windows) {
     ) else {
         return;
     };
-    let (shortcut, history, windows_key) = with_app(|app| {
+    let (keys, history, windows_key, support, shell_active) = with_app(|app| {
         (
-            app.shortcut(),
-            app.history_shortcut(),
+            app.hotkey_keys(HotkeySlot::Tex),
+            app.hotkey_text(HotkeySlot::History),
             app.settings.general.windows_key,
+            app.hotkey_support(),
+            app.shell_active,
         )
     });
     window.set_step(onboarding.step as i32);
+    window.set_question(onboarding.question_id());
+    window.set_question_count(onboarding.count() as i32);
+    window.set_linux(cfg!(target_os = "linux"));
     window.set_selected(onboarding.selected());
     window.set_upgrade(onboarding.upgrade);
     window.set_progress(onboarding.progress());
-    window.set_hotkey_text(shortcut.display().into());
-    window.set_hotkey_keys(keys_model(&shortcut));
-    window.set_history_hotkey_text(history.display().into());
-    window.set_done_win(windows_key);
+    window.set_hotkey_text(keys.join("+").into());
+    window.set_hotkey_keys(keys_model(keys));
+    window.set_history_hotkey_text(history.into());
+    window.set_done_win(windows_key && cfg!(windows));
+    window.set_has_shortcut(support != HotkeySupport::Unavailable);
+    window.set_relogin(is_gnome() && !shell_active);
 }
 
 /// Answers the current question; the theme question previews its answer at once.
@@ -1640,29 +1793,44 @@ fn popup_ref(popup: &Popup) -> Option<WindowRef> {
 }
 
 /// Gives `window` the keyboard focus and says whether it has it. A window the platform can
-/// address takes the foreground itself; a Wayland window can only ask the compositor through
-/// winit, which may refuse, so the request counts as taken.
-fn take_focus(window: &slint::Window) -> bool {
+/// address takes the foreground itself; a Wayland window is placed at `origin` and activated
+/// by the GNOME extension, or else asks the compositor through winit, which may refuse, so
+/// the request counts as taken.
+fn take_focus(window: &slint::Window, origin: Option<(i32, i32)>) -> bool {
     match window_ref(window) {
         Some(target) => take_foreground(target),
         None if cfg!(windows) => false,
         None => {
-            window.with_winit_window(|window| window.focus_window());
+            if !present(window, origin) {
+                window.with_winit_window(|window| window.focus_window());
+            }
             true
         }
     }
 }
 
-/// Asks the keyboard focus for a window other than the popup: through winit on Windows and
-/// Wayland, through the platform on X11, whose window managers can refuse winit's request.
-fn focus_window(window: &slint::Window) {
-    if cfg!(target_os = "linux")
-        && let Some(target) = window_ref(window)
-    {
-        take_foreground(target);
-        return;
+/// Asks the keyboard focus for a window other than the popup: through winit on Windows,
+/// through the platform on X11, whose window managers can refuse winit's request, and through
+/// the GNOME extension on GNOME's Wayland, which also moves it to `origin`.
+fn focus_window(window: &slint::Window, origin: Option<(i32, i32)>) {
+    if cfg!(target_os = "linux") {
+        if let Some(target) = window_ref(window) {
+            take_foreground(target);
+            return;
+        }
+        if present(window, origin) {
+            return;
+        }
     }
     window.with_winit_window(|window| window.focus_window());
+}
+
+/// Hands a Wayland window to the GNOME extension, which finds it by its title.
+fn present(window: &slint::Window, origin: Option<(i32, i32)>) -> bool {
+    let title = window
+        .with_winit_window(|window| window.title())
+        .unwrap_or_default();
+    present_window(&title, origin)
 }
 
 /// Clips a popup window to its "tex -" tab and body.
@@ -1737,8 +1905,8 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
         PopupMonitor::Cursor => work_area_under_cursor(),
         PopupMonitor::Primary => primary_work_area(),
     };
-    if let Some(area) = area {
-        let (x, y) = placement::popup_origin(&area, placement::POPUP_WIDTH);
+    let origin = area.map(|area| placement::popup_origin(&area, placement::POPUP_WIDTH));
+    if let Some((x, y)) = origin {
         popup.window().set_position(PhysicalPosition::new(x, y));
     }
     let previous = foreground_window();
@@ -1755,7 +1923,7 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
         popup.get_tab_width(),
         popup.get_tab_height(),
     );
-    if !take_focus(popup.window()) {
+    if !take_focus(popup.window(), origin) {
         hide_popup(&popup);
         return;
     }
@@ -2192,15 +2360,15 @@ fn show_history(windows: &Windows) {
         PopupMonitor::Cursor => work_area_under_cursor(),
         PopupMonitor::Primary => primary_work_area(),
     };
-    if let Some(area) = area {
-        let (x, y) = placement::popup_origin(&area, placement::HISTORY_WIDTH);
+    let origin = area.map(|area| placement::popup_origin(&area, placement::HISTORY_WIDTH));
+    if let Some((x, y)) = origin {
         window.window().set_position(PhysicalPosition::new(x, y));
     }
     if window.show().is_err() {
         return;
     }
     window.window().with_winit_window(skip_taskbar);
-    focus_window(window.window());
+    focus_window(window.window(), origin);
     shape_window(
         window.window(),
         window.get_tab_width(),

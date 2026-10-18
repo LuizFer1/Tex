@@ -10,15 +10,15 @@ use zbus::blocking::{Connection, MessageIterator, Proxy, connection};
 use zbus::message::Type;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 
-const DESKTOP: &str = "org.freedesktop.portal.Desktop";
-const DESKTOP_PATH: &str = "/org/freedesktop/portal/desktop";
+pub(crate) const DESKTOP: &str = "org.freedesktop.portal.Desktop";
+pub(crate) const DESKTOP_PATH: &str = "/org/freedesktop/portal/desktop";
 const APPEARANCE: &str = "org.freedesktop.appearance";
 const COLOR_SCHEME: &str = "color-scheme";
 
 static DARK: AtomicBool = AtomicBool::new(false);
 
 /// The session bus, connected once. `None` without one (a bare X session, for instance).
-fn session_bus() -> Option<Connection> {
+pub(crate) fn session_bus() -> Option<Connection> {
     static BUS: OnceLock<Option<Connection>> = OnceLock::new();
     BUS.get_or_init(|| {
         connection::Builder::session()

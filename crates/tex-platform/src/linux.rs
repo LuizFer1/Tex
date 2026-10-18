@@ -1,5 +1,13 @@
 mod dbus;
+mod hotkeys;
+mod keys;
+mod portal;
+mod service;
+mod shell;
 mod x11;
+
+pub use hotkeys::Hotkeys;
+pub use service::{AppBus, send_command};
 
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions, TryLockError};
@@ -160,15 +168,48 @@ pub fn watch_theme(on_change: impl Fn() + Send + 'static) {
     dbus::watch_theme(on_change);
 }
 
-/// Work area of the monitor under the pointer on X11. `None` on Wayland, where the compositor
-/// places windows.
+/// Work area of the monitor under the pointer, on X11 or through the GNOME extension. `None`
+/// on other Wayland desktops, where the compositor places windows.
 pub fn work_area_under_cursor() -> Option<WorkArea> {
-    x11::work_area_under_cursor()
+    x11::work_area_under_cursor().or_else(|| shell::work_area(false))
 }
 
-/// Work area of the primary monitor on X11. `None` on Wayland.
+/// Work area of the primary monitor, on X11 or through the GNOME extension.
 pub fn primary_work_area() -> Option<WorkArea> {
-    x11::primary_work_area()
+    x11::primary_work_area().or_else(|| shell::work_area(true))
+}
+
+/// Whether Tex can place its windows: on X11, and on GNOME through the extension.
+pub fn can_place_windows() -> bool {
+    x11::is_x11() || shell::present()
+}
+
+/// Asks the GNOME extension to move the Tex window titled `title` to `position` (physical
+/// pixels; `None` leaves it in place) and activate it. False without the extension or on X11,
+/// where [`take_foreground`] does it.
+pub fn present_window(title: &str, position: Option<(i32, i32)>) -> bool {
+    let (x, y) = position.unwrap_or((-1, -1));
+    !x11::is_x11() && shell::present_window(title, x, y)
+}
+
+/// Whether the session is GNOME, where Tex's panel button comes from its extension.
+pub fn is_gnome() -> bool {
+    shell::is_gnome()
+}
+
+/// Calls `on_change` from a bus thread with whether the GNOME extension is active: once known
+/// and on every change. Outside GNOME it is never called.
+pub fn watch_shell_extension(on_change: impl Fn(bool) + Send + 'static) {
+    if shell::is_gnome() {
+        shell::watch(on_change);
+    }
+}
+
+/// Turns the GNOME extension on for this user. Does nothing outside GNOME.
+pub fn enable_shell_extension() {
+    if shell::is_gnome() {
+        shell::enable();
+    }
 }
 
 pub fn shape_tabbed_window(

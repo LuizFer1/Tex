@@ -167,6 +167,8 @@ Tex is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE.md).
 - **Free to modify** and to share your changes, as long as the license and its `Required Notice:` line go along with every copy.
 - **Commercial use is not allowed** under this license. To use Tex commercially, contact the author for a separate license.
 
+The GNOME Shell extension in `gnome-extension/` is under the MIT license (`gnome-extension/LICENSE`), because it runs inside GNOME Shell; the rest of Tex stays under the PolyForm Noncommercial License.
+
 The UI is built with [Slint](https://slint.dev), used under the Slint Royalty-free Desktop, Mobile, and Web Applications License 2.0. As that license requires, Tex shows the `AboutSlint` widget on its About screen.
 
 The bundled fonts, [Nunito](https://github.com/googlefonts/nunito) and [IBM Plex Mono](https://github.com/IBM/plex), are under the SIL Open Font License 1.1 (`crates/tex-app/ui/fonts`). The icons come from [Phosphor](https://phosphoricons.com) under the MIT license (`crates/tex-app/ui/icons`).

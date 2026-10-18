@@ -4672,6 +4672,7 @@ dependencies = [
 name = "tex-platform"
 version = "0.4.2"
 dependencies = [
+ "global-hotkey",
  "libc",
  "raw-window-handle",
  "windows-sys 0.59.0",
