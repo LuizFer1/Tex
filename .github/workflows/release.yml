@@ -36,7 +36,16 @@ jobs:
           & $iscc "/DAppVersion=${{ steps.version.outputs.version }}" installer\tex.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Sign
+        shell: pwsh
+        env:
+          TEX_UPDATE_KEY: ${{ secrets.TEX_UPDATE_KEY }}
+        run: |
+          if (-not $env:TEX_UPDATE_KEY) { throw "the TEX_UPDATE_KEY secret is missing" }
+          cargo run --release -p tex-app --example sign_update -- "target\installer\Tex-Setup-${{ steps.version.outputs.version }}.exe" "${{ steps.version.outputs.version }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" --draft --title "Tex ${{ steps.version.outputs.version }}" --generate-notes "target\installer\Tex-Setup-${{ steps.version.outputs.version }}.exe"
+        run: gh release create "${{ github.ref_name }}" --draft --title "Tex ${{ steps.version.outputs.version }}" --generate-notes "target\installer\Tex-Setup-${{ steps.version.outputs.version }}.exe" "target\installer\Tex-Setup-${{ steps.version.outputs.version }}.exe.sig"
