@@ -11,9 +11,7 @@ mod search_client;
 mod settings;
 mod shortcut;
 mod theme;
-#[allow(dead_code)]
 mod update;
-#[allow(dead_code)]
 mod update_client;
 
 use std::cell::RefCell;
@@ -64,6 +62,7 @@ use crate::settings::{
 };
 use crate::shortcut::Shortcut;
 use crate::theme::{Art, Design};
+use crate::update_client::{UpdateClient, UpdateStatus, is_stale};
 
 slint::include_modules!();
 
@@ -76,6 +75,7 @@ thread_local! {
     static ICONS: RefCell<IconCache<Image>> = RefCell::new(IconCache::new(ICON_CACHE_SIZE));
     static HISTORY: RefCell<Option<HistoryState>> = const { RefCell::new(None) };
     static ONBOARDING: RefCell<Option<Onboarding>> = const { RefCell::new(None) };
+    static UPDATES: RefCell<Option<Updates>> = const { RefCell::new(None) };
 }
 
 /// Weak handles to every window, cheap to clone into callbacks and across threads.
@@ -105,9 +105,21 @@ struct HistoryState {
     unavailable: String,
 }
 
+/// The update worker, the last status it reported and when this process last checked.
+struct Updates {
+    client: UpdateClient,
+    status: UpdateStatus,
+    checked_at: Option<Instant>,
+}
+
 /// Runs `f` on the history state. Never call into Slint callbacks from inside.
 fn with_history<R>(f: impl FnOnce(&mut HistoryState) -> R) -> R {
     HISTORY.with_borrow_mut(|history| f(history.as_mut().expect("history state initialized")))
+}
+
+/// Runs `f` on the update state. Never call into Slint from inside.
+fn with_updates<R>(f: impl FnOnce(&mut Updates) -> R) -> R {
+    UPDATES.with_borrow_mut(|updates| f(updates.as_mut().expect("update state initialized")))
 }
 
 /// Runs `f` on the onboarding while it is open.
@@ -281,6 +293,24 @@ fn main() -> Result<(), Box<dyn Error>> {
         });
     }
 
+    let updates = UpdateClient::start(history_folder().join("updates"), {
+        let windows = windows.clone();
+        move |status| {
+            let windows = windows.clone();
+            let _ = slint::invoke_from_event_loop(move || update_status(&windows, status));
+        }
+    });
+    UPDATES.with_borrow_mut(|state| {
+        *state = Some(Updates {
+            client: updates,
+            status: UpdateStatus::Idle,
+            checked_at: None,
+        });
+    });
+    if with_app(|app| app.settings.general.auto_update) {
+        check_updates();
+    }
+
     tray.on_open({
         let windows = windows.clone();
         let client = client.clone();
@@ -316,6 +346,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     tray.on_quit(|| {
         let _ = slint::quit_event_loop();
     });
+    tray.on_install_update(install_update);
     tray.show()?;
     if !with_app(|app| app.settings.general.onboarding_done) {
         start_onboarding(&windows, upgrade);
@@ -331,6 +362,52 @@ fn toggle_pause(windows: &Windows) {
         save_settings(&window);
     }
     clipboard_changed(windows);
+}
+
+/// Starts a check unless one is running or the onboarding has not finished.
+fn check_updates() {
+    if !with_app(|app| app.settings.general.onboarding_done) {
+        return;
+    }
+    with_updates(|updates| {
+        if !updates.status.busy() {
+            updates.checked_at = Some(Instant::now());
+            updates.status = UpdateStatus::Checking;
+            updates.client.check();
+        }
+    });
+}
+
+fn check_updates_if_stale() {
+    let auto = with_app(|app| app.settings.general.auto_update);
+    if auto && with_updates(|updates| is_stale(updates.checked_at, Instant::now())) {
+        check_updates();
+    }
+}
+
+fn install_update() {
+    with_updates(|updates| {
+        if let Some(version) = updates.status.ready_version() {
+            updates.status = UpdateStatus::Installing(version.to_owned());
+            updates.client.apply();
+        }
+    });
+}
+
+fn update_status(windows: &Windows, status: UpdateStatus) {
+    with_updates(|updates| updates.status = status.clone());
+    show_update_status(windows, &status);
+}
+
+fn show_update_status(windows: &Windows, status: &UpdateStatus) {
+    let (state, version) = status.parts();
+    if let Some(tray) = windows.tray.upgrade() {
+        tray.set_update_version(status.ready_version().unwrap_or_default().into());
+    }
+    if let Some(window) = windows.settings.upgrade() {
+        window.set_update_state(state);
+        window.set_update_version(version.into());
+    }
 }
 
 fn open_from_key(windows: &Windows, client: &SearchClient) {
@@ -490,6 +567,8 @@ fn wire_settings(window: &SettingsWindow, windows: &Windows, client: &SearchClie
         let client = client.clone();
         move || settings_edited(&windows, &client)
     });
+    window.on_check_updates(check_updates);
+    window.on_install_update(install_update);
     window.on_change_hotkey({
         let window = window.as_weak();
         move || {
@@ -806,8 +885,9 @@ fn save_settings(window: &SettingsWindow) {
     );
 }
 
-/// Applies `new` over `old` (Windows-key hook, language, theme, categories, clipboard) and
-/// saves. Returns what was applied: the hook may fail and turn the Windows key off.
+/// Applies `new` over `old` (Windows-key hook, language, theme, categories, clipboard,
+/// update check) and saves. Returns what was applied: the hook may fail and turn the Windows
+/// key off.
 fn apply_settings(
     windows: &Windows,
     client: &SearchClient,
@@ -839,6 +919,11 @@ fn apply_settings(
     }
     if new.general.language != old.general.language {
         send_history(ClipboardCommand::Usage);
+    }
+    let wants_updates =
+        |settings: &Settings| settings.general.onboarding_done && settings.general.auto_update;
+    if wants_updates(&new) && !wants_updates(old) {
+        check_updates();
     }
     new
 }
@@ -1057,6 +1142,7 @@ fn fill_settings(window: &SettingsWindow, app: &AppState) {
     window.set_windows_key(general.windows_key);
     window.set_winkey_error(app.winkey_error.as_str().into());
     window.set_start_with_windows(general.start_with_windows);
+    window.set_auto_update(general.auto_update);
     window.set_popup_monitor(match general.popup_monitor {
         PopupMonitor::Cursor => 0,
         PopupMonitor::Primary => 1,
@@ -1155,6 +1241,7 @@ fn read_settings(window: &SettingsWindow, current: &Settings) -> Settings {
     };
     general.windows_key = window.get_windows_key();
     general.start_with_windows = window.get_start_with_windows();
+    general.auto_update = window.get_auto_update();
     general.popup_monitor = match window.get_popup_monitor() {
         1 => PopupMonitor::Primary,
         _ => PopupMonitor::Cursor,
@@ -1215,6 +1302,7 @@ fn show_settings(windows: &Windows, client: &SearchClient, tab: Option<i32>) {
     };
     apply_theme(windows);
     with_app(|app| fill_settings(&window, app));
+    show_update_status(windows, &with_updates(|updates| updates.status.clone()));
     window.set_history_unavailable(with_history(|history| history.unavailable.clone()).into());
     if let Some(tab) = tab {
         window.set_current_tab(tab);
@@ -1503,6 +1591,7 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
     popup.set_status_ready_letters("".into());
     popup.set_service_unavailable(false);
     client.send(Command::Status);
+    check_updates_if_stale();
     let area = match monitor {
         PopupMonitor::Cursor => work_area_under_cursor(),
         PopupMonitor::Primary => primary_work_area(),

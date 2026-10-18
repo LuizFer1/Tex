@@ -102,10 +102,6 @@ impl Release {
         let raw: RawRelease = serde_json::from_slice(bytes).ok()?;
         Version::parse(&raw.tag_name)
     }
-
-    pub fn newer_than(self, current: Version) -> Option<Release> {
-        (self.version > current).then_some(self)
-    }
 }
 
 pub fn installer_name(version: Version) -> String {
@@ -255,12 +251,6 @@ mod tests {
             }
         );
         assert!(release.signature.url.ends_with("Tex-Setup-0.4.3.exe.sig"));
-        assert_eq!(
-            release.clone().newer_than(v("0.4.2")),
-            Some(release.clone())
-        );
-        assert_eq!(release.clone().newer_than(v("0.4.3")), None);
-        assert_eq!(release.newer_than(v("0.5.0")), None);
     }
 
     #[test]
