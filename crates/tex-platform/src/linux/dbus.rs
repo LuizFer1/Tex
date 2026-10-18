@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -133,6 +134,20 @@ pub(crate) fn is_dark(value: &Value<'_>) -> bool {
     matches!(value.downcast_ref::<u32>(), Ok(1))
 }
 
+/// Opens the file manager on the folder of `path` with it selected.
+pub(crate) fn show_item(path: &str) -> zbus::Result<()> {
+    let bus = session_bus().ok_or_else(|| zbus::Error::Failure("no session bus".into()))?;
+    let manager = Proxy::new(
+        &bus,
+        "org.freedesktop.FileManager1",
+        "/org/freedesktop/FileManager1",
+        "org.freedesktop.FileManager1",
+    )?;
+    manager
+        .call_method("ShowItems", &(vec![file_uri(path)], ""))
+        .map(drop)
+}
+
 /// The local path of a `file://` URI, percent-decoded. `None` for other schemes.
 pub(crate) fn uri_to_path(uri: &str) -> Option<String> {
     let rest = uri.strip_prefix("file://")?;
@@ -156,6 +171,20 @@ pub(crate) fn uri_to_path(uri: &str) -> Option<String> {
         }
     }
     String::from_utf8(bytes).ok()
+}
+
+/// A `file://` URI for an absolute path: every byte but letters, digits, `-._~` and `/` is
+/// percent-encoded.
+pub(crate) fn file_uri(path: &str) -> String {
+    let mut uri = String::from("file://");
+    for byte in path.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~/".contains(&byte) {
+            uri.push(byte as char);
+        } else {
+            let _ = write!(uri, "%{byte:02X}");
+        }
+    }
+    uri
 }
 
 #[cfg(test)]
@@ -184,5 +213,16 @@ mod tests {
         assert_eq!(uri_to_path("file:///bad%zz").as_deref(), Some("/bad%zz"));
         assert_eq!(uri_to_path("https://example.com/a"), None);
         assert_eq!(uri_to_path("file:///x%FF"), None);
+    }
+
+    #[test]
+    fn paths_become_file_uris() {
+        assert_eq!(
+            file_uri("/home/ana/My File#1.txt"),
+            "file:///home/ana/My%20File%231.txt"
+        );
+        assert_eq!(file_uri("/tmp/aç"), "file:///tmp/a%C3%A7");
+        let path = "/home/ana/100% [done]/ação.txt";
+        assert_eq!(uri_to_path(&file_uri(path)).as_deref(), Some(path));
     }
 }

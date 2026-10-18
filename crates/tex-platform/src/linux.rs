@@ -115,12 +115,21 @@ pub fn open_path(path: &str) -> io::Result<()> {
     spawn_detached("xdg-open", path)
 }
 
+/// Shows `path` selected in the file manager (`org.freedesktop.FileManager1`); without one,
+/// opens its folder with `xdg-open`. Runs on a thread, since the file manager may take a while
+/// to start.
 pub fn reveal_in_folder(path: &str) -> io::Result<()> {
-    let folder = Path::new(path).parent().map_or_else(
-        || path.to_owned(),
-        |parent| parent.to_string_lossy().into_owned(),
-    );
-    spawn_detached("xdg-open", &folder)
+    let path = path.to_owned();
+    thread::spawn(move || {
+        if dbus::show_item(&path).is_err() {
+            let folder = Path::new(&path).parent().map_or_else(
+                || path.clone(),
+                |parent| parent.to_string_lossy().into_owned(),
+            );
+            let _ = spawn_detached("xdg-open", &folder);
+        }
+    });
+    Ok(())
 }
 
 fn spawn_detached(program: &str, argument: &str) -> io::Result<()> {
