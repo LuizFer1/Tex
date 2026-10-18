@@ -35,10 +35,11 @@ use tex_clipboard::{
 use tex_ipc::{Filter, VolumeState, VolumeStatus};
 use tex_platform::{
     AppBus, AppCommand, ClipboardWatcher, HotkeyEvent, HotkeySlot, Hotkeys, IconPixels, LocalTime,
-    SingleInstance, WindowRef, catch_windows_key, foreground_window, local_time, lock_foreground,
-    open_path, paste_into, pick_file, pick_folder, primary_work_area, restore_foreground,
-    reveal_in_folder, round_corners, send_command, shape_tabbed_window, take_foreground,
-    transparent_windows, watch_theme, work_area_under_cursor, write_image, write_text,
+    SingleInstance, WindowRef, catch_windows_key, enable_shell_extension, foreground_window,
+    is_gnome, local_time, lock_foreground, open_path, paste_into, pick_file, pick_folder,
+    present_window, primary_work_area, restore_foreground, reveal_in_folder, round_corners,
+    send_command, shape_tabbed_window, take_foreground, transparent_windows, watch_shell_extension,
+    watch_theme, work_area_under_cursor, write_image, write_text,
 };
 
 use crate::app::{AppState, HotkeyError, with_app};
@@ -359,7 +360,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         let windows = windows.clone();
         move || install_update(&windows)
     });
-    tray.show()?;
+    if is_gnome() {
+        watch_shell_extension({
+            let tray = tray.as_weak();
+            move |active| {
+                let _ = tray.upgrade_in_event_loop(move |tray| {
+                    let _ = if active { tray.hide() } else { tray.show() };
+                });
+            }
+        });
+    } else {
+        tray.show()?;
+    }
     if !with_app(|app| app.settings.general.onboarding_done) {
         start_onboarding(&windows, upgrade);
     }
@@ -1509,11 +1521,13 @@ fn show_settings(windows: &Windows, client: &SearchClient, tab: Option<i32>) {
     if let Some(target) = window_ref(window.window()) {
         round_corners(target);
     }
-    focus_window(window.window());
+    focus_window(window.window(), None);
 }
 
 /// Opens the onboarding centered on the primary monitor, with the current settings selected.
+/// On GNOME it also turns the extension on, which a new install needs.
 fn start_onboarding(windows: &Windows, upgrade: bool) {
+    enable_shell_extension();
     let onboarding = with_app(|app| Onboarding::new(&app.settings, upgrade));
     ONBOARDING.with_borrow_mut(|state| *state = Some(onboarding));
     let Some(window) = windows.onboarding.upgrade() else {
@@ -1521,19 +1535,21 @@ fn start_onboarding(windows: &Windows, upgrade: bool) {
     };
     refresh_onboarding(windows);
     apply_theme(windows);
-    if let Some(area) = primary_work_area() {
-        let (x, y) = placement::centered_origin(
+    let origin = primary_work_area().map(|area| {
+        placement::centered_origin(
             &area,
             placement::ONBOARDING_WIDTH,
             placement::ONBOARDING_HEIGHT,
-        );
+        )
+    });
+    if let Some((x, y)) = origin {
         window.window().set_position(PhysicalPosition::new(x, y));
     }
     let _ = window.show();
     if let Some(target) = window_ref(window.window()) {
         round_corners(target);
     }
-    focus_window(window.window());
+    focus_window(window.window(), origin);
 }
 
 /// Hides the settings window and opens the onboarding again with the current settings
@@ -1547,7 +1563,7 @@ fn redo_onboarding(windows: &Windows) {
     if ONBOARDING.with_borrow(Option::is_none) {
         start_onboarding(windows, true);
     } else if let Some(window) = windows.onboarding.upgrade() {
-        focus_window(window.window());
+        focus_window(window.window(), None);
     }
 }
 
@@ -1748,29 +1764,44 @@ fn popup_ref(popup: &Popup) -> Option<WindowRef> {
 }
 
 /// Gives `window` the keyboard focus and says whether it has it. A window the platform can
-/// address takes the foreground itself; a Wayland window can only ask the compositor through
-/// winit, which may refuse, so the request counts as taken.
-fn take_focus(window: &slint::Window) -> bool {
+/// address takes the foreground itself; a Wayland window is placed at `origin` and activated
+/// by the GNOME extension, or else asks the compositor through winit, which may refuse, so
+/// the request counts as taken.
+fn take_focus(window: &slint::Window, origin: Option<(i32, i32)>) -> bool {
     match window_ref(window) {
         Some(target) => take_foreground(target),
         None if cfg!(windows) => false,
         None => {
-            window.with_winit_window(|window| window.focus_window());
+            if !present(window, origin) {
+                window.with_winit_window(|window| window.focus_window());
+            }
             true
         }
     }
 }
 
-/// Asks the keyboard focus for a window other than the popup: through winit on Windows and
-/// Wayland, through the platform on X11, whose window managers can refuse winit's request.
-fn focus_window(window: &slint::Window) {
-    if cfg!(target_os = "linux")
-        && let Some(target) = window_ref(window)
-    {
-        take_foreground(target);
-        return;
+/// Asks the keyboard focus for a window other than the popup: through winit on Windows,
+/// through the platform on X11, whose window managers can refuse winit's request, and through
+/// the GNOME extension on GNOME's Wayland, which also moves it to `origin`.
+fn focus_window(window: &slint::Window, origin: Option<(i32, i32)>) {
+    if cfg!(target_os = "linux") {
+        if let Some(target) = window_ref(window) {
+            take_foreground(target);
+            return;
+        }
+        if present(window, origin) {
+            return;
+        }
     }
     window.with_winit_window(|window| window.focus_window());
+}
+
+/// Hands a Wayland window to the GNOME extension, which finds it by its title.
+fn present(window: &slint::Window, origin: Option<(i32, i32)>) -> bool {
+    let title = window
+        .with_winit_window(|window| window.title())
+        .unwrap_or_default();
+    present_window(&title, origin)
 }
 
 /// Clips a popup window to its "tex -" tab and body.
@@ -1845,8 +1876,8 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
         PopupMonitor::Cursor => work_area_under_cursor(),
         PopupMonitor::Primary => primary_work_area(),
     };
-    if let Some(area) = area {
-        let (x, y) = placement::popup_origin(&area, placement::POPUP_WIDTH);
+    let origin = area.map(|area| placement::popup_origin(&area, placement::POPUP_WIDTH));
+    if let Some((x, y)) = origin {
         popup.window().set_position(PhysicalPosition::new(x, y));
     }
     let previous = foreground_window();
@@ -1863,7 +1894,7 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
         popup.get_tab_width(),
         popup.get_tab_height(),
     );
-    if !take_focus(popup.window()) {
+    if !take_focus(popup.window(), origin) {
         hide_popup(&popup);
         return;
     }
@@ -2300,15 +2331,15 @@ fn show_history(windows: &Windows) {
         PopupMonitor::Cursor => work_area_under_cursor(),
         PopupMonitor::Primary => primary_work_area(),
     };
-    if let Some(area) = area {
-        let (x, y) = placement::popup_origin(&area, placement::HISTORY_WIDTH);
+    let origin = area.map(|area| placement::popup_origin(&area, placement::HISTORY_WIDTH));
+    if let Some((x, y)) = origin {
         window.window().set_position(PhysicalPosition::new(x, y));
     }
     if window.show().is_err() {
         return;
     }
     window.window().with_winit_window(skip_taskbar);
-    focus_window(window.window());
+    focus_window(window.window(), origin);
     shape_window(
         window.window(),
         window.get_tab_width(),

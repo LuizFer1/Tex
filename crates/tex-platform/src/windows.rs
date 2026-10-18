@@ -311,6 +311,22 @@ pub fn send_command(_command: AppCommand) -> io::Result<()> {
     ))
 }
 
+pub fn can_place_windows() -> bool {
+    true
+}
+
+pub fn present_window(_title: &str, _position: Option<(i32, i32)>) -> bool {
+    false
+}
+
+pub fn is_gnome() -> bool {
+    false
+}
+
+pub fn watch_shell_extension(_on_change: impl Fn(bool) + Send + 'static) {}
+
+pub fn enable_shell_extension() {}
+
 /// Converts a Unix time in milliseconds to the user's local time.
 pub fn local_time(unix_ms: i64) -> LocalTime {
     let ticks = unix_ms_to_filetime(unix_ms);

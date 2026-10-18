@@ -2,10 +2,11 @@
 mod windows;
 #[cfg(windows)]
 pub use windows::{
-    AppBus, SingleInstance, cache_dir, config_dir, data_dir, local_time, lock_foreground,
-    open_locked, open_path, primary_work_area, restore_foreground, reveal_in_folder, round_corners,
+    AppBus, SingleInstance, cache_dir, can_place_windows, config_dir, data_dir,
+    enable_shell_extension, is_gnome, local_time, lock_foreground, open_locked, open_path,
+    present_window, primary_work_area, restore_foreground, reveal_in_folder, round_corners,
     send_command, shape_tabbed_window, system_uses_dark_theme, take_foreground,
-    transparent_windows, user_language, watch_theme, work_area_under_cursor,
+    transparent_windows, user_language, watch_shell_extension, watch_theme, work_area_under_cursor,
 };
 #[cfg(windows)]
 mod hotkeys;
@@ -45,12 +46,13 @@ mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::{
     AppBus, ClipboardWatcher, Hotkeys, SingleInstance, WinKeyHook, app_icon, cache_dir,
-    catch_windows_key, config_dir, data_dir, foreground_window, http_get, init_icon_thread,
-    local_time, lock_foreground, open_locked, open_path, paste_into, pick_file, pick_folder,
-    primary_work_area, protect, restore_foreground, reveal_in_folder, round_corners, send_command,
+    can_place_windows, catch_windows_key, config_dir, data_dir, enable_shell_extension,
+    foreground_window, http_get, init_icon_thread, is_gnome, local_time, lock_foreground,
+    open_locked, open_path, paste_into, pick_file, pick_folder, present_window, primary_work_area,
+    protect, restore_foreground, reveal_in_folder, round_corners, send_command,
     shape_tabbed_window, skip_taskbar, system_uses_dark_theme, take_foreground,
-    transparent_windows, unprotect, user_language, watch_theme, work_area_under_cursor,
-    write_image, write_text,
+    transparent_windows, unprotect, user_language, watch_shell_extension, watch_theme,
+    work_area_under_cursor, write_image, write_text,
 };
 
 #[cfg(not(any(windows, target_os = "linux")))]
