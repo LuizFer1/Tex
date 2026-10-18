@@ -1,10 +1,12 @@
+mod gnome;
 mod mime;
 mod wake;
 mod wayland;
 mod x11;
 
 use std::io;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -27,6 +29,8 @@ static WRITER: Mutex<Option<Writer>> = Mutex::new(None);
 enum Stop {
     /// A thread that sleeps in `poll` and stops on [`Message::Stop`].
     Thread(Waker, JoinHandle<()>),
+    /// A thread blocked on the session bus, which only notices on its next signal.
+    Flag(Arc<AtomicBool>),
 }
 
 /// Watches the clipboard on its own thread: X11 through XFixes, Wayland through the
@@ -75,7 +79,18 @@ impl ClipboardWatcher {
                         return Ok(ClipboardWatcher::threaded(backend, waker, thread));
                     }
                 }
-                Backend::Shell => {}
+                Backend::Shell => {
+                    if let Ok(offers) = gnome::open() {
+                        let stopped = Arc::new(AtomicBool::new(false));
+                        let flag = Arc::clone(&stopped);
+                        thread::spawn(move || offers.run(flag, wanted, on_change));
+                        set_writer(Some(gnome::writer()));
+                        return Ok(ClipboardWatcher {
+                            backend,
+                            stop: Some(Stop::Flag(stopped)),
+                        });
+                    }
+                }
             }
         }
         Err(io::Error::new(
@@ -109,9 +124,13 @@ impl ClipboardWatcher {
 impl Drop for ClipboardWatcher {
     fn drop(&mut self) {
         set_writer(None);
-        if let Some(Stop::Thread(waker, thread)) = self.stop.take() {
-            let _ = waker.send(Message::Stop);
-            let _ = thread.join();
+        match self.stop.take() {
+            Some(Stop::Thread(waker, thread)) => {
+                let _ = waker.send(Message::Stop);
+                let _ = thread.join();
+            }
+            Some(Stop::Flag(stopped)) => stopped.store(true, Ordering::SeqCst),
+            None => {}
         }
     }
 }

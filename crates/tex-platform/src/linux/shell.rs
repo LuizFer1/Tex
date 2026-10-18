@@ -13,8 +13,8 @@ use super::dbus::session_bus;
 use crate::{HotkeySlot, WorkArea};
 
 pub(crate) const NAME: &str = "io.github.LuizFer1.Tex.Shell";
-const PATH: &str = "/io/github/LuizFer1/Tex/Shell";
-const INTERFACE: &str = "io.github.LuizFer1.Tex.Shell";
+pub(crate) const PATH: &str = "/io/github/LuizFer1/Tex/Shell";
+pub(crate) const INTERFACE: &str = "io.github.LuizFer1.Tex.Shell";
 pub(crate) const UUID: &str = "tex@luizfer1.github.io";
 
 type Listener = Box<dyn Fn(bool) + Send>;
