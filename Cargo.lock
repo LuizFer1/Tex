@@ -4675,7 +4675,9 @@ version = "0.4.2"
 dependencies = [
  "global-hotkey",
  "libc",
+ "png",
  "raw-window-handle",
+ "resvg",
  "windows-sys 0.59.0",
  "x11rb",
  "zbus",

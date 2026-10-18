@@ -42,3 +42,5 @@ windows-sys = { workspace = true, features = [
 libc.workspace = true
 x11rb.workspace = true
 zbus.workspace = true
+png.workspace = true
+resvg.workspace = true
