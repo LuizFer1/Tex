@@ -3,11 +3,16 @@ const INFO_HEADER_LEN: usize = 4;
 const INFO_DFID_NAME: u8 = 2;
 const Q_OVERFLOW: u64 = 0x0000_4000;
 
+/// The name the kernel gives an event on a folder itself (such as `FAN_ATTRIB` on a folder): the
+/// handle is then the folder's own, so the change concerns that folder and not one of its entries.
+pub const ITSELF: &str = ".";
+
 /// One event read from a fanotify group that reports `FAN_REPORT_DFID_NAME`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
     /// Something happened to the entry `name` of the folder with handle `dir` (handle type then
-    /// handle bytes, as `name_to_handle_at` gives them) on the file system `fsid`.
+    /// handle bytes, as `name_to_handle_at` gives them) on the file system `fsid`. A name of
+    /// `ITSELF` means the folder `dir` itself.
     Change {
         fsid: u64,
         dir: Vec<u8>,
@@ -67,7 +72,7 @@ fn dfid_name(record: &[u8]) -> Option<Event> {
     dir.extend_from_slice(record.get(20..handle_end)?);
     let rest = record.get(handle_end..)?;
     let name = std::str::from_utf8(&rest[..rest.iter().position(|&byte| byte == 0)?]).ok()?;
-    if name.is_empty() || name == "." {
+    if name.is_empty() {
         return None;
     }
     Some(Event::Change {
@@ -176,14 +181,25 @@ mod tests {
     }
 
     #[test]
-    fn skips_events_without_a_folder_and_name() {
-        let other_kind = event(CREATE, &[info(1, [1, 0], 1, &[1, 2, 3, 4], "")]);
+    fn folder_itself_is_reported_with_the_dot_name() {
         let dot = event(
             CREATE,
-            &[info(INFO_DFID_NAME, [1, 0], 1, &[1, 2, 3, 4], ".")],
+            &[info(INFO_DFID_NAME, [1, 0], 1, &[1, 2, 3, 4], ITSELF)],
         );
+        assert_eq!(
+            parse_events(&dot),
+            [Event::Change {
+                fsid: 1,
+                dir: dir_key(1, &[1, 2, 3, 4]),
+                name: ITSELF.into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn skips_events_without_a_folder_and_name() {
+        let other_kind = event(CREATE, &[info(1, [1, 0], 1, &[1, 2, 3, 4], "")]);
         let mut buffer = other_kind;
-        buffer.extend(dot);
         buffer.extend(event(
             CREATE,
             &[

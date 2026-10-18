@@ -12,6 +12,7 @@ use tex_ipc::{Request, Response, VolumeState};
 
 use crate::desktop::{SYSTEM_APP_DIRS, is_app_folder, user_app_dirs};
 use crate::engine::{Engine, Handler, Volume};
+use crate::events::ITSELF;
 use crate::linux::apps::{home_of, read_apps};
 use crate::linux::disk;
 use crate::linux::watch::{Batch, Watcher};
@@ -28,7 +29,7 @@ pub struct Runner {
     engine: Arc<Engine>,
     index_dir: PathBuf,
     watcher: Option<Watcher>,
-    homes: Mutex<HashMap<u32, Option<String>>>,
+    homes: Mutex<HashMap<u32, String>>,
     me: Weak<Runner>,
 }
 
@@ -94,7 +95,6 @@ impl Runner {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .values()
-            .flatten()
             .cloned()
             .collect();
         let users: Vec<(String, _)> = homes
@@ -113,21 +113,34 @@ impl Runner {
 
     /// The home of `uid`, reading that user's apps the first time.
     fn home(&self, uid: u32) -> Option<String> {
-        let mut homes = self.homes.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(home) = homes.get(&uid) {
-            return home.clone();
+        if let Some(home) = self
+            .homes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&uid)
+        {
+            return Some(home.clone());
         }
-        let home = home_of(uid);
-        homes.insert(uid, home.clone());
-        drop(homes);
-        if let Some(home) = &home {
-            let apps = read_apps(&user_app_dirs(home));
-            self.engine.apps_mut().set_user(home, apps);
-        }
-        home
+        let home = home_of(uid)?;
+        self.homes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(uid, home.clone());
+        let apps = read_apps(&user_app_dirs(&home));
+        self.engine.apps_mut().set_user(&home, apps);
+        Some(home)
+    }
+
+    /// The mount points under `point`, read again so that file systems mounted since the
+    /// volume started are not walked as part of it.
+    fn stops(point: &str) -> HashSet<PathBuf> {
+        fs::read_to_string("/proc/self/mountinfo")
+            .map(|text| boundaries(&parse_mountinfo(&text), point))
+            .unwrap_or_default()
     }
 
     fn run_volume(&self, volume: &Volume, fsid: u64, stops: &HashSet<PathBuf>) {
+        let mut stops = stops.clone();
         let (sender, receiver) = mpsc::channel();
         let live = match &self.watcher {
             Some(watcher) => {
@@ -154,7 +167,7 @@ impl Runner {
             };
             data.index = Some(index);
         }
-        let mut ids = self.scan(volume, stops);
+        let mut ids = self.scan(volume, &stops);
         if !live {
             return;
         }
@@ -163,9 +176,10 @@ impl Runner {
             match batch {
                 Batch::Rescan => {
                     log(format!("{} reindexing (events were dropped)", volume.root));
-                    ids = self.scan(volume, stops);
+                    stops = Self::stops(&volume.root);
+                    ids = self.scan(volume, &stops);
                 }
-                Batch::Changes(changes) => self.apply(volume, &mut ids, stops, changes),
+                Batch::Changes(changes) => self.apply(volume, &mut ids, &stops, changes),
             }
             if last_saved.elapsed() >= SAVE_EVERY {
                 self.save(volume);
@@ -214,22 +228,37 @@ impl Runner {
         changes: Vec<(Vec<u8>, String)>,
     ) {
         let mut seen = HashSet::new();
-        let targets: Vec<(Record, String, PathBuf)> = {
+        let mut targets: Vec<(Record, String, PathBuf)> = Vec::new();
+        let mut itself: Vec<(Record, PathBuf)> = Vec::new();
+        {
             let data = volume.read();
             let Some(index) = data.index.as_ref() else {
                 return;
             };
-            changes
+            for (dir, name) in changes
                 .into_iter()
                 .filter(|change| seen.insert(change.clone()))
-                .filter_map(|(dir, name)| {
-                    let parent = ids.dir(&dir)?;
-                    let path = PathBuf::from(index.path(parent)?).join(&name);
-                    Some((parent, name, path))
-                })
-                .collect()
-        };
-        if targets.is_empty() {
+            {
+                let Some(record) = ids.dir(&dir) else {
+                    continue;
+                };
+                let Some(folder) = index.path(record) else {
+                    continue;
+                };
+                if name == ITSELF {
+                    itself.push((record, PathBuf::from(folder)));
+                } else {
+                    let path = PathBuf::from(folder).join(&name);
+                    targets.push((record, name, path));
+                }
+            }
+        }
+        let folders: Vec<(Record, Option<Node>)> = itself
+            .into_iter()
+            .map(|(record, path)| (record, disk::probe(&path)))
+            .filter(|(_, node)| node.as_ref().is_some_and(|node| node.dir))
+            .collect();
+        if targets.is_empty() && folders.is_empty() {
             return;
         }
         let mut found: Vec<((Record, String, PathBuf), Option<Node>)> = targets
@@ -251,6 +280,11 @@ impl Runner {
             let Some(index) = data.index.as_mut() else {
                 return;
             };
+            for (record, node) in folders {
+                if let Some(node) = node {
+                    index.set_owner(record, node.owner);
+                }
+            }
             let mut fresh = Vec::new();
             for ((parent, name, path), mut node) in found {
                 let crossing = stops.contains(&path);
