@@ -253,12 +253,17 @@ pub fn search_options(search: &Search) -> SearchOptions {
     }
 }
 
-/// The worker's settings. Until the onboarding is done the capture stays paused, since one of
-/// its questions is whether Tex may keep what is copied.
+/// Whether copies are kept: until the onboarding is done the capture stays paused, since one
+/// of its questions is whether Tex may keep what is copied.
+pub fn capture_paused(settings: &Settings) -> bool {
+    settings.clipboard.paused || !settings.general.onboarding_done
+}
+
+/// The worker's settings, paused as [`capture_paused`] says.
 pub fn client_settings(settings: &Settings) -> ClientSettings {
     let clipboard = &settings.clipboard;
     let mut capture = clipboard.capture_settings();
-    capture.paused = clipboard.paused || !settings.general.onboarding_done;
+    capture.paused = capture_paused(settings);
     ClientSettings {
         capture,
         retention: clipboard.retention(),

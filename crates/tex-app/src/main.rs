@@ -210,7 +210,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             None
         }
     };
-    tray.set_paused(with_app(|app| app.settings.clipboard.paused));
+    tray.set_paused(with_app(|app| app::capture_paused(&app.settings)));
 
     let icons = IconLoader::start({
         let popup = popup.as_weak();
@@ -356,12 +356,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Flips the saved pause; until the onboarding is done the capture stays paused anyway.
 fn toggle_pause(windows: &Windows) {
-    with_app(|app| app.settings.clipboard.paused = !app.settings.clipboard.paused);
+    let (old, new) = with_app(|app| {
+        let old = app.settings.clone();
+        app.settings.clipboard.paused = !old.clipboard.paused;
+        (old, app.settings.clone())
+    });
     if let Some(window) = windows.settings.upgrade() {
         save_settings(&window);
     }
     clipboard_changed(windows);
+    sync_onboarding(windows, &old, &new);
 }
 
 /// Starts a check unless one is running or the onboarding has not finished.
@@ -831,7 +837,8 @@ fn ignored_apps_changed(windows: &Windows) {
     clipboard_changed(windows);
 }
 
-/// Sends the [clipboard] settings to the worker and shows the pause state everywhere.
+/// Sends the [clipboard] settings to the worker and shows the pause state everywhere: the
+/// tray and the history show whether copies are kept, the settings window the saved value.
 fn clipboard_changed(windows: &Windows) {
     let (settings, paused, paste) = with_app(|app| {
         let clipboard = &app.settings.clipboard;
@@ -841,12 +848,13 @@ fn clipboard_changed(windows: &Windows) {
             clipboard.on_pick == OnPick::CopyAndPaste,
         )
     });
+    let capture_paused = settings.capture.paused;
     with_history(|history| history.client.configure(settings));
     if let Some(tray) = windows.tray.upgrade() {
-        tray.set_paused(paused);
+        tray.set_paused(capture_paused);
     }
     if let Some(history) = windows.history.upgrade() {
-        history.set_paused(paused);
+        history.set_paused(capture_paused);
         history.set_paste_by_default(paste);
     }
     if let Some(window) = windows.settings.upgrade() {
@@ -941,6 +949,20 @@ fn settings_edited(windows: &Windows, client: &SearchClient) {
         window.set_windows_key(applied.general.windows_key);
         window.set_winkey_error(with_app(|app| app.winkey_error.clone()).into());
     }
+    sync_onboarding(windows, &old, &applied);
+}
+
+/// Takes settings changed outside the onboarding into its answers while it is open; a new
+/// theme replaces the one being previewed.
+fn sync_onboarding(windows: &Windows, old: &Settings, new: &Settings) {
+    if with_onboarding(|onboarding| onboarding.sync(old, new)).is_none() {
+        return;
+    }
+    if new.general.theme != old.general.theme {
+        with_app(|app| app.theme_preview = None);
+        apply_theme(windows);
+    }
+    refresh_onboarding(windows);
 }
 
 fn theme_changed(windows: &Windows) {
@@ -2028,11 +2050,10 @@ fn show_history(windows: &Windows) {
     apply_theme(windows);
     let (monitor, paused, paste) = with_app(|app| {
         app.paste_target = target;
-        let clipboard = &app.settings.clipboard;
         (
             app.settings.general.popup_monitor,
-            clipboard.paused,
-            clipboard.on_pick == OnPick::CopyAndPaste,
+            app::capture_paused(&app.settings),
+            app.settings.clipboard.on_pick == OnPick::CopyAndPaste,
         )
     });
     window.invoke_reset();

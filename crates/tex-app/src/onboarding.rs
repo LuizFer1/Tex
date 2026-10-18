@@ -96,6 +96,17 @@ impl Onboarding {
         }
     }
 
+    /// Takes the settings changed elsewhere from `old` to `new` as the answers to their
+    /// questions, so concluding does not overwrite them.
+    pub fn sync(&mut self, old: &Settings, new: &Settings) {
+        let answers = current_answers(new);
+        for (question, answer) in self.answers.iter_mut().enumerate() {
+            if fields(old, question) != fields(new, question) {
+                *answer = answers[question];
+            }
+        }
+    }
+
     /// Writes the answered questions over `settings` and marks the onboarding done.
     pub fn apply(&self, settings: &mut Settings) {
         for (question, answer) in self.answers.iter().enumerate() {
@@ -132,6 +143,27 @@ fn current_answers(settings: &Settings) -> [Option<usize>; QUESTIONS] {
             _ => None,
         },
     ]
+}
+
+fn fields(settings: &Settings, question: usize) -> (u32, u32, u32) {
+    let general = &settings.general;
+    let search = &settings.search;
+    let clipboard = &settings.clipboard;
+    match question {
+        0 => (general.theme as u32, 0, 0),
+        1 => (general.windows_key.into(), 0, 0),
+        2 => (general.start_with_windows.into(), 0, 0),
+        3 => (general.auto_update.into(), 0, 0),
+        4 => (search.enter_action as u32, 0, 0),
+        5 => (search.include_hidden.into(), 0, 0),
+        6 => (clipboard.paused.into(), 0, 0),
+        7 => (clipboard.on_pick as u32, 0, 0),
+        _ => (
+            clipboard.cleanup as u32,
+            clipboard.cleanup_days,
+            clipboard.cleanup_limit_mb,
+        ),
+    }
 }
 
 fn write(settings: &mut Settings, question: usize, first: bool) {
@@ -307,5 +339,51 @@ mod tests {
         assert_eq!(Onboarding::new(&settings, true).answers[8], None);
         settings.clipboard.cleanup_limit_mb = 1024;
         assert_eq!(Onboarding::new(&settings, true).answers[8], Some(1));
+    }
+
+    #[test]
+    fn sync_takes_only_the_settings_changed_elsewhere() {
+        let old = Settings::default();
+        let mut onboarding = at_step(3);
+        onboarding.select(1);
+        onboarding.back();
+        onboarding.select(1);
+        let mut new = old.clone();
+        new.general.theme = Theme::System;
+        new.clipboard.paused = true;
+        new.clipboard.cleanup_days = 3;
+        new.general.language = crate::settings::Language::En;
+        onboarding.sync(&old, &new);
+        let mut expected = [Some(0); QUESTIONS];
+        expected[0] = None;
+        expected[1] = Some(1);
+        expected[2] = Some(1);
+        expected[6] = Some(1);
+        expected[8] = None;
+        assert_eq!(onboarding.answers, expected);
+        assert_eq!(onboarding.step, 2);
+        onboarding.sync(&new, &new);
+        assert_eq!(onboarding.answers, expected);
+    }
+
+    #[test]
+    fn sync_overrides_an_answer_when_the_setting_changes() {
+        let mut old = Settings::default();
+        old.clipboard.cleanup_days = 3;
+        let mut onboarding = Onboarding::new(&old, false);
+        onboarding.answers[8] = Some(1);
+        let mut new = old.clone();
+        new.clipboard.cleanup_days = 30;
+        onboarding.sync(&old, &new);
+        assert_eq!(onboarding.answers[8], None);
+        onboarding.answers[8] = Some(1);
+        let mut later = new.clone();
+        later.clipboard.cleanup_days = 7;
+        onboarding.sync(&new, &later);
+        assert_eq!(onboarding.answers[8], Some(0));
+        let mut applied = later.clone();
+        onboarding.apply(&mut applied);
+        assert_eq!(applied.clipboard.cleanup, Cleanup::Time);
+        assert_eq!(applied.clipboard.cleanup_days, 7);
     }
 }
