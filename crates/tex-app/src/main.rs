@@ -34,12 +34,12 @@ use tex_clipboard::{
 };
 use tex_ipc::{Filter, VolumeState, VolumeStatus};
 use tex_platform::{
-    AppBus, AppCommand, ClipboardWatcher, HotkeyEvent, HotkeySlot, Hotkeys, IconPixels, LocalTime,
-    SingleInstance, WindowRef, catch_windows_key, enable_shell_extension, foreground_window,
-    is_gnome, local_time, lock_foreground, open_path, paste_into, pick_file, pick_folder,
-    present_window, primary_work_area, restore_foreground, reveal_in_folder, round_corners,
-    send_command, shape_tabbed_window, take_foreground, transparent_windows, watch_shell_extension,
-    watch_theme, work_area_under_cursor, write_image, write_text,
+    AppBus, AppCommand, ClipboardWatcher, HotkeyEvent, HotkeySlot, HotkeySupport, Hotkeys,
+    IconPixels, LocalTime, SingleInstance, WindowRef, catch_windows_key, enable_shell_extension,
+    foreground_window, is_gnome, local_time, lock_foreground, open_path, paste_into, pick_file,
+    pick_folder, present_window, primary_work_area, restore_foreground, reveal_in_folder,
+    round_corners, send_command, shape_tabbed_window, take_foreground, transparent_windows,
+    watch_shell_extension, watch_theme, work_area_under_cursor, write_image, write_text,
 };
 
 use crate::app::{AppState, HotkeyError, with_app};
@@ -362,11 +362,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
     if is_gnome() {
         watch_shell_extension({
-            let tray = tray.as_weak();
+            let windows = windows.clone();
             move |active| {
-                let _ = tray.upgrade_in_event_loop(move |tray| {
-                    let _ = if active { tray.hide() } else { tray.show() };
-                });
+                let windows = windows.clone();
+                let _ = slint::invoke_from_event_loop(move || shell_changed(&windows, active));
             }
         });
     } else {
@@ -429,6 +428,15 @@ fn publish_state(windows: &Windows) {
             tray.get_quit_label().to_string(),
         ]);
     });
+}
+
+/// The GNOME extension came or went: its panel button replaces the tray icon.
+fn shell_changed(windows: &Windows, active: bool) {
+    with_app(|app| app.shell_active = active);
+    if let Some(tray) = windows.tray.upgrade() {
+        let _ = if active { tray.hide() } else { tray.show() };
+    }
+    refresh_onboarding(windows);
 }
 
 fn show_about(windows: &Windows) {
@@ -1574,21 +1582,28 @@ fn refresh_onboarding(windows: &Windows) {
     ) else {
         return;
     };
-    let (keys, history, windows_key) = with_app(|app| {
+    let (keys, history, windows_key, support, shell_active) = with_app(|app| {
         (
             app.hotkey_keys(HotkeySlot::Tex),
             app.hotkey_text(HotkeySlot::History),
             app.settings.general.windows_key,
+            app.hotkey_support(),
+            app.shell_active,
         )
     });
     window.set_step(onboarding.step as i32);
+    window.set_question(onboarding.question_id());
+    window.set_question_count(onboarding.count() as i32);
+    window.set_linux(cfg!(target_os = "linux"));
     window.set_selected(onboarding.selected());
     window.set_upgrade(onboarding.upgrade);
     window.set_progress(onboarding.progress());
     window.set_hotkey_text(keys.join("+").into());
     window.set_hotkey_keys(keys_model(keys));
     window.set_history_hotkey_text(history.into());
-    window.set_done_win(windows_key);
+    window.set_done_win(windows_key && cfg!(windows));
+    window.set_has_shortcut(support != HotkeySupport::Unavailable);
+    window.set_relogin(is_gnome() && !shell_active);
 }
 
 /// Answers the current question; the theme question previews its answer at once.

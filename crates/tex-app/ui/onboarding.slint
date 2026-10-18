@@ -291,8 +291,16 @@ export component OnboardingWindow inherits Window {
     default-font-family: Tokens.ui-font;
     forward-focus: keys;
 
-    // 0 welcome, 1 to 9 questions, 10 all set
+    // 0 welcome, 1 to question-count questions, then all set
     in property <int> step;
+    // index of the current question in `questions`
+    in property <int> question;
+    in property <int> question-count: 9;
+    in property <bool> linux;
+    // false when no global shortcut works in this session: the last screen points to the panel
+    in property <bool> has-shortcut: true;
+    // GNOME installed the extension during this session: it loads at the next login
+    in property <bool> relogin;
     // -1 none, 0 first option, 1 second option
     in property <int> selected: -1;
     in property <bool> upgrade;
@@ -309,7 +317,6 @@ export component OnboardingWindow inherits Window {
     callback close-window();
     callback drag();
 
-    property <int> question-count: 9;
     property <bool> is-question: root.step >= 1 && root.step <= root.question-count;
     property <bool> is-done: root.step > root.question-count;
     property <string> or-text: @tr("or");
@@ -331,9 +338,9 @@ export component OnboardingWindow inherits Window {
         },
         {
             tab: @tr("General"),
-            title: @tr("Open Tex when Windows starts?"),
+            title: root.linux ? @tr("Open Tex when the system starts?") : @tr("Open Tex when Windows starts?"),
             hint: @tr("I stay in the tray, with no window, waiting for the shortcut."),
-            first: { label: @tr("Yes, start with Windows"), preview: 0, icon: Icons.power },
+            first: { label: root.linux ? @tr("Yes, start with the system") : @tr("Yes, start with Windows"), preview: 0, icon: Icons.power },
             second: { label: @tr("No, I'll open it when I need it"), preview: 0, icon: Icons.hand-pointing },
         },
         {
@@ -348,7 +355,7 @@ export component OnboardingWindow inherits Window {
             title: @tr("What does Enter do on a result?"),
             hint: @tr("Ctrl+Enter does the other action."),
             first: { label: @tr("Open the item"), preview: 0, icon: Icons.arrow-square-out },
-            second: { label: @tr("Show in Explorer"), preview: 0, icon: Icons.folder-open },
+            second: { label: root.linux ? @tr("Show in folder") : @tr("Show in Explorer"), preview: 0, icon: Icons.folder-open },
         },
         {
             tab: @tr("Search"),
@@ -360,7 +367,7 @@ export component OnboardingWindow inherits Window {
         {
             tab: @tr("Clipboard"),
             title: @tr("Can I keep what you copy?"),
-            hint: @tr("It stays on this computer only. Open the history with {0}.", root.history-hotkey-text),
+            hint: root.has-shortcut ? @tr("It stays on this computer only. Open the history with {0}.", root.history-hotkey-text) : @tr("It stays on this computer only. Open the history from the Tex icon in the panel."),
             first: { label: @tr("Yes, keep it"), preview: 0, icon: Icons.clipboard-text },
             second: { label: @tr("Leave it paused"), preview: 0, icon: Icons.pause-circle },
         },
@@ -379,7 +386,7 @@ export component OnboardingWindow inherits Window {
             second: { label: @tr("Over 1 GB"), preview: 0, icon: Icons.hard-drives },
         },
     ];
-    property <OnboardingQuestion> current: root.questions[max(0, min(root.step - 1, root.question-count - 1))];
+    property <OnboardingQuestion> current: root.questions[max(0, min(root.question, 8))];
 
     pure function preview-background(choice: OnboardingChoice, selected: bool) -> color {
         if choice.preview == 1 {
@@ -518,9 +525,13 @@ export component OnboardingWindow inherits Window {
                                 wrap: word-wrap;
                             }
                             if !root.is-done: Text {
-                                text: root.upgrade
-                                    ? @tr("Nine quick questions to review your choices. What you already use is selected — if it looks good, just press Enter.")
-                                    : @tr("Nine quick questions and we're ready. The default option is already selected — if it looks good, just press Enter.");
+                                text: root.question-count == 8
+                                    ? (root.upgrade
+                                        ? @tr("Eight quick questions to review your choices. What you already use is selected — if it looks good, just press Enter.")
+                                        : @tr("Eight quick questions and we're ready. The default option is already selected — if it looks good, just press Enter."))
+                                    : (root.upgrade
+                                        ? @tr("Nine quick questions to review your choices. What you already use is selected — if it looks good, just press Enter.")
+                                        : @tr("Nine quick questions and we're ready. The default option is already selected — if it looks good, just press Enter."));
                                 font-size: Tokens.size-result;
                                 color: Tokens.ink-2;
                                 wrap: word-wrap;
@@ -532,7 +543,7 @@ export component OnboardingWindow inherits Window {
                                 letter-spacing: -0.26px;
                                 color: Tokens.ink;
                             }
-                            if root.is-done: HorizontalLayout {
+                            if root.is-done && root.has-shortcut: HorizontalLayout {
                                 alignment: start;
                                 spacing: 4px;
                                 for key in root.hotkey-keys: Keycap {
@@ -554,6 +565,19 @@ export component OnboardingWindow inherits Window {
                                     color: Tokens.ink-2;
                                     vertical-alignment: center;
                                 }
+                            }
+                            if root.is-done && !root.has-shortcut: Text {
+                                text: @tr("Click the Tex icon in the panel to call me.");
+                                font-size: Tokens.size-label;
+                                color: Tokens.ink-2;
+                                wrap: word-wrap;
+                            }
+                            if root.is-done && root.relogin: Text {
+                                text: @tr("Log out and back in to turn on the panel icon and the clipboard history.");
+                                font-size: Tokens.size-body;
+                                font-weight: 600;
+                                color: Tokens.ink-2;
+                                wrap: word-wrap;
                             }
                             if root.is-done: Text {
                                 text: @tr("I stay in the tray. Everything can be changed in Settings.");

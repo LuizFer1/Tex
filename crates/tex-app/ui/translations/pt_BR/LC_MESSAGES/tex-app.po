@@ -704,3 +704,24 @@ msgstr "Procurar agora"
 
 msgid "Update to {0}"
 msgstr "Atualizar para {0}"
+
+msgid "Open Tex when the system starts?"
+msgstr "Abrir o Tex junto com o sistema?"
+
+msgid "Yes, start with the system"
+msgstr "Sim, iniciar junto"
+
+msgid "It stays on this computer only. Open the history from the Tex icon in the panel."
+msgstr "Fica só neste computador. Abra o histórico pelo ícone do Tex no painel."
+
+msgid "Eight quick questions and we're ready. The default option is already selected — if it looks good, just press Enter."
+msgstr "Oito perguntas rápidas e estamos prontos. A opção padrão já vem marcada — se estiver bom, é só apertar Enter."
+
+msgid "Eight quick questions to review your choices. What you already use is selected — if it looks good, just press Enter."
+msgstr "Oito perguntas rápidas para revisar suas escolhas. O que você já usa vem marcado — se estiver bom, é só apertar Enter."
+
+msgid "Click the Tex icon in the panel to call me."
+msgstr "Clique no ícone do Tex no painel para me chamar."
+
+msgid "Log out and back in to turn on the panel icon and the clipboard history."
+msgstr "Saia e entre de novo para ativar o ícone no painel e o histórico do clipboard."

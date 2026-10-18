@@ -35,6 +35,8 @@ pub struct AppState {
     pub system_keys: [Option<String>; 2],
     /// What each shortcut does, in the user's language, for the portal to show.
     pub hotkey_labels: [String; 2],
+    /// Tex's GNOME Shell extension is on the session bus.
+    pub shell_active: bool,
     hotkeys: Hotkeys,
     registered: [bool; 2],
     winkey: Option<WinKeyHook>,
@@ -132,6 +134,7 @@ impl AppState {
             theme_preview: None,
             system_keys: [None, None],
             hotkey_labels: [String::new(), String::new()],
+            shell_active: false,
             hotkeys,
             registered: [false, false],
             winkey: None,
@@ -179,6 +182,10 @@ impl AppState {
             self.system_keys[slot_index(slot)].as_deref(),
             &shortcut,
         )
+    }
+
+    pub fn hotkey_support(&self) -> HotkeySupport {
+        self.hotkeys.support()
     }
 
     pub fn hotkey_text(&self, slot: HotkeySlot) -> String {
