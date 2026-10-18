@@ -4628,6 +4628,7 @@ dependencies = [
  "slint",
  "slint-build",
  "tex-clipboard",
+ "tex-index",
  "tex-ipc",
  "tex-platform",
  "tex-reader",

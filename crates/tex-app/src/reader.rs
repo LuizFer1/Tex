@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Component, MAIN_SEPARATOR_STR, Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tex_platform::WorkArea;
-use tex_reader::{Block, Encoding, Kind, MAX_LINE_BYTES};
+use tex_reader::{Block, Encoding, Kind, MAX_LINE_BYTES, Stamp};
 
 pub const PAGE_LINES: usize = 128;
 pub const CACHED_PAGES: usize = 32;
@@ -335,8 +336,149 @@ pub fn wrap_by_default(path: &Path) -> bool {
     )
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
+pub const MAX_HITS: usize = 10_000;
+#[cfg_attr(not(test), allow(dead_code))]
+const CANCEL_EVERY: usize = 4096;
+
+/// The text a reader sees in a block's markup: escapes resolved, emphasis, code and link syntax dropped.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn plain_text(markup: &str) -> String {
+    let mut out = String::with_capacity(markup.len());
+    let mut chars = markup.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => match chars.next() {
+                Some('\n') => out.push(' '),
+                Some(next) => out.push(next),
+                None => {}
+            },
+            '*' | '~' | '`' | '[' => {}
+            ']' if chars.peek() == Some(&'(') => {
+                chars.next();
+                if chars.peek() == Some(&'<') {
+                    for c in chars.by_ref() {
+                        if c == '>' {
+                            break;
+                        }
+                    }
+                }
+                for c in chars.by_ref() {
+                    if c == ')' {
+                        break;
+                    }
+                }
+            }
+            ']' => {}
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// What the search compares for one Markdown row.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn search_text(row: &BlockRow) -> String {
+    match row.kind {
+        BlockKind::Code | BlockKind::Image => row.plain.clone(),
+        BlockKind::TableRow => row
+            .cells
+            .iter()
+            .map(|cell| plain_text(cell))
+            .collect::<Vec<_>>()
+            .join(" "),
+        _ => plain_text(&row.markup),
+    }
+}
+
+/// Indexes (plus `offset`) of the rows containing `query`, ignoring case and accents, at most
+/// `MAX_HITS`; `None` when `cancel` was set.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn find_rows(
+    rows: &[String],
+    query: &str,
+    offset: usize,
+    cancel: &AtomicBool,
+) -> Option<Vec<usize>> {
+    let query = tex_index::fold(query.trim());
+    let mut hits = Vec::new();
+    if query.is_empty() {
+        return Some(hits);
+    }
+    for (at, row) in rows.iter().enumerate() {
+        if at % CANCEL_EVERY == 0 && cancel.load(Ordering::Relaxed) {
+            return None;
+        }
+        if tex_index::fold(row).contains(&query) {
+            hits.push(offset + at);
+            if hits.len() == MAX_HITS {
+                break;
+            }
+        }
+    }
+    Some(hits)
+}
+
+/// The next (or previous) hit, wrapping around; the first (or last) when none is current.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn step_hit(count: usize, current: Option<usize>, forward: bool) -> Option<usize> {
+    if count == 0 {
+        return None;
+    }
+    Some(match (current, forward) {
+        (None, true) => 0,
+        (None, false) => count - 1,
+        (Some(at), true) => (at + 1) % count,
+        (Some(at), false) => (at + count - 1) % count,
+    })
+}
+
+#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub enum SaveCheck {
+    Write,
+    AskOutside,
+    AskLossy,
+}
+
+/// Whether a save can go ahead, or must first ask about an outside change or lost characters.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn save_check(changed_outside: bool, fits: bool, overwrite: bool, lossy: bool) -> SaveCheck {
+    if changed_outside && !overwrite {
+        SaveCheck::AskOutside
+    } else if !fits && !lossy {
+        SaveCheck::AskLossy
+    } else {
+        SaveCheck::Write
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub enum Outside {
+    Nothing,
+    Reload,
+    Conflict,
+    Deleted,
+}
+
+/// What to do when the window comes back and the file's stamp is `current` (`None`: it is gone).
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn outside_change(known: Stamp, current: Option<Stamp>, dirty: bool) -> Outside {
+    match current {
+        None => Outside::Deleted,
+        Some(current) if current == known => Outside::Nothing,
+        Some(_) if dirty => Outside::Conflict,
+        Some(_) => Outside::Reload,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use tex_reader::Stamp;
+
     use super::*;
 
     fn area(width: u32, height: u32, scale: f32) -> WorkArea {
@@ -511,5 +653,81 @@ mod tests {
         assert!(wrap_by_default(Path::new("a.md")));
         assert!(!wrap_by_default(Path::new("a.log")));
         assert!(wrap_by_default(Path::new("README")));
+    }
+
+    #[test]
+    fn plain_text_drops_markup_and_escapes() {
+        assert_eq!(
+            plain_text(r"a **b** \*c\* [d](<http://x.y/>) `e` ~~f~~"),
+            "a b *c* d e f"
+        );
+        assert_eq!(plain_text(r"1 \= 2"), "1 = 2");
+    }
+
+    #[test]
+    fn search_text_reads_every_kind_of_row() {
+        let rows = block_rows(&[
+            Block::Paragraph {
+                inline: r"**Olá**\!".into(),
+            },
+            Block::Code {
+                lang: "rs".into(),
+                text: "fn main()".into(),
+            },
+            Block::Table {
+                header: vec!["a".into(), "b".into()],
+                rows: vec![],
+            },
+        ]);
+        assert_eq!(search_text(&rows[0]), "Olá!");
+        assert_eq!(search_text(&rows[1]), "fn main()");
+        assert_eq!(search_text(&rows[2]), "a b");
+    }
+
+    #[test]
+    fn find_rows_ignores_case_and_accents() {
+        let rows: Vec<String> = ["Ação rápida", "nada", "ACAO lenta"]
+            .map(String::from)
+            .to_vec();
+        let cancel = AtomicBool::new(false);
+        assert_eq!(find_rows(&rows, "acao", 0, &cancel), Some(vec![0, 2]));
+        assert_eq!(find_rows(&rows, "acao", 10, &cancel), Some(vec![10, 12]));
+        assert_eq!(find_rows(&rows, "  ", 0, &cancel), Some(vec![]));
+        cancel.store(true, Ordering::Relaxed);
+        assert_eq!(find_rows(&rows, "acao", 0, &cancel), None);
+    }
+
+    #[test]
+    fn steps_wrap_around_the_hits() {
+        assert_eq!(step_hit(0, None, true), None);
+        assert_eq!(step_hit(3, None, true), Some(0));
+        assert_eq!(step_hit(3, None, false), Some(2));
+        assert_eq!(step_hit(3, Some(2), true), Some(0));
+        assert_eq!(step_hit(3, Some(0), false), Some(2));
+    }
+
+    #[test]
+    fn saving_asks_before_overwriting_or_losing_characters() {
+        assert_eq!(save_check(false, true, false, false), SaveCheck::Write);
+        assert_eq!(save_check(true, true, false, false), SaveCheck::AskOutside);
+        assert_eq!(save_check(true, false, true, false), SaveCheck::AskLossy);
+        assert_eq!(save_check(true, false, true, true), SaveCheck::Write);
+        assert_eq!(save_check(false, false, false, false), SaveCheck::AskLossy);
+    }
+
+    #[test]
+    fn outside_changes_reload_or_conflict() {
+        let known = Stamp {
+            modified: None,
+            len: 3,
+        };
+        let other = Stamp {
+            modified: None,
+            len: 4,
+        };
+        assert_eq!(outside_change(known, Some(known), false), Outside::Nothing);
+        assert_eq!(outside_change(known, Some(other), false), Outside::Reload);
+        assert_eq!(outside_change(known, Some(other), true), Outside::Conflict);
+        assert_eq!(outside_change(known, None, false), Outside::Deleted);
     }
 }
