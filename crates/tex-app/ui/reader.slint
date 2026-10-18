@@ -1,4 +1,4 @@
-import { ListView, Palette } from "std-widgets.slint";
+import { ListView, Palette, ScrollView } from "std-widgets.slint";
 import { Tokens } from "theme.slint";
 import { Icons, TitleButton, Footer, ResizeEdge, Editor, Button, ButtonKind, TextField } from "kit/kit.slint";
 
@@ -11,6 +11,23 @@ export struct ReaderBlock {
     plain: string,
     cells: [styled-text],
     header: bool,
+}
+
+export struct ToolRow {
+    title: string,
+    shortcut: string,
+    enabled: bool,
+    // 0 none, 1 needs a selection in edit mode, 2 cannot be edited here, 3 invalid shortcut,
+    // 4 shortcut reserved by the reader, 5 shortcut used by the tool in note-arg, 6 too large
+    note-kind: int,
+    note-arg: string,
+}
+
+export struct ProblemRow {
+    // 0 broken extension (name: folder, detail: error), 1 viewer type taken by an earlier folder
+    kind: int,
+    name: string,
+    detail: string,
 }
 
 component BlockView inherits VerticalLayout {
@@ -172,9 +189,19 @@ export component ReaderWindow inherits Window {
     in-out property <string> edit-text;
     in-out property <string> edit-original;
     // 0 none, 1 too large to edit, 2 changed outside, 3 deleted (Ctrl+S recreates it), 4 save failed,
-    // 5 characters would be lost, 6 deleted (read-only file)
+    // 5 characters would be lost, 6 deleted (read-only file), 7 a tool is running (banner-detail: its
+    // title), 8 a tool failed (banner-title: its title, banner-detail: why)
     in property <int> banner;
+    in property <string> banner-title;
     in property <string> banner-detail;
+    out property <int> sel-anchor: editor.anchor;
+    out property <int> sel-cursor: editor.cursor;
+    in-out property <bool> tools-open;
+    in property <[ToolRow]> tools;
+    in property <[ProblemRow]> problems;
+    in-out property <bool> output-open;
+    in property <string> output-title;
+    in property <string> output-text;
     in-out property <bool> asking-close;
     in-out property <bool> asking-reload;
     in-out property <bool> searching;
@@ -189,8 +216,14 @@ export component ReaderWindow inherits Window {
     callback edit-requested();
     callback edit-finished();
     callback save-requested();
-    // 1 overwrite, 2 reload, 3 save anyway
+    // 1 overwrite, 2 reload, 3 save anyway, 4 cancel the running tool
     callback banner-action(int);
+    callback tools-requested();
+    callback tool-chosen(int);
+    callback tool-key(string, bool, bool, bool) -> bool;
+    callback open-extensions();
+    callback output-copy();
+    callback output-closed();
     callback banner-dismissed();
     // 0 save, 1 discard, 2 cancel
     callback close-choice(int);
@@ -201,6 +234,14 @@ export component ReaderWindow inherits Window {
 
     public function saved() {
         footer.show-toast(@tr("saved"));
+    }
+
+    public function done() {
+        footer.show-toast(@tr("done"));
+    }
+
+    public function copied() {
+        footer.show-toast(@tr("copied"));
     }
 
     public function jump-to(row: int) {
@@ -279,6 +320,12 @@ export component ReaderWindow inherits Window {
                 }
                 return accept;
             }
+            if root.tools-open {
+                if event.text == Key.Escape {
+                    root.tools-open = false;
+                }
+                return accept;
+            }
             if event.modifiers.control && (event.text == "s" || event.text == "S") {
                 root.save-requested();
                 return accept;
@@ -289,6 +336,9 @@ export component ReaderWindow inherits Window {
                 } else {
                     root.edit-requested();
                 }
+                return accept;
+            }
+            if (event.modifiers.control || event.modifiers.alt) && root.tool-key(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift) {
                 return accept;
             }
             if root.editing {
@@ -418,6 +468,16 @@ export component ReaderWindow inherits Window {
                                 overflow: elide;
                             }
                         }
+                        VerticalLayout {
+                            alignment: center;
+                            Button {
+                                kind: ButtonKind.tertiary;
+                                text: @tr("Tools");
+                                clicked => {
+                                    root.tools-requested();
+                                }
+                            }
+                        }
                         TitleButton {
                             icon: Icons.minimize;
                             tip: @tr("Minimize");
@@ -450,7 +510,7 @@ export component ReaderWindow inherits Window {
                         padding-left: 16px;
                         spacing: 8px;
                         Text {
-                            text: root.banner == 1 ? @tr("This file is too large to edit in Tex (more than {0} KB).", 128) : root.banner == 2 ? @tr("The file changed outside Tex.") : root.banner == 3 ? @tr("The file no longer exists. Ctrl+S saves it again.") : root.banner == 4 ? @tr("Could not save: {0}", root.banner-detail) : root.banner == 6 ? @tr("The file no longer exists.") : @tr("Some characters cannot be kept in {0}. They will be replaced.", root.encoding-name);
+                            text: root.banner == 1 ? @tr("This file is too large to edit in Tex (more than {0} KB).", 128) : root.banner == 2 ? @tr("The file changed outside Tex.") : root.banner == 3 ? @tr("The file no longer exists. Ctrl+S saves it again.") : root.banner == 4 ? @tr("Could not save: {0}", root.banner-detail) : root.banner == 6 ? @tr("The file no longer exists.") : root.banner == 7 ? @tr("Running {0}…", root.banner-detail) : root.banner == 8 ? @tr("{0} failed: {1}", root.banner-title, root.banner-detail) : @tr("Some characters cannot be kept in {0}. They will be replaced.", root.encoding-name);
                             color: Tokens.banner-ink;
                             font-size: Tokens.size-label;
                             wrap: word-wrap;
@@ -460,6 +520,7 @@ export component ReaderWindow inherits Window {
                         if root.banner == 2: VerticalLayout {
                             alignment: center;
                             Button {
+                                on-banner: true;
                                 text: @tr("Overwrite");
                                 clicked => {
                                     root.banner-action(1);
@@ -469,9 +530,20 @@ export component ReaderWindow inherits Window {
                         if root.banner == 2: VerticalLayout {
                             alignment: center;
                             Button {
+                                on-banner: true;
                                 text: @tr("Reload");
                                 clicked => {
                                     root.banner-action(2);
+                                }
+                            }
+                        }
+                        if root.banner == 7: VerticalLayout {
+                            alignment: center;
+                            Button {
+                                on-banner: true;
+                                text: @tr("Cancel");
+                                clicked => {
+                                    root.banner-action(4);
                                 }
                             }
                         }
@@ -621,6 +693,60 @@ export component ReaderWindow inherits Window {
                     }
                 }
 
+                if root.output-open: Rectangle {
+                    height: 200px;
+                    background: Tokens.paper-2;
+                    VerticalLayout {
+                        Rectangle {
+                            height: 34px;
+                            HorizontalLayout {
+                                padding-left: 16px;
+                                spacing: 8px;
+                                Text {
+                                    text: root.output-title;
+                                    font-size: Tokens.size-label;
+                                    font-weight: 600;
+                                    color: Tokens.ink;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                    horizontal-stretch: 1;
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    Button {
+                                        kind: ButtonKind.tertiary;
+                                        height: 26px;
+                                        text: @tr("Copy");
+                                        clicked => {
+                                            root.output-copy();
+                                        }
+                                    }
+                                }
+                                TitleButton {
+                                    icon: Icons.close;
+                                    tip: @tr("Close");
+                                    width: 34px;
+                                    clicked => {
+                                        root.output-closed();
+                                    }
+                                }
+                            }
+                        }
+                        output-scroll := ScrollView {
+                            vertical-stretch: 1;
+                            Text {
+                                x: 16px;
+                                width: output-scroll.visible-width - 32px;
+                                text: root.output-text;
+                                font-family: Tokens.mono-font;
+                                font-size: Tokens.size-body;
+                                color: Tokens.ink;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
+
                 footer := Footer {
                     hints: root.editing ? @tr("ctrl s save · ctrl e or esc stop editing") : @tr("esc close · ctrl e edit · ctrl f find · alt z wrap lines");
                     status: root.state == 2 ? @tr("indexing lines…") : root.state == 1 ? @tr("lines: {0} · {1}", root.line-count, root.encoding-name) : "";
@@ -708,6 +834,100 @@ export component ReaderWindow inherits Window {
                             text: @tr("Reload");
                             clicked => {
                                 root.reload-choice(true);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if root.tools-open: Rectangle {
+            TouchArea {
+                clicked => {
+                    root.tools-open = false;
+                }
+            }
+            Rectangle {
+                x: parent.width - self.width - 8px;
+                y: 48px;
+                width: 320px;
+                height: menu.preferred-height;
+                background: Tokens.paper;
+                border-radius: Tokens.radius-card;
+                border-width: Tokens.border-control;
+                border-color: Tokens.border;
+                TouchArea {}
+                menu := VerticalLayout {
+                    padding: 6px;
+                    for tool[index] in root.tools: Rectangle {
+                        height: tool-row.preferred-height;
+                        background: tool-touch.has-hover && tool.enabled ? Tokens.row-hover : transparent;
+                        border-radius: Tokens.radius-control;
+                        tool-row := VerticalLayout {
+                            padding: 6px;
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            opacity: tool.enabled ? 1 : 0.5;
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: tool.title;
+                                    font-size: Tokens.size-label;
+                                    color: Tokens.ink;
+                                    overflow: elide;
+                                    horizontal-stretch: 1;
+                                }
+                                Text {
+                                    text: tool.shortcut;
+                                    font-family: Tokens.mono-font;
+                                    font-size: Tokens.size-meta;
+                                    color: Tokens.muted;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            if tool.note-kind != 0: Text {
+                                text: tool.note-kind == 1 ? @tr("needs a selection in edit mode") : tool.note-kind == 2 ? @tr("this file can't be edited here") : tool.note-kind == 3 ? @tr("shortcut ignored: not a valid shortcut") : tool.note-kind == 4 ? @tr("shortcut ignored: reserved by the reader") : tool.note-kind == 5 ? @tr("shortcut ignored: used by {0}", tool.note-arg) : @tr("this file is too large for tools");
+                                font-size: Tokens.size-meta;
+                                color: Tokens.muted;
+                                wrap: word-wrap;
+                            }
+                        }
+                        tool-touch := TouchArea {
+                            enabled: tool.enabled;
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.tools-open = false;
+                                root.tool-chosen(index);
+                            }
+                        }
+                    }
+                    for problem in root.problems: Text {
+                        text: problem.kind == 0 ? @tr("{0}: {1}", problem.name, problem.detail) : @tr("{0} also opens .{1}; the first folder wins", problem.name, problem.detail);
+                        font-size: Tokens.size-meta;
+                        color: Tokens.warn-text;
+                        wrap: word-wrap;
+                    }
+                    if root.tools.length == 0 && root.problems.length == 0: Text {
+                        text: @tr("No tools for this file.");
+                        font-size: Tokens.size-label;
+                        color: Tokens.muted;
+                    }
+                    Rectangle {
+                        height: 34px;
+                        background: open-touch.has-hover ? Tokens.row-hover : transparent;
+                        border-radius: Tokens.radius-control;
+                        Text {
+                            x: 10px;
+                            text: @tr("Open extensions folder");
+                            font-size: Tokens.size-label;
+                            color: Tokens.ink-2;
+                            vertical-alignment: center;
+                        }
+                        open-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.tools-open = false;
+                                root.open-extensions();
                             }
                         }
                     }

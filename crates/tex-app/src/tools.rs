@@ -1,3 +1,7 @@
+use std::ops::Range;
+
+use tex_reader::{Input, RunError, ToolOutput};
+
 use crate::shortcut::Shortcut;
 
 /// The reader's own keys, which a tool can never take.
@@ -31,6 +35,95 @@ pub fn resolve(
             Ok(Some(shortcut))
         })
         .collect()
+}
+
+/// Why a tool is off or has no shortcut, as the code `reader.slint` turns into a sentence:
+/// 0 none, 1 needs a selection, 2 cannot replace here, 3 invalid shortcut, 4 reserved shortcut,
+/// 5 shortcut used by another tool (`arg` names it), 6 the file is not loaded as text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Note {
+    pub enabled: bool,
+    pub kind: i32,
+    pub arg: String,
+}
+
+/// What the reader can offer a tool right now.
+#[derive(Clone, Copy)]
+pub struct Context {
+    pub editing: bool,
+    pub selection: bool,
+    pub text: bool,
+    pub replaceable: bool,
+}
+
+/// Whether the tool can run in `context` and the note to show beside it.
+pub fn note(
+    input: Input,
+    output: ToolOutput,
+    context: Context,
+    key: &Result<Option<Shortcut>, KeyProblem>,
+) -> Note {
+    let off = |kind| Note {
+        enabled: false,
+        kind,
+        arg: String::new(),
+    };
+    if input == Input::Selection && !(context.editing && context.selection) {
+        return off(1);
+    }
+    if input == Input::Document && !context.editing && !context.text {
+        return off(6);
+    }
+    if output == ToolOutput::Replace && !context.editing && !context.replaceable {
+        return off(2);
+    }
+    let (kind, arg) = match key {
+        Ok(_) => (0, String::new()),
+        Err(KeyProblem::Invalid) => (3, String::new()),
+        Err(KeyProblem::Reserved) => (4, String::new()),
+        Err(KeyProblem::Taken(owner)) => (5, owner.clone()),
+    };
+    Note {
+        enabled: true,
+        kind,
+        arg,
+    }
+}
+
+/// The bytes between the two ends of a selection, or `None` when it is empty or not on characters.
+pub fn selection_range(text: &str, anchor: i32, cursor: i32) -> Option<Range<usize>> {
+    let (a, b) = (usize::try_from(anchor).ok()?, usize::try_from(cursor).ok()?);
+    let range = a.min(b)..a.max(b);
+    (range.start < range.end
+        && text.is_char_boundary(range.start)
+        && text.is_char_boundary(range.end))
+    .then_some(range)
+}
+
+/// `text` with `range` replaced by `replacement`.
+pub fn splice(text: &str, range: Range<usize>, replacement: &str) -> String {
+    format!(
+        "{}{}{}",
+        &text[..range.start],
+        replacement,
+        &text[range.end..]
+    )
+}
+
+/// The short sentence for a run that did not produce output; `what` is "tool" or "viewer".
+pub fn describe(error: &RunError, what: &str, seconds: u64) -> String {
+    match error {
+        RunError::Failed { stderr, code } if stderr.is_empty() => match code {
+            Some(code) => format!("exit code {code}"),
+            None => "the command stopped".into(),
+        },
+        RunError::Failed { stderr, .. } => stderr.clone(),
+        RunError::Timeout => format!("the {what} took longer than {seconds} s"),
+        RunError::Spawn(error) => error.to_string(),
+        RunError::TooMuchOutput => format!("the {what} wrote too much"),
+        RunError::InvalidUtf8 => format!("the {what} did not write UTF-8"),
+        RunError::Cancelled => "cancelled".into(),
+    }
 }
 
 #[cfg(test)]
@@ -84,5 +177,98 @@ mod tests {
     fn nonsense_is_invalid() {
         assert_eq!(ask(&[("A", Some("nada+x"))]), [Err(KeyProblem::Invalid)]);
         assert_eq!(ask(&[("A", Some("f"))]), [Err(KeyProblem::Invalid)]);
+    }
+
+    const EDITING: Context = Context {
+        editing: true,
+        selection: true,
+        text: true,
+        replaceable: true,
+    };
+
+    #[test]
+    fn selection_tools_need_a_selection_in_edit_mode() {
+        let ok = Ok(None);
+        let idle = Context {
+            editing: false,
+            ..EDITING
+        };
+        let empty = Context {
+            selection: false,
+            ..EDITING
+        };
+        assert!(note(Input::Selection, ToolOutput::Show, EDITING, &ok).enabled);
+        assert_eq!(note(Input::Selection, ToolOutput::Show, idle, &ok).kind, 1);
+        assert_eq!(note(Input::Selection, ToolOutput::Show, empty, &ok).kind, 1);
+    }
+
+    #[test]
+    fn replacing_needs_an_editable_document() {
+        let ok = Ok(None);
+        let locked = Context {
+            editing: false,
+            replaceable: false,
+            ..EDITING
+        };
+        let note_ = note(Input::Document, ToolOutput::Replace, locked, &ok);
+        assert!(!note_.enabled);
+        assert_eq!(note_.kind, 2);
+        assert!(note(Input::Document, ToolOutput::Show, locked, &ok).enabled);
+        let unloaded = Context {
+            editing: false,
+            text: false,
+            ..EDITING
+        };
+        assert_eq!(
+            note(Input::Document, ToolOutput::Show, unloaded, &ok).kind,
+            6
+        );
+    }
+
+    #[test]
+    fn a_bad_shortcut_leaves_the_tool_on_with_a_note() {
+        let taken = Err(KeyProblem::Taken("Formatar".into()));
+        let note_ = note(Input::Document, ToolOutput::Show, EDITING, &taken);
+        assert!(note_.enabled);
+        assert_eq!((note_.kind, note_.arg.as_str()), (5, "Formatar"));
+        let reserved = Err(KeyProblem::Reserved);
+        assert_eq!(
+            note(Input::Document, ToolOutput::Show, EDITING, &reserved).kind,
+            4
+        );
+        let invalid = Err(KeyProblem::Invalid);
+        assert_eq!(
+            note(Input::Document, ToolOutput::Show, EDITING, &invalid).kind,
+            3
+        );
+    }
+
+    #[test]
+    fn selections_are_ordered_and_on_characters() {
+        assert_eq!(selection_range("abcdef", 4, 1), Some(1..4));
+        assert_eq!(selection_range("abcdef", 2, 2), None);
+        assert_eq!(selection_range("abcdef", -1, 2), None);
+        assert_eq!(selection_range("ação", 2, 4), None);
+        assert_eq!(selection_range("ação", 0, 3), Some(0..3));
+    }
+
+    #[test]
+    fn splice_replaces_the_range() {
+        assert_eq!(splice("um dois tres", 3..7, "DOIS"), "um DOIS tres");
+        assert_eq!(splice("abc", 0..3, ""), "");
+    }
+
+    #[test]
+    fn run_errors_read_as_short_reasons() {
+        let failed = |stderr: &str, code| RunError::Failed {
+            code,
+            stderr: stderr.into(),
+        };
+        assert_eq!(describe(&failed("boom", Some(1)), "tool", 10), "boom");
+        assert_eq!(describe(&failed("", Some(3)), "tool", 10), "exit code 3");
+        assert_eq!(
+            describe(&RunError::Timeout, "viewer", 10),
+            "the viewer took longer than 10 s"
+        );
     }
 }

@@ -47,6 +47,7 @@ pub(super) fn start_edit(id: u64) {
             _ => Some(None),
         },
         (None, Some(_)) => Some(None),
+        (None, None) if reader.viewer => Some(None),
         (None, None) => None,
     })
     .flatten();
@@ -68,34 +69,59 @@ pub(super) fn finish_edit(id: u64) {
         return;
     };
     let text = window.get_edit_text().to_string();
+    if !apply_text(id, &window, text) {
+        window.set_editing(false);
+    }
+}
+
+/// What a text change does to the view: nothing, a rebuilt view, or (a viewer's file that was
+/// saved) a new run of the viewer.
+enum Refresh {
+    Nothing,
+    Rebuilt(super::Built),
+    Reload,
+}
+
+/// Puts `text` in the document and rebuilds the view when it changed; a viewer's file shows its
+/// raw text once it has unsaved changes. Returns whether the file was reloaded instead.
+pub(super) fn apply_text(id: u64, window: &ReaderWindow, text: String) -> bool {
     let result = with_reader(id, |reader| {
         record_text(reader, text);
         let document = reader.document.as_ref()?;
         let dirty = document.dirty;
+        if reader.viewer && !dirty && reader.view_outdated {
+            return Some((Refresh::Reload, dirty));
+        }
         let Body::Text(current) = &document.body else {
-            return Some((None, dirty));
+            return Some((Refresh::Nothing, dirty));
         };
         if !reader.stale {
-            return Some((None, dirty));
+            return Some((Refresh::Nothing, dirty));
         }
-        let (built, search_rows) = build(current, reader.markdown);
+        let (built, search_rows) = build(current, reader.markdown && !reader.viewer);
         reader.search_rows = Arc::new(search_rows);
         reader.stale = false;
         reset_search(reader);
-        Some((Some(built), dirty))
+        Some((Refresh::Rebuilt(built), dirty))
     })
     .flatten();
-    if let Some((built, dirty)) = result {
-        if let Some(built) = built {
-            show_built(&window, built);
-            clear_search_view(&window);
+    match result {
+        Some((Refresh::Reload, _)) => {
+            reload(id);
+            return true;
+        }
+        Some((Refresh::Rebuilt(built), dirty)) => {
+            show_built(window, built);
+            clear_search_view(window);
             if window.get_searching() {
                 search(id, window.get_query().to_string());
             }
+            window.set_dirty(dirty);
         }
-        window.set_dirty(dirty);
+        Some((Refresh::Nothing, dirty)) => window.set_dirty(dirty),
+        None => {}
     }
-    window.set_editing(false);
+    false
 }
 
 enum SaveOutcome {
@@ -141,6 +167,7 @@ pub(super) fn save(id: u64, overwrite: bool, lossy: bool) -> bool {
             Ok(()) => {
                 let stamp = Stamp::read(&reader.path).unwrap_or(document.stamp);
                 document.saved(stamp);
+                reader.view_outdated = reader.viewer;
                 reader.stamp = Some(stamp);
                 reader.acknowledged = None;
                 SaveOutcome::Saved
@@ -184,6 +211,12 @@ pub(super) fn reload(id: u64) {
         reader.cancel.store(true, Ordering::Relaxed);
         reader.cancel = Arc::new(AtomicBool::new(false));
         reader.load += 1;
+        if let Some(stop) = reader.viewer_cancel.take() {
+            stop.cancel();
+        }
+        reader.viewer = false;
+        reader.view_outdated = false;
+        reader.tools = None;
         reader.document = None;
         reader.index = None;
         reader.lines = None;
@@ -191,7 +224,12 @@ pub(super) fn reload(id: u64) {
         reader.acknowledged = None;
         reader.search_rows = Arc::new(Vec::new());
         reset_search(reader);
-        (reader.load, reader.path.clone(), reader.cancel.clone())
+        (
+            reader.load,
+            reader.path.clone(),
+            reader.cancel.clone(),
+            reader.catalog.clone(),
+        )
     });
     window.set_state(0);
     window.set_lines(ModelRc::default());
@@ -202,8 +240,9 @@ pub(super) fn reload(id: u64) {
     show_banner(&window, Banner::None);
     window.set_searching(false);
     clear_search_view(&window);
-    if let Some((load, path, cancel)) = started {
-        spawn(id, load, path, cancel);
+    if let Some((load, path, cancel, catalog)) = started {
+        let stop = spawn(id, load, path, cancel, catalog);
+        with_reader(id, |reader| reader.viewer_cancel = Some(stop));
     }
 }
 

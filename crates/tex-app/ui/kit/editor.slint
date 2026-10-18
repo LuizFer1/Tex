@@ -4,6 +4,8 @@ import { Tokens } from "../theme.slint";
 export component Editor inherits Rectangle {
     in-out property <string> text;
     in property <bool> wrap: true;
+    out property <int> anchor: input.anchor-position-byte-offset;
+    out property <int> cursor: input.cursor-position-byte-offset;
     callback edited(string);
 
     forward-focus: input;

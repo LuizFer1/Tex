@@ -779,3 +779,48 @@ msgstr "Recarregar e descartar as mudanças em {0}?"
 
 msgid "The file no longer exists."
 msgstr "O arquivo não existe mais."
+
+msgid "Tools"
+msgstr "Ferramentas"
+
+msgid "done"
+msgstr "pronto"
+
+msgid "copied"
+msgstr "copiado"
+
+msgid "Running {0}…"
+msgstr "Rodando {0}…"
+
+msgid "{0} failed: {1}"
+msgstr "{0} falhou: {1}"
+
+msgid "No tools for this file."
+msgstr "Nenhuma ferramenta para este arquivo."
+
+msgid "Open extensions folder"
+msgstr "Abrir pasta de extensões"
+
+msgid "{0}: {1}"
+msgstr "{0}: {1}"
+
+msgid "needs a selection in edit mode"
+msgstr "precisa de uma seleção no modo de edição"
+
+msgid "this file can't be edited here"
+msgstr "este arquivo não pode ser editado aqui"
+
+msgid "shortcut ignored: not a valid shortcut"
+msgstr "atalho ignorado: não é um atalho válido"
+
+msgid "shortcut ignored: reserved by the reader"
+msgstr "atalho ignorado: reservado pelo leitor"
+
+msgid "shortcut ignored: used by {0}"
+msgstr "atalho ignorado: usado por {0}"
+
+msgid "this file is too large for tools"
+msgstr "este arquivo é grande demais para ferramentas"
+
+msgid "{0} also opens .{1}; the first folder wins"
+msgstr "{0} também abre .{1}; vale a primeira pasta"

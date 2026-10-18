@@ -1,4 +1,5 @@
 mod edit;
+mod extensions;
 mod model;
 mod search;
 
@@ -20,7 +21,8 @@ use tex_platform::{
     work_area_under_cursor,
 };
 use tex_reader::{
-    Body, Catalog, Document, Encoding, Kind, LineIndex, LoadError, Stamp, blocks, probe,
+    Body, Cancel, Catalog, Document, Encoding, Kind, LIMITS, LineIndex, LoadError, Sniff, Stamp,
+    TEXT_LIMIT, ViewerOutput, blocks, channel, job, probe, run, sniff,
 };
 
 use crate::frame;
@@ -32,6 +34,10 @@ use crate::settings::extensions_dir;
 use crate::{ReaderBlock, ReaderWindow, Windows, placement};
 
 use edit::{check_outside, finish_edit, reload, save, start_edit, unsaved};
+use extensions::{
+    ToolEntry, cancel_tool, open_extensions, output_closed, output_copy, run_tool, tool_key,
+    tools_requested,
+};
 use model::{LinesModel, StyledRow, reader_block, strings};
 use search::{search, search_closed, search_step};
 
@@ -47,6 +53,11 @@ pub fn reload_catalog() -> Arc<Catalog> {
     let viewers = catalog.viewer_extensions();
     CATALOG.with_borrow_mut(|current| *current = (catalog.clone(), viewers));
     catalog
+}
+
+/// The catalog as of the last `reload_catalog`.
+fn catalog() -> Arc<Catalog> {
+    CATALOG.with_borrow(|(catalog, _)| catalog.clone())
 }
 
 /// The file types some extension's viewer opens, as of the last `reload_catalog`.
@@ -73,11 +84,24 @@ struct Reader {
     search_id: u64,
     hits: Vec<usize>,
     hit: Option<usize>,
+    catalog: Arc<Catalog>,
+    viewer: bool,
+    view_outdated: bool,
+    viewer_cancel: Option<Cancel>,
+    tools: Option<Vec<ToolEntry>>,
+    run: u64,
+    tool_cancel: Option<Cancel>,
 }
 
 impl Drop for Reader {
     fn drop(&mut self) {
         self.cancel.store(true, Ordering::Relaxed);
+        if let Some(cancel) = &self.viewer_cancel {
+            cancel.cancel();
+        }
+        if let Some(cancel) = &self.tool_cancel {
+            cancel.cancel();
+        }
         if let Some(cancel) = &self.search_cancel {
             cancel.store(true, Ordering::Relaxed);
         }
@@ -112,6 +136,14 @@ enum Event {
     Page {
         page: usize,
         lines: Vec<String>,
+    },
+    Viewed {
+        built: Built,
+        search_rows: Vec<String>,
+        markdown: bool,
+        document: Option<Document>,
+        stamp: Stamp,
+        encoding: Encoding,
     },
 }
 
@@ -165,6 +197,8 @@ fn create(windows: &Windows, path: &Path) -> Option<ReaderWindow> {
     window.set_wrap(wrap_by_default(path));
     wire(&window, windows, id, path);
     let cancel = Arc::new(AtomicBool::new(false));
+    let catalog = catalog();
+    let viewer_cancel = spawn(id, 0, path.to_path_buf(), cancel.clone(), catalog.clone());
     READERS.with_borrow_mut(|readers| {
         readers.push(Reader {
             id,
@@ -184,9 +218,15 @@ fn create(windows: &Windows, path: &Path) -> Option<ReaderWindow> {
             search_id: 0,
             hits: Vec::new(),
             hit: None,
+            catalog,
+            viewer: false,
+            view_outdated: false,
+            viewer_cancel: Some(viewer_cancel),
+            tools: None,
+            run: 0,
+            tool_cancel: None,
         })
     });
-    spawn(id, 0, path.to_path_buf(), cancel);
     Some(window)
 }
 
@@ -263,6 +303,7 @@ fn wire(window: &ReaderWindow, windows: &Windows, id: u64, path: &Path) {
             3 => {
                 save(id, false, true);
             }
+            4 => cancel_tool(id),
             _ => {}
         }
     });
@@ -305,6 +346,12 @@ fn wire(window: &ReaderWindow, windows: &Windows, id: u64, path: &Path) {
             }
         }
     });
+    window.on_tools_requested(move || tools_requested(id));
+    window.on_tool_chosen(move |index| run_tool(id, index.max(0) as usize));
+    window.on_tool_key(move |text, ctrl, alt, shift| tool_key(id, &text, ctrl, alt, shift));
+    window.on_open_extensions(open_extensions);
+    window.on_output_copy(move || output_copy(id));
+    window.on_output_closed(move || output_closed(id));
     window.on_search_edited(move |query| search(id, query.to_string()));
     window.on_search_step(move |forward| search_step(id, forward));
     window.on_search_closed(move || search_closed(id));
@@ -338,9 +385,17 @@ fn follow_link(windows: &Windows, file: &Path, url: &str) {
     }
 }
 
-/// Probes and loads `path` off the UI thread; a large file then stays open to serve pages.
-fn spawn(id: u64, load: u64, path: PathBuf, cancel: Arc<AtomicBool>) {
-    let viewers = viewer_extensions();
+/// Probes and loads `path` off the UI thread; a large file then stays open to serve pages. The
+/// result stops a viewer process that is still running.
+fn spawn(
+    id: u64,
+    load: u64,
+    path: PathBuf,
+    cancel: Arc<AtomicBool>,
+    catalog: Arc<Catalog>,
+) -> Cancel {
+    let viewers = catalog.viewer_extensions();
+    let (stop, inbox) = channel();
     std::thread::spawn(move || {
         let send = move |event: Event| {
             let _ = slint::invoke_from_event_loop(move || deliver(id, load, event));
@@ -350,6 +405,10 @@ fn spawn(id: u64, load: u64, path: PathBuf, cancel: Arc<AtomicBool>) {
             Err(LoadError::Io(error)) => return send(Event::Failed(error.to_string())),
             Err(LoadError::Binary | LoadError::Unsupported) => return send(Event::Binary),
         };
+        if let Kind::Viewer(ext) = &probed.kind {
+            let ext = ext.clone();
+            return view(&path, probed, &ext, &catalog, &cancel, inbox, &send);
+        }
         if probed.large() {
             send(Event::Preview {
                 lines: probed
@@ -396,6 +455,50 @@ fn spawn(id: u64, load: u64, path: PathBuf, cancel: Arc<AtomicBool>) {
             }
         }
     });
+    stop
+}
+
+/// Runs the viewer of `ext` on `path`; a text file is also loaded raw, so it can be edited.
+fn view(
+    path: &Path,
+    probed: tex_reader::Probe,
+    ext: &str,
+    catalog: &Catalog,
+    cancel: &AtomicBool,
+    inbox: tex_reader::Inbox,
+    send: &impl Fn(Event),
+) {
+    let Some((extension, viewer)) = catalog.viewer_for(ext) else {
+        return send(Event::Failed(format!("no viewer for .{ext}")));
+    };
+    let (stamp, encoding) = (probed.stamp, probed.encoding);
+    let text = sniff(&probed.head) == Sniff::Text && probed.stamp.len <= TEXT_LIMIT;
+    let document = if text {
+        probed.load(cancel).ok().flatten()
+    } else {
+        None
+    };
+    let process = job(extension, &viewer.command, Vec::new(), path);
+    match run(&process, LIMITS, inbox) {
+        Ok(output) => {
+            let markdown = viewer.output == ViewerOutput::Markdown;
+            let (built, search_rows) = build(&output, markdown);
+            send(Event::Viewed {
+                built,
+                search_rows,
+                markdown,
+                document,
+                stamp,
+                encoding,
+            });
+        }
+        Err(tex_reader::RunError::Cancelled) => {}
+        Err(error) => send(Event::Failed(crate::tools::describe(
+            &error,
+            "viewer",
+            LIMITS.time.as_secs(),
+        ))),
+    }
 }
 
 /// What a text document shows, built off the UI thread when loading and on it after an edit.
@@ -527,6 +630,27 @@ fn deliver(id: u64, load: u64, event: Event) {
             window.set_encoding(encoding_index(encoding));
             window.set_state(1);
         }
+        Event::Viewed {
+            built,
+            search_rows,
+            markdown,
+            document,
+            stamp,
+            encoding,
+        } => {
+            with_reader(id, |reader| {
+                reader.viewer = true;
+                reader.view_outdated = false;
+                reader.stamp = Some(stamp);
+                reader.document = document;
+                reader.markdown = markdown;
+                reader.stale = false;
+                reader.search_rows = Arc::new(search_rows);
+            });
+            show_built(&window, built);
+            window.set_encoding(encoding_index(encoding));
+            window.set_state(1);
+        }
         Event::Page { page, lines } => {
             let widest = longest(&lines) as i32;
             if widest > window.get_longest() {
@@ -559,6 +683,8 @@ enum Banner {
     SaveFailed = 4,
     Lossy = 5,
     Gone = 6,
+    Running = 7,
+    ToolFailed = 8,
 }
 
 fn show_banner(window: &ReaderWindow, banner: Banner) {
