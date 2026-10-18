@@ -1,4 +1,4 @@
-use std::io::{self, BufReader, ErrorKind, Read, Seek, SeekFrom};
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom};
 use std::ops::Range;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -122,40 +122,114 @@ impl LineIndex {
     }
 }
 
-/// Reads one line, without its break, into `out`: `Some(cut)` or `None` at the end of the file.
+/// Reads one line, without its break, into `out` (at most `MAX_LINE_BYTES`, never ending in half a character): `Some(cut)` or `None` at the end of the file.
 fn read_line(
-    reader: &mut impl Read,
+    reader: &mut impl BufRead,
     encoding: Encoding,
     out: &mut Vec<u8>,
 ) -> io::Result<Option<bool>> {
     out.clear();
     let unit = encoding.unit_len();
-    let mut code = [0u8; 2];
-    let mut cut = false;
+    let newline = encoding.newline();
+    let mut dropped = 0;
+    let mut first_dropped = [0u8; 2];
+    let mut pending = None;
     let mut any = false;
     loop {
-        match reader.read_exact(&mut code[..unit]) {
-            Ok(()) => {}
-            Err(error) if error.kind() == ErrorKind::UnexpectedEof => break,
-            Err(error) => return Err(error),
-        }
-        any = true;
-        if &code[..unit] == encoding.newline() {
+        let buffer = reader.fill_buf()?;
+        if buffer.is_empty() {
             break;
         }
-        if out.len() < MAX_LINE_BYTES {
-            out.extend_from_slice(&code[..unit]);
+        let mut start = 0;
+        let mut found = false;
+        let mut end = buffer.len();
+        if let Some(first) = pending.take() {
+            let pair = [first, buffer[0]];
+            any = true;
+            start = 1;
+            if pair == newline {
+                found = true;
+                end = 1;
+            } else {
+                keep(out, &pair, &mut dropped, &mut first_dropped);
+            }
+        }
+        let consumed = if found {
+            end
+        } else if unit == 1 {
+            let at = buffer[start..].iter().position(|&byte| byte == newline[0]);
+            let stop = at.map_or(buffer.len(), |at| start + at);
+            keep(out, &buffer[start..stop], &mut dropped, &mut first_dropped);
+            any |= stop > start || at.is_some();
+            found = at.is_some();
+            stop + usize::from(found)
         } else {
-            cut = true;
+            let (pairs, rest) = buffer[start..].as_chunks::<2>();
+            let at = pairs.iter().position(|pair| pair == newline);
+            let stop = start + 2 * at.unwrap_or(pairs.len());
+            keep(out, &buffer[start..stop], &mut dropped, &mut first_dropped);
+            any |= stop > start || at.is_some();
+            found = at.is_some();
+            if !found {
+                pending = rest.first().copied();
+            }
+            if found { stop + 2 } else { buffer.len() }
+        };
+        reader.consume(consumed);
+        if found {
+            break;
         }
     }
     if !any {
         return Ok(None);
     }
-    if !cut && out.ends_with(encoding.carriage()) {
+    let cut = dropped > 0 && !(dropped == unit && first_dropped[..unit] == *encoding.carriage());
+    if cut {
+        trim_partial(out, encoding);
+    } else if dropped == 0 && out.ends_with(encoding.carriage()) {
         out.truncate(out.len() - unit);
     }
     Ok(Some(cut))
+}
+
+/// Appends what still fits under `MAX_LINE_BYTES` and counts the rest, remembering its first unit.
+fn keep(out: &mut Vec<u8>, bytes: &[u8], dropped: &mut usize, first_dropped: &mut [u8; 2]) {
+    let room = MAX_LINE_BYTES.saturating_sub(out.len());
+    let taken = bytes.len().min(room);
+    out.extend_from_slice(&bytes[..taken]);
+    if taken < bytes.len() {
+        if *dropped == 0 {
+            let first = &bytes[taken..];
+            first_dropped[..first.len().min(2)].copy_from_slice(&first[..first.len().min(2)]);
+        }
+        *dropped += bytes.len() - taken;
+    }
+}
+
+/// Removes a character the cut left incomplete: a UTF-8 tail or a UTF-16 high surrogate.
+fn trim_partial(out: &mut Vec<u8>, encoding: Encoding) {
+    match encoding {
+        Encoding::Utf8 { .. } => {
+            if let Err(error) = std::str::from_utf8(out)
+                && error.error_len().is_none()
+            {
+                out.truncate(error.valid_up_to());
+            }
+        }
+        Encoding::Utf16Le | Encoding::Utf16Be => {
+            if let Some(&[a, b]) = out.last_chunk::<2>() {
+                let unit = if encoding == Encoding::Utf16Le {
+                    u16::from_le_bytes([a, b])
+                } else {
+                    u16::from_be_bytes([a, b])
+                };
+                if (0xD800..0xDC00).contains(&unit) {
+                    out.truncate(out.len() - 2);
+                }
+            }
+        }
+        Encoding::Windows1252 => {}
+    }
 }
 
 #[cfg(test)]
@@ -233,6 +307,91 @@ mod tests {
         assert_eq!(lines[0].chars().count(), MAX_LINE_BYTES + 1);
         assert!(lines[0].ends_with('…'));
         assert_eq!(lines[1], "ok");
+    }
+
+    fn numbered(count: usize, trailing_newline: bool) -> String {
+        let mut text = (0..count)
+            .map(|i| format!("l{i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if trailing_newline {
+            text.push('\n');
+        }
+        text
+    }
+
+    #[test]
+    fn checkpoint_boundaries_keep_every_line() {
+        for count in [64, 65, 128] {
+            for trailing in [false, true] {
+                let text = numbered(count, trailing);
+                let (index, mut cursor) = index(text.as_bytes(), UTF8, 5);
+                assert_eq!(index.len(), count, "{count} {trailing}");
+                let last = count - 3;
+                let expected: Vec<String> = (last..count).map(|i| format!("l{i}")).collect();
+                assert_eq!(
+                    index.read_lines(&mut cursor, last..count).unwrap(),
+                    expected
+                );
+                let expected: Vec<String> = (60..70.min(count)).map(|i| format!("l{i}")).collect();
+                assert_eq!(index.read_lines(&mut cursor, 60..70).unwrap(), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn a_line_of_exactly_the_limit_with_crlf_is_not_cut() {
+        let text = "x".repeat(MAX_LINE_BYTES) + "\r\nok";
+        assert_eq!(
+            all(text.as_bytes(), UTF8, CHUNK),
+            ["x".repeat(MAX_LINE_BYTES), "ok".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_cut_inside_a_character_drops_it() {
+        let text = "x".repeat(MAX_LINE_BYTES - 1) + "éyy\nok";
+        let lines = all(text.as_bytes(), UTF8, CHUNK);
+        assert_eq!(lines[0], "x".repeat(MAX_LINE_BYTES - 1) + "…");
+        assert!(!lines[0].contains('\u{FFFD}'));
+        assert_eq!(lines[1], "ok");
+    }
+
+    fn utf16_be(text: &str) -> Vec<u8> {
+        let mut bytes = vec![0xFE, 0xFF];
+        for unit in text.encode_utf16() {
+            bytes.extend(unit.to_be_bytes());
+        }
+        bytes
+    }
+
+    #[test]
+    fn utf16_big_endian_survives_small_chunks() {
+        assert_eq!(
+            all(&utf16_be("x\r\nyé\nz"), Encoding::Utf16Be, 3),
+            ["x", "yé", "z"]
+        );
+    }
+
+    #[test]
+    fn long_utf16_lines_are_cut_between_characters() {
+        let half = MAX_LINE_BYTES / 2;
+        let text = "x".repeat(half - 1) + "😀yy\nok";
+        let lines = all(&utf16_be(&text), Encoding::Utf16Be, 3);
+        assert_eq!(lines[0], "x".repeat(half - 1) + "…");
+        assert_eq!(lines[1], "ok");
+        let text = "x".repeat(half + 10) + "\nok";
+        let lines = all(&utf16_be(&text), Encoding::Utf16Be, CHUNK);
+        assert_eq!(lines[0].chars().count(), half + 1);
+        assert_eq!(lines[1], "ok");
+    }
+
+    #[test]
+    fn skipping_a_huge_line_reaches_the_next() {
+        let mut text = vec![b'x'; 20 * 1024 * 1024];
+        text.extend(b"\nok");
+        let (index, mut cursor) = index(&text, UTF8, CHUNK);
+        assert_eq!(index.read_lines(&mut cursor, 1..2).unwrap(), ["ok"]);
     }
 
     #[test]
