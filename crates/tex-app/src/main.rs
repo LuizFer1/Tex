@@ -2041,7 +2041,7 @@ fn show_event(windows: &Windows, event: Event, icons: &IconLoader, latest: &Late
 
 fn drive_row(volume: &VolumeStatus, separator: char) -> DriveRow {
     let mut row = DriveRow {
-        letter: volume.letter.to_string().into(),
+        root: volume.root.as_str().into(),
         ..Default::default()
     };
     match &volume.state {

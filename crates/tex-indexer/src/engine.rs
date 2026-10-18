@@ -15,15 +15,15 @@ pub struct VolumeData {
 }
 
 pub struct Volume {
-    pub letter: char,
-    pub serial: u32,
+    pub root: String,
+    pub serial: u64,
     data: RwLock<VolumeData>,
 }
 
 impl Volume {
-    pub fn new(letter: char, serial: u32) -> Self {
+    pub fn new(root: &str, serial: u64) -> Self {
         Self {
-            letter,
+            root: root.to_owned(),
             serial,
             data: RwLock::new(VolumeData {
                 index: None,
@@ -53,11 +53,11 @@ impl Engine {
         Self::default()
     }
 
-    /// Tracks a volume, replacing one with the same letter only if it failed or its serial changed.
-    /// Returns `None` when the letter is already tracked and healthy.
-    pub fn add(&self, letter: char, serial: u32) -> Option<Arc<Volume>> {
+    /// Tracks a volume, replacing one with the same root only if it failed or its serial changed.
+    /// Returns `None` when the root is already tracked and healthy.
+    pub fn add(&self, root: &str, serial: u64) -> Option<Arc<Volume>> {
         let mut volumes = self.volumes.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(position) = volumes.iter().position(|volume| volume.letter == letter) {
+        if let Some(position) = volumes.iter().position(|volume| volume.root == root) {
             let existing = &volumes[position];
             let failed = matches!(existing.read().state, VolumeState::Failed { .. });
             if !failed && existing.serial == serial {
@@ -65,7 +65,7 @@ impl Engine {
             }
             volumes.remove(position);
         }
-        let volume = Arc::new(Volume::new(letter, serial));
+        let volume = Arc::new(Volume::new(root, serial));
         volumes.push(Arc::clone(&volume));
         Some(volume)
     }
@@ -82,11 +82,11 @@ impl Engine {
             .volumes()
             .iter()
             .map(|volume| VolumeStatus {
-                letter: volume.letter,
+                root: volume.root.clone(),
                 state: volume.read().state.clone(),
             })
             .collect();
-        status.sort_by_key(|volume| volume.letter);
+        status.sort_by(|a, b| a.root.cmp(&b.root));
         status
     }
 
@@ -187,9 +187,9 @@ mod tests {
     use tex_index::{Attributes, ROOT};
     use tex_ipc::{Filter, Hit, SearchQuery};
 
-    fn ready(engine: &Engine, letter: char, entries: &[(u32, u32, &str, bool)]) -> Arc<Volume> {
-        let volume = engine.add(letter, 1).unwrap();
-        let mut index = VolumeIndex::new(&format!("{letter}:"));
+    fn ready(engine: &Engine, root: &str, entries: &[(u32, u32, &str, bool)]) -> Arc<Volume> {
+        let volume = engine.add(root, 1).unwrap();
+        let mut index = VolumeIndex::new(root);
         for &(record, parent, name, dir) in entries {
             index.upsert(
                 record,
@@ -231,7 +231,7 @@ mod tests {
         let engine = Engine::new();
         ready(
             &engine,
-            'C',
+            "C:",
             &[
                 (20, ROOT, "Projetos", true),
                 (21, 20, "alpha.txt", false),
@@ -259,13 +259,13 @@ mod tests {
         let engine = Engine::new();
         ready(
             &engine,
-            'C',
+            "C:",
             &[
                 (20, ROOT, "Projetos", true),
                 (21, 20, "relatorio.pdf", false),
             ],
         );
-        engine.add('D', 2).unwrap();
+        engine.add("D:", 2).unwrap();
         let results = engine.search(&query("relatorio", Filter::All));
         assert_eq!(results.id, 7);
         assert_eq!(results.total, 1);
@@ -284,7 +284,7 @@ mod tests {
         let engine = Engine::new();
         ready(
             &engine,
-            'C',
+            "C:",
             &[(20, ROOT, "notes", true), (21, 20, "notes.txt", false)],
         );
         assert_eq!(
@@ -300,7 +300,7 @@ mod tests {
         let engine = Engine::new();
         ready(
             &engine,
-            'C',
+            "C:",
             &[
                 (20, ROOT, "Tex", true),
                 (21, 20, "target", true),
@@ -322,26 +322,26 @@ mod tests {
     #[test]
     fn blank_query_returns_no_hits() {
         let engine = Engine::new();
-        ready(&engine, 'C', &[(20, ROOT, "a", false)]);
+        ready(&engine, "C:", &[(20, ROOT, "a", false)]);
         let results = engine.search(&query("   ", Filter::All));
         assert!(results.hits.is_empty());
         assert_eq!(results.total, 0);
     }
 
     #[test]
-    fn status_lists_volumes_by_letter() {
+    fn status_lists_volumes_by_root() {
         let engine = Engine::new();
-        engine.add('D', 2).unwrap();
-        ready(&engine, 'C', &[(20, ROOT, "a", false)]);
+        engine.add("D:", 2).unwrap();
+        ready(&engine, "C:", &[(20, ROOT, "a", false)]);
         assert_eq!(
             engine.status(),
             [
                 VolumeStatus {
-                    letter: 'C',
+                    root: "C:".into(),
                     state: VolumeState::Ready { entries: 1 }
                 },
                 VolumeStatus {
-                    letter: 'D',
+                    root: "D:".into(),
                     state: VolumeState::Indexing { percent: 0 }
                 },
             ]
@@ -349,15 +349,28 @@ mod tests {
     }
 
     #[test]
+    fn status_lists_unix_roots() {
+        let engine = Engine::new();
+        engine.add("/home", 2).unwrap();
+        engine.add("/", 1).unwrap();
+        let roots: Vec<String> = engine
+            .status()
+            .into_iter()
+            .map(|volume| volume.root)
+            .collect();
+        assert_eq!(roots, ["/", "/home"]);
+    }
+
+    #[test]
     fn add_replaces_only_failed_or_changed_volumes() {
         let engine = Engine::new();
-        let first = engine.add('C', 1).unwrap();
-        assert!(engine.add('C', 1).is_none());
+        let first = engine.add("C:", 1).unwrap();
+        assert!(engine.add("C:", 1).is_none());
         first.write().state = VolumeState::Failed {
             reason: "gone".into(),
         };
-        assert!(engine.add('C', 1).is_some());
-        assert!(engine.add('C', 9).is_some());
+        assert!(engine.add("C:", 1).is_some());
+        assert!(engine.add("C:", 9).is_some());
         assert_eq!(engine.volumes().len(), 1);
         assert_eq!(engine.volumes()[0].serial, 9);
     }
@@ -365,7 +378,7 @@ mod tests {
     #[test]
     fn handler_routes_requests() {
         let engine = Engine::new();
-        ready(&engine, 'C', &[(20, ROOT, "a.txt", false)]);
+        ready(&engine, "C:", &[(20, ROOT, "a.txt", false)]);
         match engine.handle(Request::Search(query("a", Filter::All))) {
             Response::Results(results) => assert_eq!(results.total, 1),
             other => panic!("unexpected {other:?}"),
@@ -396,7 +409,7 @@ mod tests {
             hidden: true,
             system: false,
         };
-        let volume = engine.add('C', 1).unwrap();
+        let volume = engine.add("C:", 1).unwrap();
         let mut index = VolumeIndex::new("C:");
         index.upsert(
             20,

@@ -27,7 +27,7 @@ pub fn main() {
 
     let engine = Arc::new(Engine::new());
     let volume = engine
-        .add(index.drive().expect("drive root"), 0)
+        .add(index.root(), 0)
         .expect("a new engine has no volumes");
     {
         let mut data = volume.write();

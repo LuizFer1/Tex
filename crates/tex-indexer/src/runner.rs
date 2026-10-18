@@ -47,11 +47,9 @@ impl Runner {
             return;
         };
         for found in ntfs_volumes() {
-            if let Some(volume) = self.engine.add(found.letter, found.serial) {
-                log(format!(
-                    "{}: tracking volume {:08X}",
-                    found.letter, found.serial
-                ));
+            let root = format!("{}:", found.letter);
+            if let Some(volume) = self.engine.add(&root, u64::from(found.serial)) {
+                log(format!("{root} tracking volume {:08X}", found.serial));
                 let runner = Arc::clone(&runner);
                 thread::spawn(move || runner.run_volume(&volume));
             }
@@ -67,9 +65,9 @@ impl Runner {
     fn run_volume(&self, volume: &Volume) {
         loop {
             match self.follow(volume) {
-                Failure::Rescan(reason) => log(format!("{}: reindexing ({reason})", volume.letter)),
+                Failure::Rescan(reason) => log(format!("{} reindexing ({reason})", volume.root)),
                 Failure::Fatal(error) => {
-                    log(format!("{}: stopped ({error})", volume.letter));
+                    log(format!("{} stopped ({error})", volume.root));
                     let mut data = volume.write();
                     data.index = None;
                     data.state = VolumeState::Failed {
@@ -83,7 +81,7 @@ impl Runner {
 
     /// Loads the snapshot or builds the index, then applies journal records until something fails.
     fn follow(&self, volume: &Volume) -> Failure {
-        let handle = match VolumeHandle::open(volume.letter) {
+        let handle = match VolumeHandle::open(&volume.root) {
             Ok(handle) => handle,
             Err(error) => return Failure::Fatal(error),
         };
@@ -99,8 +97,8 @@ impl Runner {
             },
         };
         log(format!(
-            "{}: ready with {} entries",
-            volume.letter,
+            "{} ready with {} entries",
+            volume.root,
             index.len()
         ));
         {
@@ -128,8 +126,8 @@ impl Runner {
             next_usn = batch.next as i64;
             if batch.too_large > 0 {
                 log(format!(
-                    "{}: skipped {} changes to records above 32 bits",
-                    volume.letter, batch.too_large
+                    "{} skipped {} changes to records above 32 bits",
+                    volume.root, batch.too_large
                 ));
             }
             {
@@ -153,22 +151,22 @@ impl Runner {
     }
 
     fn load(&self, volume: &Volume, journal: &Journal) -> Option<(VolumeIndex, i64)> {
-        match store::load(&self.index_dir, u64::from(volume.serial)) {
+        match store::load(&self.index_dir, volume.serial) {
             Ok((index, header))
-                if header.serial == u64::from(volume.serial)
+                if header.serial == volume.serial
                     && header.journal_id == journal.id
                     && (journal.first_usn..=journal.next_usn).contains(&header.next_usn)
-                    && index.drive() == Some(volume.letter) =>
+                    && index.root() == volume.root =>
             {
                 Some((index, header.next_usn))
             }
             Ok(_) => {
-                log(format!("{}: snapshot is out of date", volume.letter));
+                log(format!("{} snapshot is out of date", volume.root));
                 None
             }
             Err(SnapshotError::Io(error)) if error.kind() == io::ErrorKind::NotFound => None,
             Err(error) => {
-                log(format!("{}: ignoring snapshot ({error})", volume.letter));
+                log(format!("{} ignoring snapshot ({error})", volume.root));
                 None
             }
         }
@@ -180,10 +178,10 @@ impl Runner {
         handle: &VolumeHandle,
         journal: &Journal,
     ) -> io::Result<VolumeIndex> {
-        log(format!("{}: indexing", volume.letter));
+        log(format!("{} indexing", volume.root));
         volume.write().state = VolumeState::Indexing { percent: 0 };
         let total = handle.record_count().unwrap_or(0).max(1);
-        let mut index = VolumeIndex::new(&format!("{}:", volume.letter));
+        let mut index = VolumeIndex::new(&volume.root);
         let mut too_large = 0;
         handle.enumerate(journal.next_usn, |bytes| {
             let Some(batch) = parse_batch(bytes) else {
@@ -203,8 +201,8 @@ impl Runner {
         })?;
         if too_large > 0 {
             log(format!(
-                "{}: skipped {too_large} records above 32 bits",
-                volume.letter
+                "{} skipped {too_large} records above 32 bits",
+                volume.root
             ));
         }
         if let Some(dir) = &self.windows_dir {
@@ -219,15 +217,12 @@ impl Runner {
             return;
         };
         let header = SnapshotHeader {
-            serial: u64::from(volume.serial),
+            serial: volume.serial,
             journal_id: data.journal_id,
             next_usn: data.next_usn,
         };
         if let Err(error) = store::save(&self.index_dir, index, &header) {
-            log(format!(
-                "{}: could not save snapshot ({error})",
-                volume.letter
-            ));
+            log(format!("{} could not save snapshot ({error})", volume.root));
         }
     }
 }

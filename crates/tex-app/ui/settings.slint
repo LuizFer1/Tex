@@ -4,7 +4,7 @@ import { Icon, Icons, ScrollBar, TabItem, Toggle, Segmented, Select, Section, Se
 import { HistoryText } from "history.slint";
 
 export struct DriveRow {
-    letter: string,
+    root: string,
     // 0 indexing, 1 ready, 2 failed
     state: int,
     percent: int,
@@ -583,8 +583,9 @@ export component SettingsWindow inherits Window {
                                         height: 28px;
                                         spacing: 12px;
                                         Text {
-                                            width: 34px;
-                                            text: drive.letter + ":";
+                                            min-width: 34px;
+                                            horizontal-stretch: 0;
+                                            text: drive.root;
                                             font-family: Tokens.mono-font;
                                             font-size: Tokens.size-label;
                                             font-weight: 600;

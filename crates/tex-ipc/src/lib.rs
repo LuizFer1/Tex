@@ -61,7 +61,8 @@ pub struct Hit {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VolumeStatus {
-    pub letter: char,
+    /// `C:` on Windows, the mount point (`/`, `/home`) on Linux.
+    pub root: String,
     pub state: VolumeState,
 }
 
@@ -150,15 +151,15 @@ mod tests {
         }));
         round_trip(Response::Status(vec![
             VolumeStatus {
-                letter: 'C',
+                root: "C:".into(),
                 state: VolumeState::Ready { entries: 1_234_567 },
             },
             VolumeStatus {
-                letter: 'D',
+                root: "/home".into(),
                 state: VolumeState::Indexing { percent: 45 },
             },
             VolumeStatus {
-                letter: 'E',
+                root: "E:".into(),
                 state: VolumeState::Failed {
                     reason: "access denied".into(),
                 },

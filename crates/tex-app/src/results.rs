@@ -114,14 +114,14 @@ pub fn status_parts(volumes: &[VolumeStatus]) -> (String, String) {
     let indexing: Vec<String> = volumes
         .iter()
         .filter_map(|volume| match volume.state {
-            VolumeState::Indexing { percent } => Some(format!("{}: {percent}%", volume.letter)),
+            VolumeState::Indexing { percent } => Some(format!("{} {percent}%", volume.root)),
             _ => None,
         })
         .collect();
     let failed: Vec<String> = volumes
         .iter()
         .filter(|volume| matches!(volume.state, VolumeState::Failed { .. }))
-        .map(|volume| format!("{}:", volume.letter))
+        .map(|volume| volume.root.clone())
         .collect();
     (indexing.join(", "), failed.join(" "))
 }
@@ -201,21 +201,18 @@ pub fn header_counts(rows: &[Row]) -> Vec<usize> {
         .collect()
 }
 
-/// Ready volumes as "C: D:" and their entries added up.
+/// Ready volumes as "C: D:" (or "/ /home") and their entries added up.
 pub fn ready_summary(volumes: &[VolumeStatus]) -> (String, u64) {
-    let ready: Vec<(char, u32)> = volumes
+    let ready: Vec<(&str, u32)> = volumes
         .iter()
         .filter_map(|volume| match volume.state {
-            VolumeState::Ready { entries } => Some((volume.letter, entries)),
+            VolumeState::Ready { entries } => Some((volume.root.as_str(), entries)),
             _ => None,
         })
         .collect();
-    let letters: Vec<String> = ready
-        .iter()
-        .map(|(letter, _)| format!("{letter}:"))
-        .collect();
+    let roots: Vec<&str> = ready.iter().map(|(root, _)| *root).collect();
     (
-        letters.join(" "),
+        roots.join(" "),
         ready.iter().map(|(_, entries)| u64::from(*entries)).sum(),
     )
 }
@@ -327,29 +324,44 @@ mod tests {
 
     #[test]
     fn status_parts_list_indexing_and_failed_volumes() {
-        let volume = |letter, state| VolumeStatus { letter, state };
+        let volume = |root: &str, state| VolumeStatus {
+            root: root.into(),
+            state,
+        };
         assert_eq!(
-            status_parts(&[volume('C', VolumeState::Ready { entries: 1 })]),
+            status_parts(&[volume("C:", VolumeState::Ready { entries: 1 })]),
             (String::new(), String::new())
         );
         assert_eq!(
             status_parts(&[
-                volume('C', VolumeState::Indexing { percent: 45 }),
-                volume('D', VolumeState::Indexing { percent: 3 }),
+                volume("C:", VolumeState::Indexing { percent: 45 }),
+                volume("D:", VolumeState::Indexing { percent: 3 }),
                 volume(
-                    'E',
+                    "E:",
                     VolumeState::Failed {
                         reason: "gone".into()
                     }
                 ),
                 volume(
-                    'F',
+                    "F:",
                     VolumeState::Failed {
                         reason: "gone".into()
                     }
                 ),
             ]),
             ("C: 45%, D: 3%".into(), "E: F:".into())
+        );
+        assert_eq!(
+            status_parts(&[
+                volume("/home", VolumeState::Indexing { percent: 12 }),
+                volume(
+                    "/",
+                    VolumeState::Failed {
+                        reason: "gone".into()
+                    }
+                ),
+            ]),
+            ("/home 12%".into(), "/".into())
         );
     }
 
@@ -411,17 +423,17 @@ mod tests {
     fn ready_summary_lists_ready_letters_and_adds_entries() {
         let volumes = [
             VolumeStatus {
-                letter: 'C',
+                root: "C:".into(),
                 state: VolumeState::Ready {
                     entries: 4_000_000_000,
                 },
             },
             VolumeStatus {
-                letter: 'D',
+                root: "D:".into(),
                 state: VolumeState::Indexing { percent: 3 },
             },
             VolumeStatus {
-                letter: 'E',
+                root: "E:".into(),
                 state: VolumeState::Ready {
                     entries: 500_000_000,
                 },
