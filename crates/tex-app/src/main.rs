@@ -6,6 +6,7 @@ mod history;
 mod icons;
 mod onboarding;
 mod placement;
+mod reader;
 mod results;
 mod search_client;
 mod settings;

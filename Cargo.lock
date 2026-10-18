@@ -4630,6 +4630,7 @@ dependencies = [
  "tex-clipboard",
  "tex-ipc",
  "tex-platform",
+ "tex-reader",
  "toml",
 ]
 

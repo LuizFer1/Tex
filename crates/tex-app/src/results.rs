@@ -220,10 +220,26 @@ pub fn ready_summary(volumes: &[VolumeStatus]) -> (String, u64) {
     )
 }
 
+/// Whether Shift+Enter opens the row in the reader: a file of a kind the reader knows, or one without extension.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn readable(name: &str, is_dir: bool, is_app: bool) -> bool {
+    !is_dir && !is_app && tex_reader::Kind::from_path(std::path::Path::new(name), &[]).is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use tex_ipc::VolumeState;
+
+    #[test]
+    fn readable_rows_are_files_the_reader_knows() {
+        assert!(readable("notas.md", false, false));
+        assert!(readable("APP.LOG", false, false));
+        assert!(readable("README", false, false));
+        assert!(!readable("setup.exe", false, false));
+        assert!(!readable("docs.md", true, false));
+        assert!(!readable("Word.lnk", false, true));
+    }
 
     fn hit(path: &str, is_dir: bool) -> Hit {
         Hit {

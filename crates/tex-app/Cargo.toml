@@ -14,6 +14,7 @@ path = "src/main.rs"
 tex-platform.workspace = true
 tex-ipc.workspace = true
 tex-clipboard.workspace = true
+tex-reader.workspace = true
 global-hotkey.workspace = true
 slint.workspace = true
 serde.workspace = true
