@@ -1,5 +1,6 @@
 pub mod apps;
 pub mod disk;
+pub mod keyboard;
 pub mod runner;
 pub mod socket;
 pub mod watch;
