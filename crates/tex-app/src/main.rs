@@ -308,7 +308,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         });
     });
     if with_app(|app| app.settings.general.auto_update) {
-        check_updates();
+        check_updates(&windows);
     }
 
     tray.on_open({
@@ -346,7 +346,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     tray.on_quit(|| {
         let _ = slint::quit_event_loop();
     });
-    tray.on_install_update(install_update);
+    tray.on_install_update({
+        let windows = windows.clone();
+        move || install_update(&windows)
+    });
     tray.show()?;
     if !with_app(|app| app.settings.general.onboarding_done) {
         start_onboarding(&windows, upgrade);
@@ -371,33 +374,40 @@ fn toggle_pause(windows: &Windows) {
 }
 
 /// Starts a check unless one is running or the onboarding has not finished.
-fn check_updates() {
+fn check_updates(windows: &Windows) {
     if !with_app(|app| app.settings.general.onboarding_done) {
         return;
     }
-    with_updates(|updates| {
-        if !updates.status.busy() {
+    let status = with_updates(|updates| {
+        (!updates.status.busy()).then(|| {
             updates.checked_at = Some(Instant::now());
             updates.status = UpdateStatus::Checking;
             updates.client.check();
-        }
+            updates.status.clone()
+        })
     });
-}
-
-fn check_updates_if_stale() {
-    let auto = with_app(|app| app.settings.general.auto_update);
-    if auto && with_updates(|updates| is_stale(updates.checked_at, Instant::now())) {
-        check_updates();
+    if let Some(status) = status {
+        show_update_status(windows, &status);
     }
 }
 
-fn install_update() {
-    with_updates(|updates| {
-        if let Some(version) = updates.status.ready_version() {
-            updates.status = UpdateStatus::Installing(version.to_owned());
-            updates.client.apply();
-        }
+fn check_updates_if_stale(windows: &Windows) {
+    let auto = with_app(|app| app.settings.general.auto_update);
+    if auto && with_updates(|updates| is_stale(updates.checked_at, Instant::now())) {
+        check_updates(windows);
+    }
+}
+
+fn install_update(windows: &Windows) {
+    let status = with_updates(|updates| {
+        let version = updates.status.ready_version()?.to_owned();
+        updates.status = UpdateStatus::Installing(version);
+        updates.client.apply();
+        Some(updates.status.clone())
     });
+    if let Some(status) = status {
+        show_update_status(windows, &status);
+    }
 }
 
 fn update_status(windows: &Windows, status: UpdateStatus) {
@@ -573,8 +583,14 @@ fn wire_settings(window: &SettingsWindow, windows: &Windows, client: &SearchClie
         let client = client.clone();
         move || settings_edited(&windows, &client)
     });
-    window.on_check_updates(check_updates);
-    window.on_install_update(install_update);
+    window.on_check_updates({
+        let windows = windows.clone();
+        move || check_updates(&windows)
+    });
+    window.on_install_update({
+        let windows = windows.clone();
+        move || install_update(&windows)
+    });
     window.on_change_hotkey({
         let window = window.as_weak();
         move || {
@@ -931,7 +947,7 @@ fn apply_settings(
     let wants_updates =
         |settings: &Settings| settings.general.onboarding_done && settings.general.auto_update;
     if wants_updates(&new) && !wants_updates(old) {
-        check_updates();
+        check_updates(windows);
     }
     new
 }
@@ -1613,7 +1629,7 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
     popup.set_status_ready_letters("".into());
     popup.set_service_unavailable(false);
     client.send(Command::Status);
-    check_updates_if_stale();
+    check_updates_if_stale(windows);
     let area = match monitor {
         PopupMonitor::Cursor => work_area_under_cursor(),
         PopupMonitor::Primary => primary_work_area(),
