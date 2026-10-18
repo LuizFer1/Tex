@@ -4681,9 +4681,11 @@ dependencies = [
 name = "tex-reader"
 version = "0.4.2"
 dependencies = [
+ "libc",
  "pulldown-cmark",
  "serde",
  "toml",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

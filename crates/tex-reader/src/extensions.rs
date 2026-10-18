@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use serde::Deserialize;
 
@@ -173,6 +173,9 @@ fn load(folder: &Path) -> Result<Extension, String> {
     }
     for viewer in &mut viewers {
         viewer.files = normalized(&viewer.files, "viewer")?;
+        if viewer.files.iter().any(|file| file == "*") {
+            return Err("viewer: files cannot be \"*\"; a viewer names its types".into());
+        }
         check_command(&viewer.command, "viewer")?;
     }
     Ok(Extension {
@@ -195,11 +198,22 @@ fn normalized(files: &[String], owner: &str) -> Result<Vec<String>, String> {
     Ok(files)
 }
 
+/// A command needs a program, and none of its parts may name a path outside the extension folder.
 fn check_command(command: &[String], owner: &str) -> Result<(), String> {
     match command.first() {
-        Some(program) if !program.trim().is_empty() => Ok(()),
-        _ => Err(format!("{owner}: command is empty")),
+        Some(program) if !program.trim().is_empty() => {}
+        _ => return Err(format!("{owner}: command is empty")),
     }
+    let outside = command.iter().any(|part| {
+        let path = Path::new(part);
+        path.is_absolute() || path.components().any(|part| part == Component::ParentDir)
+    });
+    if outside {
+        return Err(format!(
+            "{owner}: command paths must stay inside the extension folder"
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -370,6 +384,64 @@ command = ["python", "srt.py"]
         assert!(catalog.extensions.is_empty());
         assert_eq!(catalog.broken.len(), 4);
         assert!(catalog.broken.iter().all(|broken| !broken.error.is_empty()));
+    }
+
+    fn error_of(manifest: &str) -> String {
+        let root = root();
+        write(&root.0, "ext", manifest);
+        let catalog = Catalog::discover(&root.0);
+        assert!(catalog.extensions.is_empty(), "{manifest}");
+        catalog.broken[0].error.clone()
+    }
+
+    fn tool_with(command: &str) -> String {
+        format!("name = 'x'\n[[tool]]\ntitle = 't'\nfiles = ['md']\ncommand = {command}\n")
+    }
+
+    #[test]
+    fn command_paths_must_stay_inside_the_folder() {
+        let absolute = if cfg!(windows) {
+            r"C:\Windows\x.ps1"
+        } else {
+            "/usr/bin/x"
+        };
+        let mut commands = vec![
+            format!("['powershell', '-File', '{absolute}']"),
+            format!("['{absolute}']"),
+            "['python', '../fora.py']".to_string(),
+            "['python', 'sub/../../fora.py']".to_string(),
+        ];
+        if cfg!(windows) {
+            commands.push(r"['..\fora.exe']".to_string());
+        }
+        for command in commands {
+            let error = error_of(&tool_with(&command));
+            assert!(
+                error.contains("command paths must stay inside the extension folder"),
+                "{command}: {error}"
+            );
+        }
+        let viewer =
+            error_of("name = 'x'\n[[viewer]]\nfiles = ['srt']\ncommand = ['python', '../v.py']\n");
+        assert!(viewer.contains("command paths must stay inside the extension folder"));
+    }
+
+    #[test]
+    fn relative_parts_and_flags_are_fine() {
+        let root = root();
+        let command = if cfg!(windows) {
+            "['cmd', '/c', 'powershell', '-NoProfile', '-File', 'sub/a..b.ps1']"
+        } else {
+            "['sh', '-c', 'echo', 'sub/a..b.sh']"
+        };
+        write(&root.0, "ext", &tool_with(command));
+        assert_eq!(Catalog::discover(&root.0).extensions.len(), 1);
+    }
+
+    #[test]
+    fn a_viewer_cannot_take_every_type() {
+        let error = error_of("name = 'x'\n[[viewer]]\nfiles = ['srt', '*']\ncommand = ['x']\n");
+        assert!(error.contains("\"*\""), "{error}");
     }
 
     #[test]
