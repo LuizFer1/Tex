@@ -4,7 +4,7 @@ use std::io;
 use std::mem::size_of;
 use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::process::CommandExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::ptr;
 
@@ -35,8 +35,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WS_SYSMENU,
 };
 
-use crate::WorkArea;
 use crate::winkey::{MASK_KEY, tap_key};
+use crate::{LocalTime, WorkArea};
 
 pub struct SingleInstance(HANDLE);
 
@@ -278,16 +278,6 @@ pub fn system_uses_dark_theme() -> bool {
     status == 0 && light == 0
 }
 
-/// A wall-clock time in the user's time zone.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct LocalTime {
-    pub year: u16,
-    pub month: u8,
-    pub day: u8,
-    pub hour: u8,
-    pub minute: u8,
-}
-
 /// Converts a Unix time in milliseconds to the user's local time.
 pub fn local_time(unix_ms: i64) -> LocalTime {
     let ticks = unix_ms_to_filetime(unix_ms);
@@ -318,6 +308,31 @@ fn unix_ms_to_filetime(unix_ms: i64) -> u64 {
 
 fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(Some(0)).collect()
+}
+
+/// `%APPDATA%\Tex`: settings, which roam with the user.
+pub fn config_dir() -> PathBuf {
+    known_folder("APPDATA", "Roaming").join("Tex")
+}
+
+/// `%LOCALAPPDATA%\Tex`: the clipboard history, which stays on this machine.
+pub fn data_dir() -> PathBuf {
+    known_folder("LOCALAPPDATA", "Local").join("Tex")
+}
+
+/// `%LOCALAPPDATA%\Tex`: downloaded updates.
+pub fn cache_dir() -> PathBuf {
+    data_dir()
+}
+
+fn known_folder(variable: &str, fallback: &str) -> PathBuf {
+    std::env::var_os(variable)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(std::env::var_os("USERPROFILE").unwrap_or_default())
+                .join("AppData")
+                .join(fallback)
+        })
 }
 
 #[cfg(test)]

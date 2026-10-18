@@ -9,13 +9,7 @@ use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
 use windows_sys::Win32::UI::Shell::{SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON, SHGetFileInfoW};
 use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyIcon, GetIconInfo, HICON, ICONINFO};
 
-/// Straight (not premultiplied) RGBA pixels, row by row from the top.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IconPixels {
-    pub width: u32,
-    pub height: u32,
-    pub rgba: Vec<u8>,
-}
+use crate::IconPixels;
 
 /// Call once on the thread that will call `app_icon`; the shell needs COM initialized there.
 pub fn init_icon_thread() {
@@ -56,13 +50,18 @@ fn icon_pixels(icon: HICON) -> Option<IconPixels> {
         DeleteObject(parts.hbmMask);
     }
     let (width, height, mut pixels) = color?;
-    if pixels.chunks_exact(4).all(|pixel| pixel[3] == 0) {
+    if pixels.as_chunks::<4>().0.iter().all(|pixel| pixel[3] == 0) {
         let (_, _, mask) = mask?;
-        for (pixel, bit) in pixels.chunks_exact_mut(4).zip(mask.chunks_exact(4)) {
+        for (pixel, bit) in pixels
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(mask.as_chunks::<4>().0)
+        {
             pixel[3] = if bit[0] == 0 { 255 } else { 0 };
         }
     }
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
     Some(IconPixels {
@@ -124,7 +123,13 @@ mod tests {
         assert_eq!(icon.width, icon.height);
         assert!(icon.width >= 16);
         assert_eq!(icon.rgba.len(), (icon.width * icon.height * 4) as usize);
-        assert!(icon.rgba.chunks_exact(4).any(|pixel| pixel[3] > 0));
+        assert!(
+            icon.rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[3] > 0)
+        );
     }
 
     #[test]

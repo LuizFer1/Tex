@@ -147,14 +147,7 @@ impl ClipboardClient {
 }
 
 pub fn history_folder() -> PathBuf {
-    let base = std::env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(std::env::var_os("USERPROFILE").unwrap_or_default())
-                .join("AppData")
-                .join("Local")
-        });
-    base.join("Tex")
+    tex_platform::data_dir()
 }
 
 /// Opens the history, then answers commands. Waits on the channel only until the oldest
@@ -518,17 +511,21 @@ fn apply(
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
+    #[cfg(windows)]
     use std::fs;
 
     use tex_clipboard::{DAY_MS, Kind, Preview, REPEAT_WINDOW_MS, Rgba, decode_png, rgba_to_dib};
+    #[cfg(windows)]
     use tex_platform::protect;
 
     use super::*;
 
     const MB: u64 = 1024 * 1024;
 
+    #[cfg(windows)]
     struct Folder(PathBuf);
 
+    #[cfg(windows)]
     impl Folder {
         fn new(name: &str) -> Folder {
             let path = std::env::temp_dir().join(format!(
@@ -545,6 +542,7 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
     impl Drop for Folder {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
@@ -608,6 +606,7 @@ mod tests {
             .collect()
     }
 
+    #[cfg(windows)]
     #[test]
     fn load_key_creates_and_reads_back_the_same_key() {
         let folder = Folder::new("same-key");
@@ -618,6 +617,7 @@ mod tests {
         assert_eq!(key.as_bytes(), again.as_bytes());
     }
 
+    #[cfg(windows)]
     #[test]
     fn database_without_key_is_set_aside() {
         let folder = Folder::new("no-key");
@@ -634,6 +634,7 @@ mod tests {
         assert!(folder.join("clipboard.key").exists());
     }
 
+    #[cfg(windows)]
     #[test]
     fn garbage_key_is_set_aside() {
         let folder = Folder::new("garbage-key");
@@ -649,6 +650,7 @@ mod tests {
         assert_eq!(load_key(&folder.0).unwrap().as_bytes(), key.as_bytes());
     }
 
+    #[cfg(windows)]
     #[test]
     fn key_of_the_wrong_size_is_set_aside() {
         let folder = Folder::new("short-key");
@@ -657,6 +659,7 @@ mod tests {
         assert!(folder.join("clipboard.key.bad").exists());
     }
 
+    #[cfg(windows)]
     #[test]
     fn database_of_another_key_starts_over() {
         let folder = Folder::new("wrong-key");
@@ -1203,6 +1206,7 @@ mod tests {
         assert_eq!(worker.deadline(), None);
     }
 
+    #[cfg(windows)]
     #[test]
     fn client_runs_commands_on_its_thread() {
         let folder = Folder::new("client");

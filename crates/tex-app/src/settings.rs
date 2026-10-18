@@ -358,14 +358,7 @@ fn normalize_folders(folders: &[String]) -> Vec<String> {
 }
 
 pub fn settings_path() -> PathBuf {
-    let base = std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(std::env::var_os("USERPROFILE").unwrap_or_default())
-                .join("AppData")
-                .join("Roaming")
-        });
-    base.join("Tex").join("settings.toml")
+    tex_platform::config_dir().join("settings.toml")
 }
 
 /// Missing file: defaults. Unreadable or not TOML: defaults, and the file is kept as `settings.toml.bad`.
