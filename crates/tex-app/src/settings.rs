@@ -435,23 +435,14 @@ mod tests {
 
     #[test]
     fn partial_file_keeps_defaults() {
-        let settings = Settings::from_toml(
-            "[search]
-include_hidden = false
-",
-        )
-        .unwrap();
+        let settings = Settings::from_toml("[search]\ninclude_hidden = false\n").unwrap();
         assert!(!settings.search.include_hidden);
         assert_eq!(settings.general, General::default());
     }
 
     #[test]
     fn unknown_values_fall_back_per_field() {
-        let text = "[general]
-theme = \"purple\"
-windows_key = false
-hotkey = \"nope\"
-";
+        let text = "[general]\ntheme = \"purple\"\nwindows_key = false\nhotkey = \"nope\"\n";
         let settings = Settings::from_toml(text).unwrap();
         assert_eq!(settings.general.theme, Theme::Light);
         assert!(!settings.general.windows_key);
@@ -460,18 +451,10 @@ hotkey = \"nope\"
 
     #[test]
     fn onboarding_flags_are_read_field_by_field() {
-        let settings = Settings::from_toml(
-            "[general]
-theme = \"dark\"
-",
-        )
-        .unwrap();
+        let settings = Settings::from_toml("[general]\ntheme = \"dark\"\n").unwrap();
         assert!(!settings.general.onboarding_done);
         assert!(settings.general.auto_update);
-        let text = "[general]
-onboarding_done = true
-auto_update = false
-";
+        let text = "[general]\nonboarding_done = true\nauto_update = false\n";
         let settings = Settings::from_toml(text).unwrap();
         assert!(settings.general.onboarding_done);
         assert!(!settings.general.auto_update);
