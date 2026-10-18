@@ -4,6 +4,8 @@ mod app;
 mod clipboard_client;
 mod history;
 mod icons;
+#[allow(dead_code)]
+mod onboarding;
 mod placement;
 mod results;
 mod search_client;
