@@ -490,6 +490,8 @@ export component ReaderWindow inherits Window {
                             TitleButton {
                                 icon: Icons.close;
                                 tip: @tr("Close");
+                                ink: Tokens.banner-ink;
+                                hover: Tokens.banner-hover;
                                 clicked => {
                                     root.banner-dismissed();
                                 }

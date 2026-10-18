@@ -984,6 +984,7 @@ fn apply_design(tokens: &Tokens<'_>, artwork: &Artwork<'_>, design: &Design, dar
     tokens.set_banner_ink(rgb(c.banner_ink));
     tokens.set_banner_ink_2(rgb(c.banner_ink_2));
     tokens.set_banner_kicker(rgb(c.banner_kicker));
+    tokens.set_banner_hover(rgb(c.banner_hover));
     tokens.set_close_hover(rgb(c.close_hover));
     tokens.set_close_hover_ink(rgb(c.close_hover_ink));
     tokens.set_action_tint(rgb(c.action_tint));

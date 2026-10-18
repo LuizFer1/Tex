@@ -6,16 +6,18 @@ export component TitleButton inherits Rectangle {
     in property <bool> close;
     in property <string> tip;
     in property <length> icon-size: 12px;
+    in property <color> ink: Tokens.ink-2;
+    in property <color> hover: Tokens.border-2;
     callback clicked();
     width: 46px;
-    background: touch.has-hover ? (root.close ? Tokens.close-hover : Tokens.border-2) : transparent;
+    background: touch.has-hover ? (root.close ? Tokens.close-hover : root.hover) : transparent;
     accessible-role: button;
     accessible-label: root.tip;
     Icon {
         width: root.icon-size;
         height: root.icon-size;
         source: root.icon;
-        tint: touch.has-hover && root.close ? Tokens.close-hover-ink : Tokens.ink-2;
+        tint: touch.has-hover && root.close ? Tokens.close-hover-ink : root.ink;
     }
     touch := TouchArea {
         clicked => {
