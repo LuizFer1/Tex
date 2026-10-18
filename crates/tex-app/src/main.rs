@@ -21,7 +21,6 @@ use std::io;
 use std::rc::Rc;
 use std::time::Instant;
 
-use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use slint::language::ColorScheme;
 use slint::winit_030::winit::event::WindowEvent;
 use slint::winit_030::winit::window::{ResizeDirection, Window as WinitWindow};
@@ -35,11 +34,11 @@ use tex_clipboard::{
 };
 use tex_ipc::{Filter, VolumeState, VolumeStatus};
 use tex_platform::{
-    ClipboardWatcher, IconPixels, LocalTime, SingleInstance, WindowRef, catch_windows_key,
-    foreground_window, local_time, lock_foreground, open_path, paste_into, pick_file, pick_folder,
-    primary_work_area, restore_foreground, reveal_in_folder, round_corners, shape_tabbed_window,
-    take_foreground, transparent_windows, watch_theme, work_area_under_cursor, write_image,
-    write_text,
+    ClipboardWatcher, HotkeyEvent, HotkeySlot, Hotkeys, IconPixels, LocalTime, SingleInstance,
+    WindowRef, catch_windows_key, foreground_window, local_time, lock_foreground, open_path,
+    paste_into, pick_file, pick_folder, primary_work_area, restore_foreground, reveal_in_folder,
+    round_corners, shape_tabbed_window, take_foreground, transparent_windows, watch_theme,
+    work_area_under_cursor, write_image, write_text,
 };
 
 use crate::app::{AppState, HotkeyError, with_app};
@@ -158,7 +157,43 @@ fn main() -> Result<(), Box<dyn Error>> {
         onboarding: onboarding.as_weak(),
     };
 
-    app::init(AppState::new(settings, path, GlobalHotKeyManager::new()?));
+    let icons = IconLoader::start({
+        let popup = popup.as_weak();
+        move |path, pixels| {
+            let _ = popup.upgrade_in_event_loop(move |popup| icon_loaded(&popup, path, pixels));
+        }
+    });
+
+    let latest = Latest::default();
+    let client = SearchClient::start(
+        std::env::home_dir()
+            .map(|home| home.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        latest.clone(),
+        {
+            let windows = windows.clone();
+            let icons = icons.clone();
+            move |event| {
+                let windows = windows.clone();
+                let icons = icons.clone();
+                let latest = latest.clone();
+                let _ = slint::invoke_from_event_loop(move || {
+                    show_event(&windows, event, &icons, &latest)
+                });
+            }
+        },
+    );
+
+    let hotkeys = Hotkeys::start({
+        let windows = windows.clone();
+        let client = client.clone();
+        move |event| {
+            let windows = windows.clone();
+            let client = client.clone();
+            let _ = slint::invoke_from_event_loop(move || hotkey_event(&windows, &client, event));
+        }
+    })?;
+    app::init(AppState::new(settings, path, hotkeys));
     let language = with_app(|app| app.settings.general.language);
     app::apply_language(language);
     apply_theme(&windows);
@@ -215,55 +250,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     tray.set_paused(with_app(|app| app::capture_paused(&app.settings)));
 
-    let icons = IconLoader::start({
-        let popup = popup.as_weak();
-        move |path, pixels| {
-            let _ = popup.upgrade_in_event_loop(move |popup| icon_loaded(&popup, path, pixels));
-        }
-    });
-
-    let latest = Latest::default();
-    let client = SearchClient::start(
-        std::env::home_dir()
-            .map(|home| home.to_string_lossy().into_owned())
-            .unwrap_or_default(),
-        latest.clone(),
-        {
-            let windows = windows.clone();
-            let icons = icons.clone();
-            move |event| {
-                let windows = windows.clone();
-                let icons = icons.clone();
-                let latest = latest.clone();
-                let _ = slint::invoke_from_event_loop(move || {
-                    show_event(&windows, event, &icons, &latest)
-                });
-            }
-        },
-    );
-
     with_app(|app| {
         app.resume_hotkey();
         app.resume_history_hotkey();
     });
-    GlobalHotKeyEvent::set_event_handler(Some({
-        let windows = windows.clone();
-        let client = client.clone();
-        move |event: GlobalHotKeyEvent| {
-            if event.state != HotKeyState::Pressed {
-                return;
-            }
-            let windows = windows.clone();
-            let client = client.clone();
-            let _ = slint::invoke_from_event_loop(move || {
-                if with_app(|app| app.is_history_hotkey(event.id)) {
-                    toggle_history(&windows);
-                } else {
-                    toggle_popup(&windows, &client);
-                }
-            });
-        }
-    }));
     if with_app(|app| app.settings.winkey_active()) {
         let on_press = winkey_handler(&windows, &client);
         if with_app(|app| app.set_winkey(true, on_press)).is_err() {
@@ -451,6 +441,49 @@ fn show_update_status(windows: &Windows, status: &UpdateStatus) {
         window.set_update_state(state);
         window.set_update_version(version.into());
     }
+}
+
+/// A shortcut press, or news from the platform about the shortcuts.
+fn hotkey_event(windows: &Windows, client: &SearchClient, event: HotkeyEvent) {
+    match event {
+        HotkeyEvent::Pressed(HotkeySlot::Tex) => toggle_popup(windows, client),
+        HotkeyEvent::Pressed(HotkeySlot::History) => toggle_history(windows),
+        HotkeyEvent::Bound { tex, history } => {
+            with_app(|app| app.hotkeys_bound(tex, history));
+            hotkeys_changed(windows);
+        }
+        HotkeyEvent::Changed => {
+            if !recording(windows) {
+                suspend_hotkeys();
+                resume_hotkeys();
+            }
+            hotkeys_changed(windows);
+        }
+    }
+}
+
+fn recording(windows: &Windows) -> bool {
+    windows
+        .settings
+        .upgrade()
+        .is_some_and(|window| window.get_recording() || window.get_history_recording())
+}
+
+/// Shows the shortcuts as they work now in the settings window and the onboarding.
+fn hotkeys_changed(windows: &Windows) {
+    if let Some(window) = windows.settings.upgrade() {
+        with_app(|app| show_hotkeys(&window, app));
+    }
+    refresh_onboarding(windows);
+}
+
+fn show_hotkeys(window: &SettingsWindow, app: &AppState) {
+    window.set_hotkey_text(app.hotkey_text(HotkeySlot::Tex).into());
+    window.set_hotkey_keys(keys_model(app.hotkey_keys(HotkeySlot::Tex)));
+    window.set_hotkey_error(if app.hotkey_failed { 3 } else { 0 });
+    window.set_history_hotkey_text(app.hotkey_text(HotkeySlot::History).into());
+    window.set_history_hotkey_keys(keys_model(app.hotkey_keys(HotkeySlot::History)));
+    window.set_history_hotkey_error(if app.history_hotkey_failed { 3 } else { 0 });
 }
 
 fn open_from_key(windows: &Windows, client: &SearchClient) {
@@ -853,12 +886,8 @@ fn resize_direction(direction: i32) -> ResizeDirection {
     }
 }
 
-fn keys_model(shortcut: &Shortcut) -> ModelRc<SharedString> {
-    let keys: Vec<SharedString> = shortcut
-        .display_keys()
-        .into_iter()
-        .map(Into::into)
-        .collect();
+fn keys_model(keys: Vec<String>) -> ModelRc<SharedString> {
+    let keys: Vec<SharedString> = keys.into_iter().map(Into::into).collect();
     ModelRc::new(VecModel::from(keys))
 }
 
@@ -870,8 +899,10 @@ fn change_history_hotkey(window: &SettingsWindow, shortcut: &Shortcut) {
         result,
         with_app(|app| app.history_hotkey_failed),
     ));
-    window.set_history_hotkey_text(with_app(|app| app.history_shortcut().display()).into());
-    window.set_history_hotkey_keys(with_app(|app| keys_model(&app.history_shortcut())));
+    window.set_history_hotkey_text(with_app(|app| app.hotkey_text(HotkeySlot::History)).into());
+    window.set_history_hotkey_keys(keys_model(with_app(|app| {
+        app.hotkey_keys(HotkeySlot::History)
+    })));
     if result.is_ok() {
         save_settings(window);
     }
@@ -917,8 +948,8 @@ fn change_hotkey(window: &SettingsWindow, shortcut: &Shortcut) {
     resume_hotkeys();
     window.set_recording(false);
     window.set_hotkey_error(hotkey_error(result, with_app(|app| app.hotkey_failed)));
-    window.set_hotkey_text(with_app(|app| app.shortcut().display()).into());
-    window.set_hotkey_keys(with_app(|app| keys_model(&app.shortcut())));
+    window.set_hotkey_text(with_app(|app| app.hotkey_text(HotkeySlot::Tex)).into());
+    window.set_hotkey_keys(keys_model(with_app(|app| app.hotkey_keys(HotkeySlot::Tex))));
     if result.is_ok() {
         save_settings(window);
     }
@@ -1221,9 +1252,7 @@ fn fill_settings(window: &SettingsWindow, app: &AppState) {
         Theme::Light => 1,
         Theme::Dark => 2,
     });
-    window.set_hotkey_text(app.shortcut().display().into());
-    window.set_hotkey_keys(keys_model(&app.shortcut()));
-    window.set_hotkey_error(if app.hotkey_failed { 3 } else { 0 });
+    show_hotkeys(window, app);
     window.set_recording(false);
     window.set_windows_key(general.windows_key);
     window.set_winkey_error(app.winkey_error.as_str().into());
@@ -1252,9 +1281,6 @@ fn fill_settings(window: &SettingsWindow, app: &AppState) {
     window.set_selected_excluded(-1);
     fill_folders(window, &app.settings);
     let clipboard = &app.settings.clipboard;
-    window.set_history_hotkey_text(app.history_shortcut().display().into());
-    window.set_history_hotkey_keys(keys_model(&app.history_shortcut()));
-    window.set_history_hotkey_error(if app.history_hotkey_failed { 3 } else { 0 });
     window.set_history_recording(false);
     window.set_paused(clipboard.paused);
     window.set_capture_text(clipboard.capture_text);
@@ -1450,10 +1476,10 @@ fn refresh_onboarding(windows: &Windows) {
     ) else {
         return;
     };
-    let (shortcut, history, windows_key) = with_app(|app| {
+    let (keys, history, windows_key) = with_app(|app| {
         (
-            app.shortcut(),
-            app.history_shortcut(),
+            app.hotkey_keys(HotkeySlot::Tex),
+            app.hotkey_text(HotkeySlot::History),
             app.settings.general.windows_key,
         )
     });
@@ -1461,9 +1487,9 @@ fn refresh_onboarding(windows: &Windows) {
     window.set_selected(onboarding.selected());
     window.set_upgrade(onboarding.upgrade);
     window.set_progress(onboarding.progress());
-    window.set_hotkey_text(shortcut.display().into());
-    window.set_hotkey_keys(keys_model(&shortcut));
-    window.set_history_hotkey_text(history.display().into());
+    window.set_hotkey_text(keys.join("+").into());
+    window.set_hotkey_keys(keys_model(keys));
+    window.set_history_hotkey_text(history.into());
     window.set_done_win(windows_key);
 }
 

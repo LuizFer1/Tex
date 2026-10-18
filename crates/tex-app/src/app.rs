@@ -2,10 +2,11 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use global_hotkey::GlobalHotKeyManager;
-use global_hotkey::hotkey::HotKey;
 use slint::language::ColorScheme;
-use tex_platform::{WinKeyHook, WindowRef, system_uses_dark_theme, user_language};
+use tex_platform::{
+    Accelerator, HotkeySlot, HotkeySupport, Hotkeys, WinKeyHook, WindowRef, system_uses_dark_theme,
+    user_language,
+};
 
 use crate::clipboard_client::ClientSettings;
 use crate::search_client::SearchOptions;
@@ -30,9 +31,12 @@ pub struct AppState {
     pub history_focused: bool,
     pub title_pressed_at: Option<Instant>,
     pub theme_preview: Option<Theme>,
-    hotkeys: GlobalHotKeyManager,
-    hotkey: Option<HotKey>,
-    history_hotkey: Option<HotKey>,
+    /// The keys the portal bound for each shortcut, as the desktop describes them.
+    pub system_keys: [Option<String>; 2],
+    /// What each shortcut does, in the user's language, for the portal to show.
+    pub hotkey_labels: [String; 2],
+    hotkeys: Hotkeys,
+    registered: [bool; 2],
     winkey: Option<WinKeyHook>,
 }
 
@@ -69,8 +73,35 @@ pub fn with_app<R>(f: impl FnOnce(&mut AppState) -> R) -> R {
     APP.with_borrow_mut(|app| f(app.as_mut().expect("app state initialized")))
 }
 
+/// Keycaps for a shortcut: the keys the desktop chose when it decides, else the saved shortcut.
+pub fn shortcut_keys(
+    support: HotkeySupport,
+    system: Option<&str>,
+    shortcut: &Shortcut,
+) -> Vec<String> {
+    match (support, system) {
+        (HotkeySupport::System, Some(keys)) if !keys.trim().is_empty() => keys
+            .split('+')
+            .map(|key| key.trim().to_owned())
+            .filter(|key| !key.is_empty())
+            .collect(),
+        _ => shortcut
+            .display_keys()
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+    }
+}
+
+fn slot_index(slot: HotkeySlot) -> usize {
+    match slot {
+        HotkeySlot::Tex => 0,
+        HotkeySlot::History => 1,
+    }
+}
+
 impl AppState {
-    pub fn new(settings: Settings, path: PathBuf, hotkeys: GlobalHotKeyManager) -> Self {
+    pub fn new(settings: Settings, path: PathBuf, hotkeys: Hotkeys) -> Self {
         Self {
             settings,
             path,
@@ -85,9 +116,10 @@ impl AppState {
             history_focused: false,
             title_pressed_at: None,
             theme_preview: None,
+            system_keys: [None, None],
+            hotkey_labels: [String::new(), String::new()],
             hotkeys,
-            hotkey: None,
-            history_hotkey: None,
+            registered: [false, false],
             winkey: None,
         }
     }
@@ -98,22 +130,66 @@ impl AppState {
             .expect("default hotkey parses")
     }
 
-    /// Registers the saved shortcut again if it is not registered.
-    pub fn resume_hotkey(&mut self) {
-        if self.hotkey.is_some() {
-            return;
-        }
-        let hotkey = self.shortcut().hotkey();
-        self.hotkey_failed = self.hotkeys.register(hotkey).is_err();
-        if !self.hotkey_failed {
-            self.hotkey = Some(hotkey);
+    /// The portal binds only after the onboarding, so its dialog does not cover the wizard.
+    fn hotkeys_deferred(&self) -> bool {
+        self.hotkeys.support() == HotkeySupport::System && !self.settings.general.onboarding_done
+    }
+
+    fn accelerator(&self, slot: HotkeySlot, shortcut: &Shortcut) -> Accelerator {
+        let mut accelerator = shortcut.accelerator();
+        accelerator.label = self.hotkey_labels[slot_index(slot)].clone();
+        accelerator
+    }
+
+    fn register(&mut self, slot: HotkeySlot, shortcut: &Shortcut) -> bool {
+        let accelerator = self.accelerator(slot, shortcut);
+        let registered = self.hotkeys.register(slot, &accelerator).is_ok();
+        self.registered[slot_index(slot)] = registered;
+        registered
+    }
+
+    fn unregister(&mut self, slot: HotkeySlot) {
+        if std::mem::take(&mut self.registered[slot_index(slot)]) {
+            self.hotkeys.unregister(slot);
         }
     }
 
-    pub fn suspend_hotkey(&mut self) {
-        if let Some(hotkey) = self.hotkey.take() {
-            let _ = self.hotkeys.unregister(hotkey);
+    /// Keycaps for a shortcut as it works now.
+    pub fn hotkey_keys(&self, slot: HotkeySlot) -> Vec<String> {
+        let shortcut = match slot {
+            HotkeySlot::Tex => self.shortcut(),
+            HotkeySlot::History => self.history_shortcut(),
+        };
+        shortcut_keys(
+            self.hotkeys.support(),
+            self.system_keys[slot_index(slot)].as_deref(),
+            &shortcut,
+        )
+    }
+
+    pub fn hotkey_text(&self, slot: HotkeySlot) -> String {
+        self.hotkey_keys(slot).join("+")
+    }
+
+    /// Takes what the portal bound: a shortcut that was asked for and came back without keys
+    /// is not active.
+    pub fn hotkeys_bound(&mut self, tex: Option<String>, history: Option<String>) {
+        self.hotkey_failed = self.registered[0] && tex.is_none();
+        self.history_hotkey_failed = self.registered[1] && history.is_none();
+        self.system_keys = [tex, history];
+    }
+
+    /// Registers the saved shortcut again if it is not registered.
+    pub fn resume_hotkey(&mut self) {
+        if self.registered[0] || self.hotkeys_deferred() {
+            return;
         }
+        let shortcut = self.shortcut();
+        self.hotkey_failed = !self.register(HotkeySlot::Tex, &shortcut);
+    }
+
+    pub fn suspend_hotkey(&mut self) {
+        self.unregister(HotkeySlot::Tex);
     }
 
     /// Swaps the global shortcut. On failure the previous one is registered again.
@@ -123,9 +199,7 @@ impl AppState {
             self.resume_hotkey();
             return Err(HotkeyError::Conflict);
         }
-        let hotkey = shortcut.hotkey();
-        if self.hotkeys.register(hotkey).is_ok() {
-            self.hotkey = Some(hotkey);
+        if self.hotkeys_deferred() || self.register(HotkeySlot::Tex, shortcut) {
             self.hotkey_failed = false;
             self.settings.general.hotkey = shortcut.canonical();
             Ok(())
@@ -143,20 +217,15 @@ impl AppState {
 
     /// Registers the saved clipboard history shortcut again if it is not registered.
     pub fn resume_history_hotkey(&mut self) {
-        if self.history_hotkey.is_some() {
+        if self.registered[1] || self.hotkeys_deferred() {
             return;
         }
-        let hotkey = self.history_shortcut().hotkey();
-        self.history_hotkey_failed = self.hotkeys.register(hotkey).is_err();
-        if !self.history_hotkey_failed {
-            self.history_hotkey = Some(hotkey);
-        }
+        let shortcut = self.history_shortcut();
+        self.history_hotkey_failed = !self.register(HotkeySlot::History, &shortcut);
     }
 
     pub fn suspend_history_hotkey(&mut self) {
-        if let Some(hotkey) = self.history_hotkey.take() {
-            let _ = self.hotkeys.unregister(hotkey);
-        }
+        self.unregister(HotkeySlot::History);
     }
 
     /// Swaps the clipboard history shortcut. On failure the previous one is registered again.
@@ -166,9 +235,7 @@ impl AppState {
             self.resume_history_hotkey();
             return Err(HotkeyError::Conflict);
         }
-        let hotkey = shortcut.hotkey();
-        if self.hotkeys.register(hotkey).is_ok() {
-            self.history_hotkey = Some(hotkey);
+        if self.hotkeys_deferred() || self.register(HotkeySlot::History, shortcut) {
             self.history_hotkey_failed = false;
             self.settings.clipboard.hotkey = shortcut.canonical();
             Ok(())
@@ -176,10 +243,6 @@ impl AppState {
             self.resume_history_hotkey();
             Err(HotkeyError::Register)
         }
-    }
-
-    pub fn is_history_hotkey(&self, id: u32) -> bool {
-        self.history_hotkey.is_some_and(|hotkey| hotkey.id() == id)
     }
 
     pub fn set_winkey(
@@ -320,22 +383,58 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn the_two_shortcuts_cannot_be_the_same() {
+    fn test_app() -> AppState {
         let mut settings = Settings::default();
         settings.general.hotkey = "ctrl+alt+shift+f23".into();
         settings.clipboard.hotkey = "ctrl+alt+shift+f24".into();
-        let hotkeys = GlobalHotKeyManager::new().unwrap();
-        let mut app = AppState::new(settings, PathBuf::new(), hotkeys);
+        let hotkeys = Hotkeys::start(|_| {}).unwrap();
+        AppState::new(settings, PathBuf::new(), hotkeys)
+    }
+
+    #[test]
+    fn the_two_shortcuts_cannot_be_the_same() {
+        let mut app = test_app();
         let history = app.history_shortcut();
         assert_eq!(app.apply_hotkey(&history), Err(HotkeyError::Conflict));
         assert_eq!(app.settings.general.hotkey, "ctrl+alt+shift+f23");
         let tex = app.shortcut();
         assert_eq!(app.apply_history_hotkey(&tex), Err(HotkeyError::Conflict));
         assert_eq!(app.settings.clipboard.hotkey, "ctrl+alt+shift+f24");
-        assert!(app.is_history_hotkey(history.hotkey().id()) || app.history_hotkey_failed);
-        assert!(!app.is_history_hotkey(tex.hotkey().id()));
         app.suspend_hotkey();
         app.suspend_history_hotkey();
+    }
+
+    #[test]
+    fn keycaps_come_from_the_desktop_only_when_it_decides() {
+        let shortcut = Shortcut::parse("alt+space").unwrap();
+        assert_eq!(
+            shortcut_keys(HotkeySupport::System, Some("Meta + Space"), &shortcut),
+            ["Meta", "Space"]
+        );
+        assert_eq!(
+            shortcut_keys(HotkeySupport::System, None, &shortcut),
+            ["Alt", "Space"]
+        );
+        assert_eq!(
+            shortcut_keys(HotkeySupport::System, Some(" "), &shortcut),
+            ["Alt", "Space"]
+        );
+        assert_eq!(
+            shortcut_keys(HotkeySupport::Free, Some("Meta+Space"), &shortcut),
+            ["Alt", "Space"]
+        );
+    }
+
+    #[test]
+    fn a_shortcut_the_portal_left_out_is_not_active() {
+        let mut app = test_app();
+        app.registered = [true, true];
+        app.hotkeys_bound(Some("Alt+Space".into()), None);
+        assert!(!app.hotkey_failed);
+        assert!(app.history_hotkey_failed);
+        assert_eq!(app.system_keys[0].as_deref(), Some("Alt+Space"));
+        app.registered = [false, false];
+        app.hotkeys_bound(None, None);
+        assert!(!app.hotkey_failed && !app.history_hotkey_failed);
     }
 }

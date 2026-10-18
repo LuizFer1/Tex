@@ -1,5 +1,6 @@
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 use slint::platform::Key;
+use tex_platform::Accelerator;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Shortcut {
@@ -128,10 +129,6 @@ impl Shortcut {
             .join("+")
     }
 
-    pub fn display(&self) -> String {
-        self.display_keys().join("+")
-    }
-
     /// Modifier names and the key label, one entry per keycap.
     pub fn display_keys(&self) -> Vec<&'static str> {
         self.modifier_names()
@@ -153,6 +150,107 @@ impl Shortcut {
         modifiers.set(Modifiers::SUPER, self.win);
         HotKey::new(Some(modifiers), self.key.code)
     }
+
+    /// The shortcut in every form the platform's backends read; the label stays empty.
+    pub fn accelerator(&self) -> Accelerator {
+        let key = keysym_name(self.key.name);
+        let gnome: String = [
+            (self.ctrl, "<Control>"),
+            (self.alt, "<Alt>"),
+            (self.shift, "<Shift>"),
+            (self.win, "<Super>"),
+        ]
+        .into_iter()
+        .filter_map(|(on, name)| on.then_some(name))
+        .collect();
+        let portal: Vec<&str> = [
+            (self.ctrl, "CTRL"),
+            (self.alt, "ALT"),
+            (self.shift, "SHIFT"),
+            (self.win, "LOGO"),
+        ]
+        .into_iter()
+        .filter_map(|(on, name)| on.then_some(name))
+        .chain([key.as_str()])
+        .collect();
+        let mods = [
+            (self.shift, 1),
+            (self.ctrl, 4),
+            (self.alt, 8),
+            (self.win, 64),
+        ]
+        .into_iter()
+        .filter_map(|(on, bit)| on.then_some(bit))
+        .sum();
+        Accelerator {
+            hotkey: self.hotkey(),
+            keysym: keysym(self.key.name),
+            mods,
+            gnome: format!("{gnome}{key}"),
+            portal: portal.join("+"),
+            label: String::new(),
+        }
+    }
+}
+
+/// The X11 keysym of a key name from [`KEYS`].
+fn keysym(name: &str) -> u32 {
+    if let Some(number) = function_key(name) {
+        return 0xffbe + number - 1;
+    }
+    match name {
+        "space" => 0x20,
+        "up" => 0xff52,
+        "down" => 0xff54,
+        "left" => 0xff51,
+        "right" => 0xff53,
+        "home" => 0xff50,
+        "end" => 0xff57,
+        "pageup" => 0xff55,
+        "pagedown" => 0xff56,
+        "insert" => 0xff63,
+        "delete" => 0xffff,
+        "comma" => 0x2c,
+        "period" => 0x2e,
+        "slash" => 0x2f,
+        "semicolon" => 0x3b,
+        "quote" => 0x27,
+        "bracketleft" => 0x5b,
+        "bracketright" => 0x5d,
+        "backslash" => 0x5c,
+        "minus" => 0x2d,
+        "equal" => 0x3d,
+        "backquote" => 0x60,
+        _ => name.chars().next().map_or(0, u32::from),
+    }
+}
+
+/// The keysym name GNOME and the portal use for a key name from [`KEYS`].
+fn keysym_name(name: &str) -> String {
+    if let Some(number) = function_key(name) {
+        return format!("F{number}");
+    }
+    match name {
+        "up" => "Up",
+        "down" => "Down",
+        "left" => "Left",
+        "right" => "Right",
+        "home" => "Home",
+        "end" => "End",
+        "pageup" => "Page_Up",
+        "pagedown" => "Page_Down",
+        "insert" => "Insert",
+        "delete" => "Delete",
+        "quote" => "apostrophe",
+        "backquote" => "grave",
+        other => other,
+    }
+    .to_owned()
+}
+
+/// 5 for "f5"; `None` for any other name, including the letter "f".
+fn function_key(name: &str) -> Option<u32> {
+    name.strip_prefix('f')?.parse().ok()
 }
 
 fn special_key(c: char) -> Option<&'static str> {
@@ -211,8 +309,45 @@ mod tests {
     fn parses_and_formats() {
         let shortcut = parse("alt+space");
         assert_eq!(shortcut.canonical(), "alt+space");
-        assert_eq!(shortcut.display(), "Alt+Space");
-        assert_eq!(parse("ctrl+comma").display(), "Ctrl+,");
+        assert_eq!(shortcut.display_keys().join("+"), "Alt+Space");
+        assert_eq!(parse("ctrl+comma").display_keys().join("+"), "Ctrl+,");
+    }
+
+    #[test]
+    fn maps_to_gnome_accelerators_and_portal_triggers() {
+        let shortcut = parse("alt+space").accelerator();
+        assert_eq!(shortcut.gnome, "<Alt>space");
+        assert_eq!(shortcut.portal, "ALT+space");
+        let all = parse("win+shift+alt+ctrl+pageup").accelerator();
+        assert_eq!(all.gnome, "<Control><Alt><Shift><Super>Page_Up");
+        assert_eq!(all.portal, "CTRL+ALT+SHIFT+LOGO+Page_Up");
+        assert_eq!(parse("ctrl+f12").accelerator().gnome, "<Control>F12");
+        assert_eq!(parse("ctrl+quote").accelerator().portal, "CTRL+apostrophe");
+        assert_eq!(parse("alt+f").accelerator().gnome, "<Alt>f");
+        assert_eq!(parse("alt+v").accelerator().label, "");
+    }
+
+    #[test]
+    fn maps_to_x11_keysyms_and_modifiers() {
+        let keysym = |text: &str| parse(text).accelerator().keysym;
+        assert_eq!(keysym("alt+space"), 0x20);
+        assert_eq!(keysym("alt+v"), 0x76);
+        assert_eq!(keysym("alt+7"), 0x37);
+        assert_eq!(keysym("alt+f"), 0x66);
+        assert_eq!(keysym("alt+f1"), 0xffbe);
+        assert_eq!(keysym("alt+f24"), 0xffd5);
+        assert_eq!(keysym("alt+pagedown"), 0xff56);
+        assert_eq!(keysym("alt+delete"), 0xffff);
+        assert_eq!(keysym("alt+backquote"), 0x60);
+        assert_eq!(parse("shift+a").accelerator().mods, 1);
+        assert_eq!(parse("ctrl+a").accelerator().mods, 4);
+        assert_eq!(parse("alt+a").accelerator().mods, 8);
+        assert_eq!(parse("win+a").accelerator().mods, 64);
+        assert_eq!(parse("ctrl+alt+shift+win+a").accelerator().mods, 77);
+        assert_eq!(
+            parse("alt+space").accelerator().hotkey,
+            parse("alt+space").hotkey()
+        );
     }
 
     #[test]
@@ -224,7 +359,7 @@ mod tests {
     #[test]
     fn order_and_case_do_not_matter() {
         assert_eq!(parse("Shift+CTRL+k").canonical(), "ctrl+shift+k");
-        assert_eq!(parse("win+Alt+F5").display(), "Alt+Win+F5");
+        assert_eq!(parse("win+Alt+F5").display_keys().join("+"), "Alt+Win+F5");
     }
 
     #[test]
