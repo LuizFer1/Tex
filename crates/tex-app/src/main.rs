@@ -1424,8 +1424,20 @@ fn onboarding_select(windows: &Windows, option: i32) {
     refresh_onboarding(windows);
 }
 
+/// Moves forward; leaving the theme question with the default shown previews it.
 fn onboarding_next(windows: &Windows, client: &SearchClient) {
-    match with_onboarding(Onboarding::next) {
+    let saved = with_app(|app| app.settings.general.theme);
+    let moved = with_onboarding(|onboarding| {
+        let before = onboarding.theme(saved);
+        let outcome = onboarding.next();
+        let after = onboarding.theme(saved);
+        (outcome, (after != before).then_some(after))
+    });
+    if let Some((_, Some(theme))) = moved {
+        with_app(|app| app.theme_preview = Some(theme));
+        apply_theme(windows);
+    }
+    match moved.map(|(outcome, _)| outcome) {
         Some(Outcome::Concluded) => conclude_onboarding(windows, client),
         Some(Outcome::OpenSearch) => {
             ONBOARDING.with_borrow_mut(|onboarding| *onboarding = None);

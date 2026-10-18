@@ -16,7 +16,7 @@ pub enum Outcome {
 
 /// Step 0 is the welcome, 1 to 9 the questions (in the spec's order) and 10 the last screen.
 /// An answer is the index of the chosen option, where 0 is always the factory default;
-/// `None` keeps the current value.
+/// `None` keeps the current value until the question is left with `next`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Onboarding {
     pub step: usize,
@@ -37,12 +37,11 @@ impl Onboarding {
         (1..=QUESTIONS).contains(&self.step).then(|| self.step - 1)
     }
 
-    /// The selected option of the current question: -1 outside the questions or when none
-    /// matches the current value.
+    /// The selected option of the current question: -1 outside the questions, and the default
+    /// while the answer keeps the current value.
     pub fn selected(&self) -> i32 {
         self.question()
-            .and_then(|question| self.answers[question])
-            .map_or(-1, |option| option as i32)
+            .map_or(-1, |question| self.answers[question].unwrap_or(0) as i32)
     }
 
     /// Answers the current question; returns whether it was the theme question.
@@ -56,7 +55,11 @@ impl Onboarding {
         }
     }
 
+    /// Moves forward, committing the default shown on a question that keeps the current value.
     pub fn next(&mut self) -> Outcome {
+        if let Some(question) = self.question() {
+            self.answers[question].get_or_insert(0);
+        }
         match self.step {
             DONE => Outcome::OpenSearch,
             QUESTIONS => {
@@ -339,6 +342,82 @@ mod tests {
         assert_eq!(Onboarding::new(&settings, true).answers[8], None);
         settings.clipboard.cleanup_limit_mb = 1024;
         assert_eq!(Onboarding::new(&settings, true).answers[8], Some(1));
+    }
+
+    fn without_matching_options() -> Settings {
+        let mut settings = Settings::default();
+        settings.general.theme = Theme::System;
+        settings.clipboard.cleanup_days = 30;
+        settings
+    }
+
+    #[test]
+    fn a_value_without_a_matching_option_shows_the_default_selected() {
+        let mut onboarding = Onboarding::new(&without_matching_options(), true);
+        onboarding.next();
+        assert_eq!(onboarding.selected(), 0);
+        assert_eq!(onboarding.answers[0], None);
+        while onboarding.step < QUESTIONS {
+            onboarding.next();
+        }
+        assert_eq!(onboarding.selected(), 0);
+        assert_eq!(onboarding.answers[8], None);
+    }
+
+    #[test]
+    fn leaving_a_question_with_next_commits_the_default_shown() {
+        let settings = without_matching_options();
+        let mut onboarding = Onboarding::new(&settings, true);
+        onboarding.next();
+        assert_eq!(onboarding.theme(Theme::System), Theme::System);
+        assert_eq!(onboarding.next(), Outcome::Moved);
+        assert_eq!(onboarding.answers[0], Some(0));
+        assert_eq!(onboarding.theme(Theme::System), Theme::Light);
+        while onboarding.step < QUESTIONS {
+            onboarding.next();
+        }
+        assert_eq!(onboarding.next(), Outcome::Concluded);
+        assert_eq!(onboarding.answers[8], Some(0));
+        let mut applied = settings.clone();
+        onboarding.apply(&mut applied);
+        assert_eq!(applied.general.theme, Theme::Light);
+        assert_eq!(applied.clipboard.cleanup, Cleanup::Time);
+        assert_eq!(applied.clipboard.cleanup_days, WEEK_DAYS);
+    }
+
+    #[test]
+    fn skip_leaves_unvisited_questions_with_the_current_value() {
+        let settings = without_matching_options();
+        let mut onboarding = Onboarding::new(&settings, true);
+        onboarding.next();
+        onboarding.next();
+        assert!(onboarding.skip());
+        assert_eq!(onboarding.answers[0], Some(0));
+        assert_eq!(onboarding.answers[8], None);
+        let mut applied = settings.clone();
+        onboarding.apply(&mut applied);
+        assert_eq!(applied.general.theme, Theme::Light);
+        assert_eq!(applied.clipboard.cleanup_days, 30);
+    }
+
+    #[test]
+    fn skip_on_a_question_shown_with_the_default_keeps_the_current_value() {
+        let settings = without_matching_options();
+        let mut onboarding = Onboarding::new(&settings, true);
+        onboarding.next();
+        assert_eq!(onboarding.selected(), 0);
+        assert!(onboarding.skip());
+        assert_eq!(onboarding.answers[0], None);
+        let mut applied = settings.clone();
+        onboarding.apply(&mut applied);
+        assert_eq!(applied.general.theme, Theme::System);
+    }
+
+    #[test]
+    fn welcome_and_last_screen_show_nothing_selected() {
+        let onboarding = Onboarding::new(&without_matching_options(), true);
+        assert_eq!(onboarding.selected(), -1);
+        assert_eq!(at_step(DONE).selected(), -1);
     }
 
     #[test]
