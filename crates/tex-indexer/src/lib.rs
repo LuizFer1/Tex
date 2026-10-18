@@ -1,7 +1,9 @@
 #[cfg(windows)]
 pub mod account;
 pub mod engine;
+pub mod events;
 pub mod log;
+pub mod mounts;
 #[cfg(windows)]
 pub mod pipe;
 #[cfg(windows)]
