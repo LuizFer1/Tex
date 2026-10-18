@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use tex_index::{Categories, Query, SearchRequest, VolumeIndex};
+use tex_index::{AppCatalog, Categories, Query, SearchRequest, VolumeIndex};
 use tex_ipc::{Filter, Hit, Request, Response, Results, SearchQuery, VolumeState, VolumeStatus};
 
 pub trait Handler: Send + Sync {
@@ -46,11 +46,17 @@ impl Volume {
 #[derive(Default)]
 pub struct Engine {
     volumes: Mutex<Vec<Arc<Volume>>>,
+    apps: RwLock<AppCatalog>,
 }
 
 impl Engine {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The `.desktop` apps every search offers; empty on Windows.
+    pub fn apps_mut(&self) -> RwLockWriteGuard<'_, AppCatalog> {
+        self.apps.write().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Tracks a volume, replacing one with the same root only if it failed or its serial changed.
@@ -119,6 +125,7 @@ impl Engine {
             .iter()
             .map(String::as_str)
             .collect();
+        let apps = self.apps.read().unwrap_or_else(|e| e.into_inner());
         let search_request = SearchRequest {
             query: &query,
             filter,
@@ -133,8 +140,8 @@ impl Engine {
                 folders: request.show_folders,
             },
             app_roots: &app_roots,
-            apps: None,
-            language: "",
+            apps: Some(&*apps),
+            language: &request.language,
         };
         let Some(outcome) = tex_index::search(&indexes, &search_request, &|| false) else {
             return empty;
@@ -148,6 +155,7 @@ impl Engine {
                     path: hit.path,
                     is_dir: hit.is_dir,
                     is_app: hit.is_app,
+                    label: hit.label,
                 })
                 .collect(),
             total: outcome.total,
@@ -186,7 +194,7 @@ impl Handler for Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tex_index::{Attributes, ROOT};
+    use tex_index::{Attributes, DesktopApp, ROOT};
     use tex_ipc::{Filter, Hit, SearchQuery};
 
     fn ready(engine: &Engine, root: &str, entries: &[(u32, u32, &str, bool)]) -> Arc<Volume> {
@@ -225,6 +233,7 @@ mod tests {
             show_apps: true,
             show_files: true,
             show_folders: true,
+            language: String::new(),
         }
     }
 
@@ -277,6 +286,7 @@ mod tests {
                 path: r"C:\Projetos\relatorio.pdf".into(),
                 is_dir: false,
                 is_app: false,
+                label: None,
             }]
         );
     }
@@ -489,5 +499,41 @@ mod tests {
                 .path
                 .ends_with(r"Programs\Visual Studio Code.lnk")
         );
+    }
+
+    #[test]
+    fn catalog_apps_come_with_their_label() {
+        let engine = Engine::new();
+        ready(
+            &engine,
+            "/",
+            &[
+                (20, ROOT, "home", true),
+                (21, 20, "firefox-notes.txt", false),
+            ],
+        );
+        engine.apps_mut().set_system(vec![
+            DesktopApp::parse(
+                "firefox.desktop",
+                "/usr/share/applications/firefox.desktop",
+                "[Desktop Entry]\nType=Application\nName=Firefox\nName[pt_BR]=Navegador Firefox\n",
+            )
+            .unwrap(),
+        ]);
+        let mut request = query("firefox", Filter::All);
+        request.language = "pt-BR".into();
+        let results = engine.search(&request);
+        assert_eq!(
+            results.hits[0],
+            Hit {
+                path: "/usr/share/applications/firefox.desktop".into(),
+                is_dir: false,
+                is_app: true,
+                label: Some("Navegador Firefox".into()),
+            }
+        );
+        assert_eq!(results.hits[1].path, "/home/firefox-notes.txt");
+        assert_eq!(results.hits[1].label, None);
+        assert_eq!(results.total, 2);
     }
 }

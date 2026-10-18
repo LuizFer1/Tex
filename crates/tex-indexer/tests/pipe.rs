@@ -63,6 +63,7 @@ fn serves_several_clients_over_a_named_pipe() {
         show_apps: true,
         show_files: true,
         show_folders: true,
+        language: String::new(),
     });
     assert_eq!(
         ask(&second, &search),

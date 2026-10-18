@@ -29,6 +29,8 @@ pub struct SearchQuery {
     pub show_apps: bool,
     pub show_files: bool,
     pub show_folders: bool,
+    /// The user's language ("pt-BR"), for apps with localized names.
+    pub language: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,6 +59,8 @@ pub struct Hit {
     pub path: String,
     pub is_dir: bool,
     pub is_app: bool,
+    /// The app's display name (Linux `.desktop` apps); `None` shows the file name.
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -129,6 +133,7 @@ mod tests {
             show_apps: true,
             show_files: false,
             show_folders: true,
+            language: "pt-BR".into(),
         })
     }
 
@@ -142,12 +147,21 @@ mod tests {
     fn responses_round_trip() {
         round_trip(Response::Results(Results {
             id: 42,
-            hits: vec![Hit {
-                path: r"C:\Projetos\relatorio.pdf".into(),
-                is_dir: false,
-                is_app: true,
-            }],
-            total: 1,
+            hits: vec![
+                Hit {
+                    path: r"C:\Projetos\relatorio.pdf".into(),
+                    is_dir: false,
+                    is_app: false,
+                    label: None,
+                },
+                Hit {
+                    path: "/usr/share/applications/firefox.desktop".into(),
+                    is_dir: false,
+                    is_app: true,
+                    label: Some("Firefox".into()),
+                },
+            ],
+            total: 2,
         }));
         round_trip(Response::Status(vec![
             VolumeStatus {

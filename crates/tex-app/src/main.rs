@@ -178,6 +178,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         std::env::home_dir()
             .map(|home| home.to_string_lossy().into_owned())
             .unwrap_or_default(),
+        tex_platform::user_language(),
         latest.clone(),
         {
             let windows = windows.clone();

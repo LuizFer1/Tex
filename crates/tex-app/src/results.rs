@@ -227,6 +227,7 @@ mod tests {
             path: path.into(),
             is_dir,
             is_app: false,
+            label: None,
         }
     }
 
@@ -246,6 +247,7 @@ mod tests {
             path: path.into(),
             is_dir: false,
             is_app: true,
+            label: None,
         };
         let rows = build_rows(&[
             hit(r"C:\Projetos\code", true),
