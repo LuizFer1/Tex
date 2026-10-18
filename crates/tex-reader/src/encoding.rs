@@ -41,14 +41,14 @@ impl Encoding {
         }
     }
 
-    pub fn unit_len(self) -> usize {
+    pub(crate) fn unit_len(self) -> usize {
         match self {
             Encoding::Utf16Le | Encoding::Utf16Be => 2,
             _ => 1,
         }
     }
 
-    pub fn newline(self) -> &'static [u8] {
+    pub(crate) fn newline(self) -> &'static [u8] {
         match self {
             Encoding::Utf16Le => &[0x0A, 0],
             Encoding::Utf16Be => &[0, 0x0A],
@@ -56,7 +56,7 @@ impl Encoding {
         }
     }
 
-    pub fn carriage(self) -> &'static [u8] {
+    pub(crate) fn carriage(self) -> &'static [u8] {
         match self {
             Encoding::Utf16Le => &[0x0D, 0],
             Encoding::Utf16Be => &[0, 0x0D],
