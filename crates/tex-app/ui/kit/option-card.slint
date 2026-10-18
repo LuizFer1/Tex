@@ -1,0 +1,129 @@
+import { Tokens } from "../theme.slint";
+import { FocusRing } from "focus.slint";
+
+export component OptionCard inherits Rectangle {
+    in property <string> label;
+    in property <bool> selected;
+    in property <bool> is-default;
+    in property <string> badge;
+    in property <color> preview-background: root.selected ? Tokens.action-tint : Tokens.paper-2;
+    callback picked();
+
+    property <bool> keyboard;
+
+    border-radius: Tokens.radius-window;
+    background: Tokens.field;
+    border-width: Tokens.border-strong;
+    border-color: root.selected ? Tokens.action : Tokens.border;
+    accessible-role: radio-button;
+    accessible-checked: root.selected;
+    accessible-label: root.label;
+    accessible-action-default => {
+        root.picked();
+    }
+
+    if root.selected: Rectangle {
+        x: -Tokens.border-strong;
+        y: -Tokens.border-strong;
+        width: parent.width + 2 * Tokens.border-strong;
+        height: parent.height + 2 * Tokens.border-strong;
+        border-width: Tokens.border-strong;
+        border-color: Tokens.action;
+        border-radius: Tokens.radius-window + Tokens.border-strong;
+    }
+
+    VerticalLayout {
+        padding-top: 10px;
+        padding-left: 10px;
+        padding-right: 10px;
+        padding-bottom: 14px;
+        spacing: 12px;
+
+        Rectangle {
+            height: 110px;
+            border-radius: Tokens.radius-card;
+            background: root.preview-background;
+            @children
+        }
+
+        HorizontalLayout {
+            padding-left: 4px;
+            padding-right: 4px;
+            spacing: 10px;
+
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 9px;
+                    border-width: Tokens.border-strong;
+                    border-color: root.selected ? Tokens.action : Tokens.control-off;
+                    background: root.selected ? Tokens.action : transparent;
+                    if root.selected: Rectangle {
+                        width: 6px;
+                        height: 6px;
+                        border-radius: 3px;
+                        background: Tokens.on-action;
+                    }
+                }
+            }
+            Text {
+                horizontal-stretch: 1;
+                text: root.label;
+                font-size: Tokens.size-result;
+                font-weight: 600;
+                color: Tokens.ink;
+                vertical-alignment: center;
+                wrap: word-wrap;
+            }
+            if root.is-default: VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    height: 20px;
+                    border-radius: Tokens.radius-control;
+                    background: Tokens.highlight;
+                    HorizontalLayout {
+                        padding-left: 7px;
+                        padding-right: 7px;
+                        Text {
+                            text: root.badge;
+                            font-family: Tokens.mono-font;
+                            font-size: Tokens.size-badge;
+                            font-weight: 600;
+                            letter-spacing: Tokens.size-badge * 0.08;
+                            color: Tokens.banner-ink;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.picked();
+        }
+    }
+
+    focus := FocusScope {
+        focus-on-click: false;
+        key-pressed(event) => {
+            if event.text == " " {
+                root.picked();
+                return accept;
+            }
+            reject
+        }
+        focus-gained(reason) => {
+            root.keyboard = reason == FocusReason.tab-navigation;
+        }
+    }
+
+    FocusRing {
+        show: focus.has-focus && root.keyboard;
+        radius: Tokens.radius-window;
+    }
+}

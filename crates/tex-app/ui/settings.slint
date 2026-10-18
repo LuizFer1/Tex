@@ -1,6 +1,6 @@
 import { Palette } from "std-widgets.slint";
 import { Tokens } from "theme.slint";
-import { Icon, Icons, ScrollBar, TabItem, Toggle, Segmented, Select, Section, SettingRow, ShortcutField, Button, ButtonKind, CheckBox, PathList } from "kit/kit.slint";
+import { Icon, Icons, ScrollBar, TabItem, Toggle, Segmented, Select, Section, SettingRow, ShortcutField, Button, ButtonKind, CheckBox, PathList, TitleButton } from "kit/kit.slint";
 import { HistoryText } from "history.slint";
 
 export struct DriveRow {
@@ -10,28 +10,6 @@ export struct DriveRow {
     percent: int,
     entries: string,
     reason: string,
-}
-
-component TitleButton inherits Rectangle {
-    in property <image> icon;
-    in property <bool> close;
-    in property <string> tip;
-    callback clicked();
-    width: 46px;
-    background: touch.has-hover ? (root.close ? Tokens.close-hover : Tokens.border-2) : transparent;
-    accessible-role: button;
-    accessible-label: root.tip;
-    Icon {
-        width: 12px;
-        height: 12px;
-        source: root.icon;
-        tint: touch.has-hover && root.close ? Tokens.close-hover-ink : Tokens.ink-2;
-    }
-    touch := TouchArea {
-        clicked => {
-            root.clicked();
-        }
-    }
 }
 
 component ResizeEdge inherits TouchArea {
