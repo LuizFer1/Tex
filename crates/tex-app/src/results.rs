@@ -220,9 +220,12 @@ pub fn ready_summary(volumes: &[VolumeStatus]) -> (String, u64) {
     )
 }
 
-/// Whether Shift+Enter opens the row in the reader: a file of a kind the reader knows, or one without extension.
-pub fn readable(name: &str, is_dir: bool, is_app: bool) -> bool {
-    !is_dir && !is_app && tex_reader::Kind::from_path(std::path::Path::new(name), &[]).is_some()
+/// Whether Shift+Enter opens the row in the reader: a file of a kind the reader knows (including
+/// the types of the extensions' viewers, `viewer_exts`), or one without extension.
+pub fn readable(name: &str, is_dir: bool, is_app: bool, viewer_exts: &[String]) -> bool {
+    !is_dir
+        && !is_app
+        && tex_reader::Kind::from_path(std::path::Path::new(name), viewer_exts).is_some()
 }
 
 #[cfg(test)]
@@ -232,12 +235,20 @@ mod tests {
 
     #[test]
     fn readable_rows_are_files_the_reader_knows() {
-        assert!(readable("notas.md", false, false));
-        assert!(readable("APP.LOG", false, false));
-        assert!(readable("README", false, false));
-        assert!(!readable("setup.exe", false, false));
-        assert!(!readable("docs.md", true, false));
-        assert!(!readable("Word.lnk", false, true));
+        assert!(readable("notas.md", false, false, &[]));
+        assert!(readable("APP.LOG", false, false, &[]));
+        assert!(readable("README", false, false, &[]));
+        assert!(!readable("setup.exe", false, false, &[]));
+        assert!(!readable("docs.md", true, false, &[]));
+        assert!(!readable("Word.lnk", false, true, &[]));
+    }
+
+    #[test]
+    fn viewer_types_are_readable() {
+        let exts = ["srt".to_string()];
+        assert!(!readable("filme.srt", false, false, &[]));
+        assert!(readable("filme.SRT", false, false, &exts));
+        assert!(!readable("filme.srt", true, false, &exts));
     }
 
     fn hit(path: &str, is_dir: bool) -> Hit {

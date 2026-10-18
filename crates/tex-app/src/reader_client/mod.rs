@@ -19,13 +19,16 @@ use tex_platform::{
     lock_foreground, open_path, reveal_in_folder, round_corners, take_foreground,
     work_area_under_cursor,
 };
-use tex_reader::{Body, Document, Encoding, Kind, LineIndex, LoadError, Stamp, blocks, probe};
+use tex_reader::{
+    Body, Catalog, Document, Encoding, Kind, LineIndex, LoadError, Stamp, blocks, probe,
+};
 
 use crate::frame;
 use crate::reader::{
     LinkTarget, PAGE_LINES, block_rows, display_line, display_lines, encoding_index, line_count,
     link_target, longest, reader_size, same_file, search_text, wrap_by_default,
 };
+use crate::settings::extensions_dir;
 use crate::{ReaderBlock, ReaderWindow, Windows, placement};
 
 use edit::{check_outside, finish_edit, reload, save, start_edit, unsaved};
@@ -35,6 +38,20 @@ use search::{search, search_closed, search_step};
 thread_local! {
     static READERS: RefCell<Vec<Reader>> = const { RefCell::new(Vec::new()) };
     static NEXT_ID: Cell<u64> = const { Cell::new(0) };
+    static CATALOG: RefCell<(Arc<Catalog>, Vec<String>)> = RefCell::new((Arc::default(), Vec::new()));
+}
+
+/// Reads the extensions folder again; the reader and the popup use the result until the next call.
+pub fn reload_catalog() -> Arc<Catalog> {
+    let catalog = Arc::new(Catalog::discover(&extensions_dir()));
+    let viewers = catalog.viewer_extensions();
+    CATALOG.with_borrow_mut(|current| *current = (catalog.clone(), viewers));
+    catalog
+}
+
+/// The file types some extension's viewer opens, as of the last `reload_catalog`.
+pub fn viewer_extensions() -> Vec<String> {
+    CATALOG.with_borrow(|(_, viewers)| viewers.clone())
 }
 
 /// An open reader window. Dropping it closes the window, the page channel and so the worker.
@@ -101,6 +118,7 @@ enum Event {
 /// Opens `path` in a reader window, or brings its open window to the front, then hides the popup.
 pub fn open(windows: &Windows, path: &Path) {
     lock_foreground(false);
+    reload_catalog();
     let existing = READERS.with_borrow(|readers| {
         readers
             .iter()
@@ -322,11 +340,12 @@ fn follow_link(windows: &Windows, file: &Path, url: &str) {
 
 /// Probes and loads `path` off the UI thread; a large file then stays open to serve pages.
 fn spawn(id: u64, load: u64, path: PathBuf, cancel: Arc<AtomicBool>) {
+    let viewers = viewer_extensions();
     std::thread::spawn(move || {
         let send = move |event: Event| {
             let _ = slint::invoke_from_event_loop(move || deliver(id, load, event));
         };
-        let probed = match probe(&path, &[]) {
+        let probed = match probe(&path, &viewers) {
             Ok(probed) => probed,
             Err(LoadError::Io(error)) => return send(Event::Failed(error.to_string())),
             Err(LoadError::Binary | LoadError::Unsupported) => return send(Event::Binary),

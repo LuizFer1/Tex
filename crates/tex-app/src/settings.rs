@@ -368,6 +368,16 @@ pub fn settings_path() -> PathBuf {
     base.join("Tex").join("settings.toml")
 }
 
+/// The folder of the reader's extensions; debug builds take `TEX_EXTENSIONS_DIR` to test another one.
+pub fn extensions_dir() -> PathBuf {
+    if cfg!(debug_assertions)
+        && let Some(dir) = std::env::var_os("TEX_EXTENSIONS_DIR")
+    {
+        return PathBuf::from(dir);
+    }
+    settings_path().with_file_name("extensions")
+}
+
 /// Missing file: defaults. Unreadable or not TOML: defaults, and the file is kept as `settings.toml.bad`.
 pub fn load(path: &Path) -> Settings {
     match fs::read_to_string(path) {

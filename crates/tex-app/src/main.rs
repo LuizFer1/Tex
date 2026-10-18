@@ -14,6 +14,7 @@ mod search_client;
 mod settings;
 mod shortcut;
 mod theme;
+mod tools;
 mod update;
 mod update_client;
 
@@ -352,6 +353,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let windows = windows.clone();
         move || install_update(&windows)
     });
+    reader_client::reload_catalog();
     tray.show()?;
     if !with_app(|app| app.settings.general.onboarding_done) {
         start_onboarding(&windows, upgrade);
@@ -1720,10 +1722,11 @@ fn show_event(windows: &Windows, event: Event, icons: &IconLoader, latest: &Late
             let is_item: Vec<bool> = rows.iter().map(Row::is_item).collect();
             let selected = step_selection(&is_item, None, 1);
             let counts = header_counts(&rows);
+            let viewer_exts = reader_client::viewer_extensions();
             let model: Vec<ResultRow> = rows
                 .iter()
                 .zip(counts)
-                .map(|(row, count)| to_result_row(row, count, icons))
+                .map(|(row, count)| to_result_row(row, count, icons, &viewer_exts))
                 .collect();
             popup.set_rows(ModelRc::new(VecModel::from(model)));
             popup.set_selected(selected.map_or(-1, |index| index as i32));
@@ -1787,7 +1790,7 @@ fn drive_row(volume: &VolumeStatus, separator: char) -> DriveRow {
     row
 }
 
-fn to_result_row(row: &Row, count: usize, icons: &IconLoader) -> ResultRow {
+fn to_result_row(row: &Row, count: usize, icons: &IconLoader, viewer_exts: &[String]) -> ResultRow {
     match row {
         Row::Header(category) => ResultRow {
             header: true,
@@ -1810,7 +1813,7 @@ fn to_result_row(row: &Row, count: usize, icons: &IconLoader) -> ResultRow {
                 path: path.as_str().into(),
                 is_dir: *is_dir,
                 is_app: *is_app,
-                readable: readable(name, *is_dir, *is_app),
+                readable: readable(name, *is_dir, *is_app, viewer_exts),
                 file_icon: file_icon(name).index(),
                 ..Default::default()
             };
