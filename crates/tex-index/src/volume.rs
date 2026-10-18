@@ -28,6 +28,7 @@ pub(crate) struct FolderMask<'a> {
 pub struct VolumeIndex {
     root: String,
     unix: bool,
+    system_root: bool,
     entries: Vec<Entry>,
     names: Vec<u8>,
     garbage: usize,
@@ -43,6 +44,7 @@ impl VolumeIndex {
         let root = normalize_root(root);
         Self {
             unix: root.starts_with('/'),
+            system_root: is_system_root(&root),
             root,
             entries: Vec::new(),
             names: Vec::new(),
@@ -274,6 +276,16 @@ impl VolumeIndex {
         }
     }
 
+    /// Entries at the root that count as system: NTFS metadata on drives; on Unix `lost+found`
+    /// and, on the `/` volume, the operating system's top-level folders.
+    fn is_root_system(&self, name: &[u8]) -> bool {
+        if self.unix {
+            name == b"lost+found" || (self.root == "/" && is_unix_system_dir(name))
+        } else {
+            name.starts_with(b"$") || name.eq_ignore_ascii_case(b"System Volume Information")
+        }
+    }
+
     /// `lookup` with a small cache, for the folders every query sends (home, Start Menu).
     /// Misses are cached too, so a missing folder does not cost a full scan per query.
     pub(crate) fn cached_lookup(&self, path: &str) -> Option<Record> {
@@ -294,8 +306,9 @@ impl VolumeIndex {
         found
     }
 
-    /// Walks from `record` up to the root. `hidden` is set by a hidden record or ancestor; `system`
-    /// by a system one, the Windows folder or NTFS metadata at the root; `excluded` by a record in
+    /// Walks from `record` up to the root. `hidden` is set by a hidden record or ancestor (on Unix,
+    /// a name starting with `.`); `system` by a system one, the Windows folder or a system entry at
+    /// the root (`is_root_system`), or a volume mounted in a system folder; `excluded` by a record in
     /// `excluded`. Inside an app root (a Start Menu folder) only the entries below that root count
     /// for `hidden` and `system`. `in_folders` when the ancestors match every folder of `folders`,
     /// nearest first, and `nearest` is the one that matched the last folder. `None` for orphans
@@ -310,7 +323,7 @@ impl VolumeIndex {
     ) -> Option<Lineage> {
         let mut lineage = Lineage {
             hidden: false,
-            system: false,
+            system: self.system_root,
             excluded: false,
             in_home: false,
             in_app_root: false,
@@ -336,12 +349,13 @@ impl VolumeIndex {
                 lineage.in_app_root = true;
                 below_root = (lineage.hidden, lineage.system);
             }
-            if entry.is_hidden() {
+            let name = self.entry_name(entry);
+            if entry.is_hidden() || (self.unix && name.first() == Some(&b'.')) {
                 lineage.hidden = true;
             }
             if entry.is_system()
                 || Some(current) == self.windows_dir
-                || (entry.parent == ROOT && is_root_metadata(self.entry_name(entry)))
+                || (entry.parent == ROOT && self.is_root_system(name))
             {
                 lineage.system = true;
             }
@@ -410,8 +424,33 @@ fn normalize_root(root: &str) -> String {
     }
 }
 
-fn is_root_metadata(name: &[u8]) -> bool {
-    name.starts_with(b"$") || name.eq_ignore_ascii_case(b"System Volume Information")
+const UNIX_SYSTEM_DIRS: [&str; 14] = [
+    "bin",
+    "boot",
+    "dev",
+    "etc",
+    "lost+found",
+    "proc",
+    "run",
+    "sbin",
+    "snap",
+    "srv",
+    "sys",
+    "tmp",
+    "usr",
+    "var",
+];
+
+/// Top-level folders of `/` that belong to the system, `lib`, `lib64` and the like included.
+fn is_unix_system_dir(name: &[u8]) -> bool {
+    name.starts_with(b"lib") || UNIX_SYSTEM_DIRS.iter().any(|dir| dir.as_bytes() == name)
+}
+
+/// A Unix volume mounted inside a system folder (`/boot/efi`, `/var`) is system as a whole.
+fn is_system_root(root: &str) -> bool {
+    root.strip_prefix('/')
+        .and_then(|rest| rest.split('/').next())
+        .is_some_and(|first| !first.is_empty() && is_unix_system_dir(first.as_bytes()))
 }
 
 #[cfg(test)]
@@ -804,5 +843,63 @@ mod tests {
         let root = VolumeIndex::new("/");
         assert_eq!(root.lookup("/"), Some(ROOT));
         assert_eq!(root.lookup("relative"), None);
+    }
+
+    #[test]
+    fn unix_dot_names_are_hidden() {
+        let mut volume = VolumeIndex::new("/home");
+        volume.upsert(20, ROOT, "luis", DIR);
+        volume.upsert(21, 20, ".config", DIR);
+        volume.upsert(22, 21, "app.json", FILE);
+        volume.upsert(23, 20, "notes.txt", FILE);
+        let hidden = volume.lineage(22, None, &[], &[], None).unwrap();
+        assert!(hidden.hidden);
+        assert!(!hidden.system);
+        assert!(volume.lineage(23, None, &[], &[], None).unwrap().visible());
+    }
+
+    #[test]
+    fn dot_names_on_drives_follow_the_attribute() {
+        let mut volume = VolumeIndex::new("C:");
+        volume.upsert(20, ROOT, ".git", DIR);
+        volume.upsert(21, 20, "config", FILE);
+        assert!(volume.lineage(21, None, &[], &[], None).unwrap().visible());
+    }
+
+    #[test]
+    fn top_level_system_folders_of_the_unix_root() {
+        let mut volume = VolumeIndex::new("/");
+        for (record, name) in [
+            (20, "usr"),
+            (21, "lib64"),
+            (22, "lost+found"),
+            (23, "home"),
+            (24, "opt"),
+        ] {
+            volume.upsert(record, ROOT, name, DIR);
+        }
+        volume.upsert(30, 20, "bin", DIR);
+        volume.upsert(31, 30, "python3", FILE);
+        volume.upsert(32, 23, "usr", DIR);
+        volume.upsert(33, 32, "notes.txt", FILE);
+        let system = |record| volume.lineage(record, None, &[], &[], None).unwrap().system;
+        assert!(system(31));
+        assert!(system(21));
+        assert!(system(22));
+        assert!(!system(23));
+        assert!(!system(24));
+        assert!(!system(33));
+    }
+
+    #[test]
+    fn volumes_mounted_in_system_folders_are_system() {
+        let mut efi = VolumeIndex::new("/boot/efi");
+        efi.upsert(20, ROOT, "EFI", DIR);
+        assert!(efi.lineage(20, None, &[], &[], None).unwrap().system);
+        let mut home = VolumeIndex::new("/home");
+        home.upsert(20, ROOT, "usr", DIR);
+        home.upsert(21, ROOT, "lost+found", DIR);
+        assert!(!home.lineage(20, None, &[], &[], None).unwrap().system);
+        assert!(home.lineage(21, None, &[], &[], None).unwrap().system);
     }
 }

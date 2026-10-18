@@ -554,6 +554,25 @@ mod tests {
     }
 
     #[test]
+    fn unix_hidden_and_system_follow_names() {
+        let mut root = VolumeIndex::new("/");
+        root.upsert(20, ROOT, "home", DIR);
+        root.upsert(21, 20, "luis", DIR);
+        root.upsert(22, 21, ".notes.txt", FILE);
+        root.upsert(23, 21, "notes.txt", FILE);
+        root.upsert(24, ROOT, "etc", DIR);
+        root.upsert(25, 24, "notes.conf", FILE);
+        let query = Query::parse_for("notes", false).unwrap();
+        assert_eq!(found(&root, &base(&query)), ["/home/luis/notes.txt"]);
+        let everything = SearchRequest {
+            include_hidden: true,
+            include_system: true,
+            ..base(&query)
+        };
+        assert_eq!(found(&root, &everything).len(), 3);
+    }
+
+    #[test]
     fn excluded_folder_hides_descendants() {
         let c = drive_c();
         let query = Query::parse("relatorio").unwrap();
