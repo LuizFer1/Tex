@@ -374,6 +374,16 @@ pub fn cache_dir() -> PathBuf {
     data_dir()
 }
 
+/// This program's file.
+pub fn current_executable() -> Option<PathBuf> {
+    std::env::current_exe().ok()
+}
+
+/// Always false: the Windows installer closes Tex before replacing it.
+pub fn executable_replaced() -> bool {
+    false
+}
+
 fn known_folder(variable: &str, fallback: &str) -> PathBuf {
     std::env::var_os(variable)
         .map(PathBuf::from)
