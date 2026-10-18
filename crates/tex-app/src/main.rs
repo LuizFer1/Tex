@@ -38,7 +38,7 @@ use tex_platform::{
     ClipboardWatcher, IconPixels, LocalTime, SingleInstance, WindowRef, catch_windows_key,
     foreground_window, local_time, lock_foreground, open_path, paste_into, pick_file, pick_folder,
     primary_work_area, restore_foreground, reveal_in_folder, round_corners, shape_tabbed_window,
-    take_foreground, work_area_under_cursor, write_image, write_text,
+    take_foreground, transparent_windows, work_area_under_cursor, write_image, write_text,
 };
 
 use crate::app::{AppState, HotkeyError, with_app};
@@ -1020,7 +1020,14 @@ fn rgb(value: u32) -> slint::Color {
 }
 
 /// Copies a design into one window's `Tokens` (each window has its own copy of the global).
-fn apply_design(tokens: &Tokens<'_>, artwork: &Artwork<'_>, design: &Design, dark: bool) {
+fn apply_design(
+    tokens: &Tokens<'_>,
+    artwork: &Artwork<'_>,
+    design: &Design,
+    dark: bool,
+    see_through: bool,
+) {
+    tokens.set_see_through(see_through);
     let c = theme::colors(design, dark);
     tokens.set_action(rgb(c.action));
     tokens.set_action_strong(rgb(c.action_strong));
@@ -1127,6 +1134,7 @@ fn apply_theme(windows: &Windows) {
     }));
     let dark = scheme == ColorScheme::Dark;
     let design = theme::design(theme::DEFAULT);
+    let see_through = transparent_windows();
     if let Some(popup) = windows.popup.upgrade() {
         popup.set_scheme(scheme);
         apply_design(
@@ -1134,6 +1142,7 @@ fn apply_theme(windows: &Windows) {
             &popup.global::<Artwork>(),
             design,
             dark,
+            see_through,
         );
     }
     if let Some(about) = windows.about.upgrade() {
@@ -1143,6 +1152,7 @@ fn apply_theme(windows: &Windows) {
             &about.global::<Artwork>(),
             design,
             dark,
+            see_through,
         );
     }
     if let Some(settings) = windows.settings.upgrade() {
@@ -1152,6 +1162,7 @@ fn apply_theme(windows: &Windows) {
             &settings.global::<Artwork>(),
             design,
             dark,
+            see_through,
         );
     }
     if let Some(history) = windows.history.upgrade() {
@@ -1161,6 +1172,7 @@ fn apply_theme(windows: &Windows) {
             &history.global::<Artwork>(),
             design,
             dark,
+            see_through,
         );
     }
     if let Some(onboarding) = windows.onboarding.upgrade() {
@@ -1169,6 +1181,7 @@ fn apply_theme(windows: &Windows) {
             &onboarding.global::<Artwork>(),
             design,
             dark,
+            see_through,
         );
     }
 }

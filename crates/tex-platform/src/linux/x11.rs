@@ -40,6 +40,7 @@ pub(crate) struct Monitor {
 struct Display {
     connection: RustConnection,
     root: Window,
+    screen: usize,
 }
 
 /// The X server of this session, opened once. `None` on Wayland, even with XWayland present,
@@ -57,7 +58,11 @@ fn display() -> Option<&'static Display> {
             }
             let (connection, screen) = x11rb::connect(None).ok()?;
             let root = connection.setup().roots.get(screen)?.root;
-            Some(Display { connection, root })
+            Some(Display {
+                connection,
+                root,
+                screen,
+            })
         })
         .as_ref()
 }
@@ -203,6 +208,19 @@ fn send_to_root(display: &Display, window: u32, kind: &[u8], data: [u32; 5]) -> 
         )
         .ok()?;
     display.connection.flush().ok()
+}
+
+/// Whether a compositor runs (it owns `_NET_WM_CM_S<screen>`), so transparent pixels show what
+/// is behind the window instead of black.
+pub(crate) fn compositor_running() -> bool {
+    let Some(display) = display() else {
+        return false;
+    };
+    let name = format!("_NET_WM_CM_S{}", display.screen);
+    atom(display, name.as_bytes())
+        .and_then(|selection| display.connection.get_selection_owner(selection).ok())
+        .and_then(|cookie| cookie.reply().ok())
+        .is_some_and(|reply| reply.owner != x11rb::NONE)
 }
 
 fn atom(display: &Display, name: &[u8]) -> Option<u32> {

@@ -259,6 +259,12 @@ pub fn user_language() -> String {
     String::from_utf16_lossy(&name[..length as usize - 1])
 }
 
+/// Windows draws the popups' shape with a window region ([`shape_tabbed_window`]), not with
+/// transparent pixels.
+pub fn transparent_windows() -> bool {
+    false
+}
+
 /// Whether Windows asks apps for the dark theme (Settings > Personalization > Colors).
 pub fn system_uses_dark_theme() -> bool {
     let key = wide(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");

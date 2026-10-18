@@ -134,6 +134,12 @@ pub fn open_locked(path: &Path) -> io::Result<File> {
     File::open(path)
 }
 
+/// Whether windows can have transparent pixels: only on X11 with a compositor. On Wayland the
+/// software renderer's buffers (softbuffer) carry no alpha.
+pub fn transparent_windows() -> bool {
+    x11::compositor_running()
+}
+
 pub fn system_uses_dark_theme() -> bool {
     false
 }
