@@ -8,7 +8,7 @@ mod search;
 mod snapshot;
 mod volume;
 
-pub use access::Owner;
+pub use access::{Owner, Viewer};
 pub use apps::{AppCatalog, DesktopApp};
 pub use dense::DenseIds;
 pub use entry::{Attributes, ROOT, Record, record_from_frn};

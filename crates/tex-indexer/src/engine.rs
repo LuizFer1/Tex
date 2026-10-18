@@ -1,10 +1,16 @@
 use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use tex_index::{AppCatalog, Categories, Query, SearchRequest, VolumeIndex};
+use tex_index::{AppCatalog, Categories, Query, SearchRequest, Viewer, VolumeIndex};
 use tex_ipc::{Filter, Hit, Request, Response, Results, SearchQuery, VolumeState, VolumeStatus};
 
 pub trait Handler: Send + Sync {
     fn handle(&self, request: Request) -> Response;
+
+    /// Answers `request` for `viewer`; `None` sees everything. Handlers without per-user
+    /// results answer as `handle`.
+    fn handle_as(&self, request: Request, _viewer: Option<&Viewer>) -> Response {
+        self.handle(request)
+    }
 }
 
 pub struct VolumeData {
@@ -97,6 +103,11 @@ impl Engine {
     }
 
     pub fn search(&self, request: &SearchQuery) -> Results {
+        self.search_as(request, None)
+    }
+
+    /// Searches for `viewer`: on Unix volumes only what that user may reach comes back.
+    pub fn search_as(&self, request: &SearchQuery, viewer: Option<&Viewer>) -> Results {
         let empty = Results {
             id: request.id,
             hits: Vec::new(),
@@ -142,6 +153,7 @@ impl Engine {
             app_roots: &app_roots,
             apps: Some(&*apps),
             language: &request.language,
+            viewer,
         };
         let Some(outcome) = tex_index::search(&indexes, &search_request, &|| false) else {
             return empty;
@@ -184,8 +196,12 @@ pub fn start_menu_roots(program_data: Option<&str>, home: &str) -> Vec<String> {
 
 impl Handler for Engine {
     fn handle(&self, request: Request) -> Response {
+        self.handle_as(request, None)
+    }
+
+    fn handle_as(&self, request: Request, viewer: Option<&Viewer>) -> Response {
         match request {
-            Request::Search(query) => Response::Results(self.search(&query)),
+            Request::Search(query) => Response::Results(self.search_as(&query, viewer)),
             Request::Status => Response::Status(self.status()),
         }
     }
@@ -194,7 +210,7 @@ impl Handler for Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tex_index::{Attributes, DesktopApp, ROOT};
+    use tex_index::{Attributes, DesktopApp, Owner, ROOT};
     use tex_ipc::{Filter, Hit, SearchQuery};
 
     fn ready(engine: &Engine, root: &str, entries: &[(u32, u32, &str, bool)]) -> Arc<Volume> {
@@ -397,6 +413,52 @@ mod tests {
         }
         match engine.handle(Request::Status) {
             Response::Status(volumes) => assert_eq!(volumes.len(), 1),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn searches_as_the_viewer() {
+        let engine = Engine::new();
+        let volume = ready(
+            &engine,
+            "/home",
+            &[(20, ROOT, "ana", true), (21, 20, "plano.txt", false)],
+        );
+        {
+            let mut data = volume.write();
+            let index = data.index.as_mut().unwrap();
+            index.set_owner(
+                ROOT,
+                Some(Owner {
+                    uid: 0,
+                    gid: 0,
+                    mode: 0o755,
+                }),
+            );
+            index.set_owner(
+                20,
+                Some(Owner {
+                    uid: 1000,
+                    gid: 1000,
+                    mode: 0o700,
+                }),
+            );
+        }
+        let request = query("plano", Filter::All);
+        let ana = Viewer {
+            uid: 1000,
+            groups: vec![1000],
+        };
+        let bia = Viewer {
+            uid: 1001,
+            groups: vec![1001],
+        };
+        assert_eq!(engine.search_as(&request, Some(&ana)).total, 1);
+        assert_eq!(engine.search_as(&request, Some(&bia)).total, 0);
+        assert_eq!(engine.search(&request).total, 1);
+        match engine.handle_as(Request::Search(request), Some(&bia)) {
+            Response::Results(results) => assert!(results.hits.is_empty()),
             other => panic!("unexpected {other:?}"),
         }
     }

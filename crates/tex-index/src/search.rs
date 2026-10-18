@@ -4,6 +4,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 
+use crate::access::{Viewer, reachable, rights_table};
 use crate::apps::AppCatalog;
 use crate::entry::{ROOT, Record};
 use crate::matcher::{MatchKind, Query};
@@ -37,6 +38,9 @@ pub struct SearchRequest<'a> {
     pub apps: Option<&'a AppCatalog>,
     /// The user's language ("pt-BR"), for the apps' localized names.
     pub language: &'a str,
+    /// Who is searching. On Unix volumes only what this user may reach comes back; `None` sees
+    /// everything (Windows, root).
+    pub viewer: Option<&'a Viewer>,
 }
 
 /// Which kinds of results a search may return.
@@ -78,6 +82,7 @@ struct Prepared<'a> {
     app_roots: Vec<Record>,
     excluded: Vec<Record>,
     folders: Vec<u8>,
+    rights: Option<Vec<u8>>,
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
@@ -133,6 +138,10 @@ pub fn search(
                 .filter_map(|folder| volume.cached_lookup(folder))
                 .collect(),
             folders,
+            rights: request
+                .viewer
+                .filter(|_| volume.is_unix())
+                .map(|viewer| rights_table(volume, viewer)),
         })
         .collect();
     let chunks: Vec<(usize, usize)> = prepared
@@ -332,6 +341,11 @@ impl<'a> Worker<'a> {
             {
                 continue;
             }
+            if let Some(rights) = &target.rights
+                && !reachable(volume, record, rights)
+            {
+                continue;
+            }
             let app = if volume.is_unix() {
                 NOT_APP
             } else {
@@ -427,6 +441,7 @@ fn has_extension(name: &[u8], extension: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::access::Owner;
     use crate::apps::{AppCatalog, DesktopApp};
     use crate::entry::{Attributes, ROOT};
 
@@ -511,6 +526,7 @@ mod tests {
             app_roots: &[],
             apps: None,
             language: "",
+            viewer: None,
         }
     }
 
@@ -594,6 +610,104 @@ mod tests {
             ..base(&query)
         };
         assert_eq!(found(&root, &everything).len(), 3);
+    }
+
+    fn owner(uid: u32, mode: u16) -> Option<Owner> {
+        Some(Owner {
+            uid,
+            gid: uid,
+            mode,
+        })
+    }
+
+    fn homes() -> VolumeIndex {
+        let mut home = VolumeIndex::new("/home");
+        home.set_owner(ROOT, owner(0, 0o755));
+        home.upsert(20, ROOT, "ana", DIR);
+        home.set_owner(20, owner(1000, 0o700));
+        home.upsert(21, 20, "plano.txt", FILE);
+        home.upsert(30, ROOT, "bia", DIR);
+        home.set_owner(30, owner(1001, 0o750));
+        home.upsert(31, 30, "plano.md", FILE);
+        home.upsert(32, 30, "lista", DIR);
+        home.set_owner(32, owner(1001, 0o711));
+        home.upsert(33, 32, "plano.odt", FILE);
+        home
+    }
+
+    fn seen_by(volume: &VolumeIndex, text: &str, uid: u32, groups: &[u32]) -> Vec<String> {
+        let query = Query::parse_for(text, false).unwrap();
+        let viewer = Viewer {
+            uid,
+            groups: groups.to_vec(),
+        };
+        let mut paths = found(
+            volume,
+            &SearchRequest {
+                viewer: Some(&viewer),
+                ..base(&query)
+            },
+        );
+        paths.sort();
+        paths
+    }
+
+    #[test]
+    fn viewers_only_see_what_they_can_reach() {
+        let home = homes();
+        assert_eq!(
+            seen_by(&home, "plano", 1000, &[1000]),
+            ["/home/ana/plano.txt"]
+        );
+        assert_eq!(
+            seen_by(&home, "plano", 1001, &[1001]),
+            ["/home/bia/lista/plano.odt", "/home/bia/plano.md"]
+        );
+        assert_eq!(
+            seen_by(&home, "plano", 1002, &[1002, 1001]),
+            ["/home/bia/plano.md"]
+        );
+        assert!(seen_by(&home, "plano", 1003, &[1003]).is_empty());
+        let query = Query::parse_for("plano", false).unwrap();
+        assert_eq!(found(&home, &base(&query)).len(), 3);
+    }
+
+    #[test]
+    fn unreachable_results_do_not_use_the_limit() {
+        let home = homes();
+        let query = Query::parse_for("plano", false).unwrap();
+        let viewer = Viewer {
+            uid: 1000,
+            groups: vec![1000],
+        };
+        let request = SearchRequest {
+            limit: 1,
+            viewer: Some(&viewer),
+            ..base(&query)
+        };
+        let outcome = search(&[&home], &request, &|| false).unwrap();
+        assert_eq!(paths(&outcome), ["/home/ana/plano.txt"]);
+        assert_eq!(outcome.total, 1);
+    }
+
+    #[test]
+    fn folders_without_an_owner_are_closed_and_drives_ignore_viewers() {
+        let mut root = VolumeIndex::new("/");
+        root.set_owner(ROOT, owner(0, 0o755));
+        root.upsert(20, ROOT, "dados", DIR);
+        root.upsert(21, 20, "plano.txt", FILE);
+        assert!(seen_by(&root, "plano", 1000, &[1000]).is_empty());
+        let c = drive_c();
+        let query = Query::parse("relatorio").unwrap();
+        let viewer = Viewer {
+            uid: 1000,
+            groups: vec![1000],
+        };
+        let request = SearchRequest {
+            viewer: Some(&viewer),
+            ..base(&query)
+        };
+        assert_eq!(found(&c, &request).len(), 3);
     }
 
     #[test]
