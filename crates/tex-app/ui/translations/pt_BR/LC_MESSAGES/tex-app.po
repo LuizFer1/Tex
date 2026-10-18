@@ -704,3 +704,21 @@ msgstr "Procurar agora"
 
 msgid "Update to {0}"
 msgstr "Atualizar para {0}"
+
+msgid "Could not read this file"
+msgstr "Não foi possível ler este arquivo"
+
+msgid "Image: {0}"
+msgstr "Imagem: {0}"
+
+msgid "Loading…"
+msgstr "Carregando…"
+
+msgid "esc close · alt z wrap lines"
+msgstr "esc fechar · alt z quebrar linhas"
+
+msgid "indexing lines…"
+msgstr "indexando linhas…"
+
+msgid "lines: {0} · {1}"
+msgstr "linhas: {0} · {1}"

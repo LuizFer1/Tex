@@ -1,6 +1,6 @@
 import { Palette } from "std-widgets.slint";
 import { Tokens } from "theme.slint";
-import { Icon, Icons, ScrollBar, TabItem, Toggle, Segmented, Select, Section, SettingRow, ShortcutField, Button, ButtonKind, CheckBox, PathList, TitleButton } from "kit/kit.slint";
+import { Icon, Icons, ScrollBar, TabItem, Toggle, Segmented, Select, Section, SettingRow, ShortcutField, Button, ButtonKind, CheckBox, PathList, TitleButton, ResizeEdge } from "kit/kit.slint";
 import { HistoryText } from "history.slint";
 
 export struct DriveRow {
@@ -10,16 +10,6 @@ export struct DriveRow {
     percent: int,
     entries: string,
     reason: string,
-}
-
-component ResizeEdge inherits TouchArea {
-    in property <int> direction;
-    callback resize(int);
-    pointer-event(event) => {
-        if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
-            root.resize(root.direction);
-        }
-    }
 }
 
 export component SettingsWindow inherits Window {
