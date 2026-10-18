@@ -42,18 +42,20 @@ component BlockView inherits VerticalLayout {
         }
     }
 
-    if root.block.kind == 2: HorizontalLayout {
-        padding-left: (root.block.level - 1) * 22px;
-        spacing: 6px;
+    if root.block.kind == 2: Rectangle {
+        height: item-text.preferred-height;
         Text {
+            x: (root.block.level - 1) * 22px;
             width: 22px;
             text: root.block.marker;
             color: Tokens.muted;
             font-size: Tokens.size-result;
             horizontal-alignment: right;
+            vertical-alignment: top;
         }
-        StyledText {
-            horizontal-stretch: 1;
+        item-text := StyledText {
+            x: (root.block.level - 1) * 22px + 28px;
+            width: parent.width - self.x;
             text: root.block.text;
             default-color: Tokens.ink;
             default-font-size: Tokens.size-result;
@@ -67,27 +69,29 @@ component BlockView inherits VerticalLayout {
     if root.block.kind == 3: Rectangle {
         background: Tokens.paper-2;
         border-radius: Tokens.radius-card;
-        VerticalLayout {
-            padding: 10px;
-            Text {
-                text: root.block.plain;
-                font-family: Tokens.mono-font;
-                font-size: Tokens.size-body;
-                color: Tokens.ink-3;
-                wrap: word-wrap;
-            }
+        height: code-text.preferred-height + 20px;
+        code-text := Text {
+            x: 10px;
+            y: 10px;
+            width: parent.width - 20px;
+            text: root.block.plain;
+            font-family: Tokens.mono-font;
+            font-size: Tokens.size-body;
+            color: Tokens.ink-3;
+            wrap: word-wrap;
         }
     }
 
-    if root.block.kind == 4: HorizontalLayout {
-        padding-left: (root.block.level - 1) * 14px;
-        spacing: 10px;
+    if root.block.kind == 4: Rectangle {
+        height: quote-text.preferred-height;
         Rectangle {
+            x: (root.block.level - 1) * 14px;
             width: 3px;
             background: Tokens.border;
         }
-        StyledText {
-            horizontal-stretch: 1;
+        quote-text := StyledText {
+            x: (root.block.level - 1) * 14px + 13px;
+            width: parent.width - self.x;
             text: root.block.text;
             default-color: Tokens.ink-2;
             default-font-size: Tokens.size-result;
@@ -109,7 +113,7 @@ component BlockView inherits VerticalLayout {
             padding: 6px;
             spacing: 12px;
             for cell in root.block.cells: StyledText {
-                horizontal-stretch: 1;
+                width: (root.width - 64px - 12px - 12px * (root.block.cells.length - 1)) / root.block.cells.length;
                 text: cell;
                 default-color: root.block.header ? Tokens.ink : Tokens.ink-2;
                 default-font-size: Tokens.size-label;
