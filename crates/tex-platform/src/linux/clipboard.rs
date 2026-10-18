@@ -1,5 +1,6 @@
 mod mime;
 mod wake;
+mod wayland;
 mod x11;
 
 use std::io;
@@ -67,7 +68,14 @@ impl ClipboardWatcher {
                         return Ok(ClipboardWatcher::threaded(backend, waker, thread));
                     }
                 }
-                Backend::DataControl | Backend::Shell => {}
+                Backend::DataControl => {
+                    if let Ok(device) = wayland::open() {
+                        let (waker, inbox) = wake::channel()?;
+                        let thread = thread::spawn(move || device.run(inbox, wanted, on_change));
+                        return Ok(ClipboardWatcher::threaded(backend, waker, thread));
+                    }
+                }
+                Backend::Shell => {}
             }
         }
         Err(io::Error::new(

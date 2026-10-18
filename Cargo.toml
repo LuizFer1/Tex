@@ -43,6 +43,9 @@ ed25519-dalek = "3.0.0"
 sha2 = "0.11"
 getrandom = "0.4.3"
 resvg = { version = "0.48.1", default-features = false }
+wayland-client = "0.31.15"
+wayland-protocols = { version = "0.32.13", features = ["client", "staging"] }
+wayland-protocols-wlr = { version = "0.3.12", features = ["client"] }
 
 [profile.release]
 lto = true

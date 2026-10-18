@@ -44,3 +44,6 @@ x11rb.workspace = true
 zbus.workspace = true
 png.workspace = true
 resvg.workspace = true
+wayland-client.workspace = true
+wayland-protocols.workspace = true
+wayland-protocols-wlr.workspace = true

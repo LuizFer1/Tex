@@ -3,7 +3,7 @@ use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// What the UI asks of a clipboard thread.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,8 +95,40 @@ pub(crate) fn wait(fds: &[RawFd], timeout: Option<Duration>) -> io::Result<Vec<b
         .collect())
 }
 
+/// Reads `source` to its end. `None` when it stalls for `stall` or grows past `limit` bytes.
+pub(crate) fn read_all(
+    mut source: impl Read + AsRawFd,
+    limit: usize,
+    stall: Duration,
+) -> Option<Vec<u8>> {
+    let mut data = Vec::new();
+    let mut buffer = vec![0u8; 64 * 1024];
+    let mut deadline = Instant::now() + stall;
+    loop {
+        let left = deadline.checked_duration_since(Instant::now())?;
+        if !wait(&[source.as_raw_fd()], Some(left)).ok()?[0] {
+            return None;
+        }
+        match source.read(&mut buffer) {
+            Ok(0) => return Some(data),
+            Ok(read) => {
+                data.extend_from_slice(&buffer[..read]);
+                if data.len() > limit {
+                    return None;
+                }
+                deadline = Instant::now() + stall;
+            }
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+            Err(_) => return None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::thread;
+
     use super::*;
 
     #[test]
@@ -129,5 +161,27 @@ mod tests {
         let (waker, inbox) = channel().unwrap();
         drop(inbox);
         assert!(waker.send(Message::Stop).is_err());
+    }
+
+    #[test]
+    fn reads_everything_until_the_writer_closes() {
+        let (reader, mut writer) = UnixStream::pair().unwrap();
+        let sender = thread::spawn(move || {
+            writer.write_all(&[7; 100_000]).unwrap();
+        });
+        let data = read_all(reader, 1 << 20, Duration::from_secs(2)).unwrap();
+        sender.join().unwrap();
+        assert_eq!(data.len(), 100_000);
+    }
+
+    #[test]
+    fn a_stalled_or_huge_source_gives_nothing() {
+        let (reader, writer) = UnixStream::pair().unwrap();
+        assert_eq!(read_all(reader, 1 << 20, Duration::from_millis(50)), None);
+        drop(writer);
+        let (reader, mut writer) = UnixStream::pair().unwrap();
+        writer.write_all(&[1; 2048]).unwrap();
+        drop(writer);
+        assert_eq!(read_all(reader, 1024, Duration::from_secs(1)), None);
     }
 }
