@@ -2,8 +2,8 @@
 mod windows;
 #[cfg(windows)]
 pub use windows::{
-    LocalTime, SingleInstance, local_time, lock_foreground, open_path, primary_work_area,
-    restore_foreground, reveal_in_folder, round_corners, shape_tabbed_window,
+    LocalTime, SingleInstance, local_time, lock_foreground, open_locked, open_path,
+    primary_work_area, restore_foreground, reveal_in_folder, round_corners, shape_tabbed_window,
     system_uses_dark_theme, take_foreground, user_language, work_area_under_cursor,
 };
 #[cfg(windows)]
@@ -17,6 +17,10 @@ pub use clipboard::{
 mod dpapi;
 #[cfg(windows)]
 pub use dpapi::{protect, unprotect};
+#[cfg(windows)]
+mod http;
+#[cfg(windows)]
+pub use http::http_get;
 #[cfg(windows)]
 mod file;
 #[cfg(windows)]

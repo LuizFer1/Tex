@@ -1,7 +1,10 @@
 use std::ffi::c_void;
+use std::fs::{File, OpenOptions};
 use std::io;
 use std::mem::size_of;
+use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::process::CommandExt;
+use std::path::Path;
 use std::process::Command;
 use std::ptr;
 
@@ -17,6 +20,7 @@ use windows_sys::Win32::Graphics::Gdi::{
     CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, GetMonitorInfoW, HMONITOR,
     MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint, RGN_OR, SetWindowRgn,
 };
+use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
 use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
 use windows_sys::Win32::System::SystemServices::LOCALE_NAME_MAX_LENGTH;
 use windows_sys::Win32::System::Threading::CreateMutexW;
@@ -236,6 +240,14 @@ pub fn reveal_in_folder(path: &str) -> io::Result<()> {
         .map(drop)
 }
 
+/// Opens a file for reading and refuses other writers, deletes and renames until it is closed.
+pub fn open_locked(path: &Path) -> io::Result<File> {
+    OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ)
+        .open(path)
+}
+
 /// The user's locale name, such as "pt-BR". Empty if Windows does not report one.
 pub fn user_language() -> String {
     let mut name = [0u16; LOCALE_NAME_MAX_LENGTH as usize];
@@ -328,5 +340,18 @@ mod tests {
         assert!((1..=31).contains(&time.day));
         assert!(time.hour < 24);
         assert!(time.minute < 60);
+    }
+
+    #[test]
+    fn a_locked_file_cannot_be_written_or_deleted() {
+        let path = std::env::temp_dir().join(format!("tex-locked-{}", std::process::id()));
+        std::fs::write(&path, b"setup").unwrap();
+        let file = open_locked(&path).unwrap();
+        assert!(std::fs::write(&path, b"evil").is_err());
+        assert!(std::fs::remove_file(&path).is_err());
+        assert!(std::fs::rename(&path, path.with_extension("moved")).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"setup");
+        drop(file);
+        std::fs::remove_file(&path).unwrap();
     }
 }
