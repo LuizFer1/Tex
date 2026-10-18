@@ -231,7 +231,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             });
         }
     }));
-    if with_app(|app| app.settings.general.windows_key) {
+    if with_app(|app| app.settings.winkey_active()) {
         let on_press = winkey_handler(&windows, &client);
         if with_app(|app| app.set_winkey(true, on_press)).is_err() {
             with_app(|app| app.settings.general.windows_key = false);
@@ -1295,7 +1295,7 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
     {
         let windows = windows.clone();
         catch_windows_key(window, move || {
-            if !with_app(|app| app.settings.general.windows_key) {
+            if !with_app(|app| app.settings.winkey_active()) {
                 return false;
             }
             let windows = windows.clone();

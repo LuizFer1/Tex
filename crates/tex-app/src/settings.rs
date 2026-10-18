@@ -33,6 +33,8 @@ pub struct General {
     pub windows_key: bool,
     pub start_with_windows: bool,
     pub popup_monitor: PopupMonitor,
+    pub auto_update: bool,
+    pub onboarding_done: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -76,8 +78,8 @@ pub enum Language {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Theme {
-    #[default]
     System,
+    #[default]
     Light,
     Dark,
 }
@@ -117,11 +119,13 @@ impl Default for General {
     fn default() -> Self {
         Self {
             language: Language::System,
-            theme: Theme::System,
+            theme: Theme::Light,
             hotkey: DEFAULT_HOTKEY.into(),
-            windows_key: false,
+            windows_key: true,
             start_with_windows: true,
             popup_monitor: PopupMonitor::Cursor,
+            auto_update: true,
+            onboarding_done: false,
         }
     }
 }
@@ -130,7 +134,7 @@ impl Default for Search {
     fn default() -> Self {
         Self {
             keep_last_search: KeepSearch::Minute1,
-            include_hidden: false,
+            include_hidden: true,
             include_system: false,
             excluded_folders: Vec::new(),
             show_apps: true,
@@ -233,6 +237,8 @@ impl Settings {
                 start_with_windows: field(general, "start_with_windows")
                     .unwrap_or(g.start_with_windows),
                 popup_monitor: field(general, "popup_monitor").unwrap_or(g.popup_monitor),
+                auto_update: field(general, "auto_update").unwrap_or(g.auto_update),
+                onboarding_done: field(general, "onboarding_done").unwrap_or(g.onboarding_done),
             },
             search: Search {
                 keep_last_search: field(search, "keep_last_search").unwrap_or(s.keep_last_search),
@@ -266,6 +272,11 @@ impl Settings {
 
     pub fn to_toml(&self) -> String {
         toml::to_string(self).expect("settings always serialize")
+    }
+
+    /// The Windows key hook only runs once the onboarding is done.
+    pub fn winkey_active(&self) -> bool {
+        self.general.windows_key && self.general.onboarding_done
     }
 
     /// Canonical hotkeys that differ, clean folder and app lists, values from the fixed lists
@@ -394,10 +405,13 @@ mod tests {
     fn defaults_match_the_spec() {
         let settings = Settings::default();
         assert_eq!(settings.general.hotkey, "alt+space");
+        assert_eq!(settings.general.theme, Theme::Light);
         assert!(settings.general.start_with_windows);
-        assert!(!settings.general.windows_key);
+        assert!(settings.general.windows_key);
+        assert!(settings.general.auto_update);
+        assert!(!settings.general.onboarding_done);
         assert_eq!(settings.search.keep_last_search, KeepSearch::Minute1);
-        assert!(!settings.search.include_hidden && !settings.search.include_system);
+        assert!(settings.search.include_hidden && !settings.search.include_system);
         assert!(settings.search.show_apps && settings.search.show_files);
         assert_eq!(settings.search.enter_action, EnterAction::Open);
     }
@@ -421,18 +435,57 @@ mod tests {
 
     #[test]
     fn partial_file_keeps_defaults() {
-        let settings = Settings::from_toml("[search]\ninclude_hidden = true\n").unwrap();
-        assert!(settings.search.include_hidden);
+        let settings = Settings::from_toml(
+            "[search]
+include_hidden = false
+",
+        )
+        .unwrap();
+        assert!(!settings.search.include_hidden);
         assert_eq!(settings.general, General::default());
     }
 
     #[test]
     fn unknown_values_fall_back_per_field() {
-        let text = "[general]\ntheme = \"purple\"\nwindows_key = true\nhotkey = \"nope\"\n";
+        let text = "[general]
+theme = \"purple\"
+windows_key = false
+hotkey = \"nope\"
+";
         let settings = Settings::from_toml(text).unwrap();
-        assert_eq!(settings.general.theme, Theme::System);
-        assert!(settings.general.windows_key);
+        assert_eq!(settings.general.theme, Theme::Light);
+        assert!(!settings.general.windows_key);
         assert_eq!(settings.general.hotkey, DEFAULT_HOTKEY);
+    }
+
+    #[test]
+    fn onboarding_flags_are_read_field_by_field() {
+        let settings = Settings::from_toml(
+            "[general]
+theme = \"dark\"
+",
+        )
+        .unwrap();
+        assert!(!settings.general.onboarding_done);
+        assert!(settings.general.auto_update);
+        let text = "[general]
+onboarding_done = true
+auto_update = false
+";
+        let settings = Settings::from_toml(text).unwrap();
+        assert!(settings.general.onboarding_done);
+        assert!(!settings.general.auto_update);
+        assert!(settings.to_toml().contains("onboarding_done = true"));
+    }
+
+    #[test]
+    fn windows_key_waits_for_the_onboarding() {
+        let mut settings = Settings::default();
+        assert!(!settings.winkey_active());
+        settings.general.onboarding_done = true;
+        assert!(settings.winkey_active());
+        settings.general.windows_key = false;
+        assert!(!settings.winkey_active());
     }
 
     #[test]
