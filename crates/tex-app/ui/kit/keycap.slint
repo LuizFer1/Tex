@@ -1,8 +1,11 @@
 import { Tokens } from "../theme.slint";
+import { Icon } from "icon.slint";
 
 export component Keycap inherits Rectangle {
     in property <string> text;
     in property <bool> large;
+    in property <image> icon;
+    in property <bool> has-icon;
 
     property <length> edge: root.large ? Tokens.border-strong : Tokens.border-control;
     property <length> radius: root.large ? 4px : Tokens.radius-control;
@@ -25,7 +28,12 @@ export component Keycap inherits Rectangle {
         padding-left: root.large ? 12px : 9px;
         padding-right: root.large ? 12px : 9px;
         padding-bottom: root.large ? 3px : 2px;
-        Text {
+        if root.has-icon: Icon {
+            width: root.large ? 16px : 12px;
+            source: root.icon;
+            tint: Tokens.ink;
+        }
+        if !root.has-icon: Text {
             text: root.text;
             font-family: Tokens.mono-font;
             font-size: root.large ? Tokens.size-label : Tokens.size-path;

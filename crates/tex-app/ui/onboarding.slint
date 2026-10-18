@@ -137,7 +137,8 @@ component ChoicePreview inherits Rectangle {
             if root.choice.preview == 5: HorizontalLayout {
                 spacing: 6px;
                 Keycap {
-                    text: "↵";
+                    icon: Icons.enter;
+                    has-icon: true;
                     large: true;
                 }
                 KeySeparator {
@@ -189,13 +190,10 @@ component StepButton inherits Rectangle {
             color: root.primary ? Tokens.on-action : Tokens.ink;
             vertical-alignment: center;
         }
-        if root.primary: Text {
-            text: "↵";
-            font-family: Tokens.mono-font;
-            font-size: Tokens.size-kicker;
-            font-weight: 500;
-            color: Tokens.highlight;
-            vertical-alignment: center;
+        if root.primary: Icon {
+            width: 12px;
+            source: Icons.enter;
+            tint: Tokens.highlight;
         }
     }
 
