@@ -11,6 +11,8 @@ mod search_client;
 mod settings;
 mod shortcut;
 mod theme;
+#[allow(dead_code)]
+mod update;
 
 use std::cell::RefCell;
 use std::collections::HashSet;
