@@ -189,7 +189,7 @@ mod tests {
 
     fn ready(engine: &Engine, letter: char, entries: &[(u32, u32, &str, bool)]) -> Arc<Volume> {
         let volume = engine.add(letter, 1).unwrap();
-        let mut index = VolumeIndex::new(letter);
+        let mut index = VolumeIndex::new(&format!("{letter}:"));
         for &(record, parent, name, dir) in entries {
             index.upsert(
                 record,
@@ -397,7 +397,7 @@ mod tests {
             system: false,
         };
         let volume = engine.add('C', 1).unwrap();
-        let mut index = VolumeIndex::new('C');
+        let mut index = VolumeIndex::new("C:");
         index.upsert(
             20,
             ROOT,

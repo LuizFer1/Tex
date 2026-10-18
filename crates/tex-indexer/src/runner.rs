@@ -153,12 +153,12 @@ impl Runner {
     }
 
     fn load(&self, volume: &Volume, journal: &Journal) -> Option<(VolumeIndex, i64)> {
-        match store::load(&self.index_dir, volume.serial) {
+        match store::load(&self.index_dir, u64::from(volume.serial)) {
             Ok((index, header))
-                if header.serial == volume.serial
+                if header.serial == u64::from(volume.serial)
                     && header.journal_id == journal.id
                     && (journal.first_usn..=journal.next_usn).contains(&header.next_usn)
-                    && index.letter() == volume.letter =>
+                    && index.drive() == Some(volume.letter) =>
             {
                 Some((index, header.next_usn))
             }
@@ -183,7 +183,7 @@ impl Runner {
         log(format!("{}: indexing", volume.letter));
         volume.write().state = VolumeState::Indexing { percent: 0 };
         let total = handle.record_count().unwrap_or(0).max(1);
-        let mut index = VolumeIndex::new(volume.letter);
+        let mut index = VolumeIndex::new(&format!("{}:", volume.letter));
         let mut too_large = 0;
         handle.enumerate(journal.next_usn, |bytes| {
             let Some(batch) = parse_batch(bytes) else {
@@ -219,7 +219,7 @@ impl Runner {
             return;
         };
         let header = SnapshotHeader {
-            serial: volume.serial,
+            serial: u64::from(volume.serial),
             journal_id: data.journal_id,
             next_usn: data.next_usn,
         };

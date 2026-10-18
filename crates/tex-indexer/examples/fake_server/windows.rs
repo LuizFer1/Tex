@@ -27,7 +27,7 @@ pub fn main() {
 
     let engine = Arc::new(Engine::new());
     let volume = engine
-        .add(index.letter(), 0)
+        .add(index.drive().expect("drive root"), 0)
         .expect("a new engine has no volumes");
     {
         let mut data = volume.write();
@@ -52,7 +52,7 @@ fn walk(root: &Path) -> VolumeIndex {
         .and_then(|path| path.chars().next())
         .filter(char::is_ascii_alphabetic)
         .expect("absolute path like C:\\Users\\you");
-    let mut index = VolumeIndex::new(letter);
+    let mut index = VolumeIndex::new(&format!("{letter}:"));
     let mut next: Record = 16;
     let mut parent = ROOT;
     for component in root.components() {

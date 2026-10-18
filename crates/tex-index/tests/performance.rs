@@ -12,7 +12,7 @@ const DIRS: u32 = 30_000;
 const FIRST: u32 = 16;
 
 fn build() -> VolumeIndex {
-    let mut volume = VolumeIndex::new('C');
+    let mut volume = VolumeIndex::new("C:");
     let dir = Attributes {
         dir: true,
         ..Attributes::default()

@@ -94,7 +94,11 @@ pub fn search(
     let volumes: Vec<&VolumeIndex> = volumes
         .iter()
         .copied()
-        .filter(|volume| query.drive().is_none_or(|drive| drive == volume.letter()))
+        .filter(|volume| {
+            query
+                .drive()
+                .is_none_or(|drive| volume.drive() == Some(drive))
+        })
         .collect();
     let parallelism = thread::available_parallelism().map_or(1, |n| n.get());
     let masks = folder_masks(&volumes, query, parallelism, cancelled)?;
@@ -412,7 +416,7 @@ mod tests {
     };
 
     fn drive_c() -> VolumeIndex {
-        let mut c = VolumeIndex::new('C');
+        let mut c = VolumeIndex::new("C:");
         c.upsert(20, ROOT, "Users", DIR);
         c.upsert(21, 20, "luis", DIR);
         c.upsert(22, 21, "Documents", DIR);
@@ -650,7 +654,7 @@ mod tests {
     #[test]
     fn searches_every_volume() {
         let c = drive_c();
-        let mut d = VolumeIndex::new('D');
+        let mut d = VolumeIndex::new("D:");
         d.upsert(20, ROOT, "relatorio.txt", FILE);
         let outcome = run(&[&c, &d], "relatorio", Filter::All, 10, None, false);
         assert_eq!(
@@ -790,7 +794,7 @@ mod tests {
 
     #[test]
     fn exact_folder_name_ranks_first() {
-        let mut c = VolumeIndex::new('C');
+        let mut c = VolumeIndex::new("C:");
         c.upsert(20, ROOT, "TexLive", DIR);
         c.upsert(21, 20, "a.exe", FILE);
         c.upsert(22, ROOT, "Tex", DIR);
@@ -824,7 +828,7 @@ mod tests {
     #[test]
     fn drive_and_folders_pick_the_volumes() {
         let c = drive_c();
-        let mut d = VolumeIndex::new('D');
+        let mut d = VolumeIndex::new("D:");
         d.upsert(20, ROOT, "relatorio.txt", FILE);
         d.upsert(21, ROOT, "notes.txt", FILE);
         let on = |text: &str| -> Vec<String> {
@@ -849,5 +853,23 @@ mod tests {
         let c = drive_c();
         let query = Query::parse("projetos/").unwrap();
         assert!(search(&[&c], &base(&query), &|| true).is_none());
+    }
+
+    #[test]
+    fn unix_volumes_use_slashes() {
+        let mut root = VolumeIndex::new("/");
+        root.upsert(20, ROOT, "home", DIR);
+        root.upsert(21, 20, "luis", DIR);
+        root.upsert(22, 21, "relatorio.txt", FILE);
+        let c = drive_c();
+        let outcome = run(
+            &[&c, &root],
+            "relatorio.txt",
+            Filter::Files,
+            10,
+            Some("/home/luis"),
+            false,
+        );
+        assert_eq!(paths(&outcome), ["/home/luis/relatorio.txt"]);
     }
 }

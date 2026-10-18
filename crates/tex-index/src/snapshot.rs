@@ -5,15 +5,16 @@ use crate::entry::Entry;
 use crate::volume::VolumeIndex;
 
 const MAGIC: [u8; 8] = *b"TEXINDEX";
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 const NO_RECORD: u32 = u32::MAX;
+const MAX_ROOT_LEN: u32 = 4096;
 #[cfg(test)]
-const HEADER_LEN: usize = 56;
+const FIXED_HEADER_LEN: usize = 60;
 const ENTRY_LEN: usize = 11;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SnapshotHeader {
-    pub serial: u32,
+    pub serial: u64,
     pub journal_id: u64,
     pub next_usn: i64,
 }
@@ -47,7 +48,7 @@ impl fmt::Display for SnapshotError {
 
 impl std::error::Error for SnapshotError {}
 
-/// Writes the header followed by every entry (11 bytes each) and the name buffer.
+/// Writes the header (with the volume's root), every entry (11 bytes each) and the name buffer.
 /// Wrap `out` in a `BufWriter` when writing to a file.
 pub fn write_snapshot(
     out: &mut impl Write,
@@ -55,9 +56,11 @@ pub fn write_snapshot(
     header: &SnapshotHeader,
 ) -> io::Result<()> {
     let (entries, names) = index.raw_parts();
+    let root = index.root().as_bytes();
     out.write_all(&MAGIC)?;
     out.write_all(&VERSION.to_le_bytes())?;
-    out.write_all(&(index.letter() as u32).to_le_bytes())?;
+    out.write_all(&(root.len() as u32).to_le_bytes())?;
+    out.write_all(root)?;
     out.write_all(&header.serial.to_le_bytes())?;
     out.write_all(&header.journal_id.to_le_bytes())?;
     out.write_all(&header.next_usn.to_le_bytes())?;
@@ -85,11 +88,18 @@ pub fn read_snapshot(
     if version != VERSION {
         return Err(SnapshotError::Version(version));
     }
-    let letter = char::from_u32(u32::from_le_bytes(read_array(input)?))
-        .filter(char::is_ascii_uppercase)
-        .ok_or(SnapshotError::Corrupt("drive letter"))?;
+    let root_len = u32::from_le_bytes(read_array(input)?);
+    if root_len == 0 || root_len > MAX_ROOT_LEN {
+        return Err(SnapshotError::Corrupt("root"));
+    }
+    let mut root = vec![0; root_len as usize];
+    input.read_exact(&mut root)?;
+    let root = String::from_utf8(root)
+        .ok()
+        .filter(|root| valid_root(root))
+        .ok_or(SnapshotError::Corrupt("root"))?;
     let header = SnapshotHeader {
-        serial: u32::from_le_bytes(read_array(input)?),
+        serial: u64::from_le_bytes(read_array(input)?),
         journal_id: u64::from_le_bytes(read_array(input)?),
         next_usn: i64::from_le_bytes(read_array(input)?),
     };
@@ -122,9 +132,15 @@ pub fn read_snapshot(
         return Err(SnapshotError::Corrupt("truncated name buffer"));
     }
 
-    let index = VolumeIndex::from_raw_parts(letter, entries, names, windows_dir)
+    let index = VolumeIndex::from_raw_parts(&root, entries, names, windows_dir)
         .map_err(SnapshotError::Corrupt)?;
     Ok((index, header))
+}
+
+/// A drive such as `C:` or an absolute Unix path.
+fn valid_root(root: &str) -> bool {
+    let bytes = root.as_bytes();
+    root.starts_with('/') || (bytes.len() == 2 && bytes[0].is_ascii_uppercase() && bytes[1] == b':')
 }
 
 fn read_array<const N: usize>(input: &mut impl Read) -> io::Result<[u8; N]> {
@@ -150,7 +166,7 @@ mod tests {
     };
 
     fn sample() -> (VolumeIndex, SnapshotHeader) {
-        let mut volume = VolumeIndex::new('D');
+        let mut volume = VolumeIndex::new("D:");
         volume.upsert(20, ROOT, "Projetos", DIR);
         volume.upsert(21, 20, "Relatório.pdf", FILE);
         volume.upsert(22, 20, "temp.txt", FILE);
@@ -176,7 +192,7 @@ mod tests {
     fn round_trip_keeps_entries_and_header() {
         let (restored, header) = read_snapshot(&mut encode().as_slice()).unwrap();
         assert_eq!(header, sample().1);
-        assert_eq!(restored.letter(), 'D');
+        assert_eq!(restored.root(), "D:");
         assert_eq!(restored.len(), 3);
         assert_eq!(
             restored.path(21).as_deref(),
@@ -185,6 +201,24 @@ mod tests {
         assert_eq!(restored.name(22), None);
         assert_eq!(restored.windows_dir(), Some(30));
         assert_eq!(restored.garbage(), "temp.txt".len());
+    }
+
+    #[test]
+    fn round_trip_keeps_unix_roots_and_wide_serials() {
+        let mut volume = VolumeIndex::new("/home");
+        volume.upsert(20, ROOT, "luis", DIR);
+        volume.upsert(21, 20, "notes.txt", FILE);
+        let header = SnapshotHeader {
+            serial: 0x1234_5678_9ABC_DEF0,
+            journal_id: 0,
+            next_usn: 0,
+        };
+        let mut bytes = Vec::new();
+        write_snapshot(&mut bytes, &volume, &header).unwrap();
+        let (restored, restored_header) = read_snapshot(&mut bytes.as_slice()).unwrap();
+        assert_eq!(restored_header, header);
+        assert_eq!(restored.root(), "/home");
+        assert_eq!(restored.path(21).as_deref(), Some("/home/luis/notes.txt"));
     }
 
     #[test]
@@ -204,6 +238,22 @@ mod tests {
     }
 
     #[test]
+    fn rejects_bad_roots() {
+        let mut bytes = encode();
+        bytes[16] = b'x';
+        assert!(matches!(
+            read_snapshot(&mut bytes.as_slice()),
+            Err(SnapshotError::Corrupt("root"))
+        ));
+        let mut bytes = encode();
+        bytes[12..16].copy_from_slice(&0u32.to_le_bytes());
+        assert!(matches!(
+            read_snapshot(&mut bytes.as_slice()),
+            Err(SnapshotError::Corrupt("root"))
+        ));
+    }
+
+    #[test]
     fn rejects_truncated_files() {
         let mut bytes = encode();
         bytes.truncate(bytes.len() - 3);
@@ -213,7 +263,7 @@ mod tests {
     #[test]
     fn rejects_names_outside_the_buffer() {
         let mut bytes = encode();
-        let name_len_at = HEADER_LEN + 21 * ENTRY_LEN + 8;
+        let name_len_at = FIXED_HEADER_LEN + "D:".len() + 21 * ENTRY_LEN + 8;
         bytes[name_len_at..name_len_at + 2].copy_from_slice(&u16::MAX.to_le_bytes());
         assert!(matches!(
             read_snapshot(&mut bytes.as_slice()),
