@@ -22,6 +22,7 @@ One search box for everything on your computer.
 
 - Covers **files and folders on every disk** available to the user.
 - Includes **installed apps** in the same results. There is no separate search for each kind.
+- Microsoft Store apps, such as Windows Terminal, are listed with the installed apps.
 - Results are **grouped by category** and can be **filtered** by files, folders, or apps.
 - Files and folders show **where they are**, so two items with the same name can be told apart.
 - Type a **path** to search inside folders: `Tex/.exe` finds `.exe` files anywhere inside folders named like "Tex", and `Projetos/Tex/` lists everything below them.
