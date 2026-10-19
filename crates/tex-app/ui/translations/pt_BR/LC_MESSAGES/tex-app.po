@@ -761,3 +761,6 @@ msgstr "a captura precisa da extensão do GNOME"
 
 msgid "this desktop does not allow capture"
 msgstr "esta área de trabalho não permite a captura"
+
+msgid "restart Tex to use the new version"
+msgstr "reinicie o Tex para usar a versão nova"
