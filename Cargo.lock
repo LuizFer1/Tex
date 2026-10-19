@@ -4636,6 +4636,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tex-calc"
+version = "0.4.3"
+dependencies = [
+ "tex-index",
+]
+
+[[package]]
 name = "tex-clipboard"
 version = "0.4.3"
 dependencies = [

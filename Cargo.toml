@@ -14,6 +14,7 @@ tex-index = { path = "crates/tex-index" }
 tex-ipc = { path = "crates/tex-ipc" }
 tex-clipboard = { path = "crates/tex-clipboard" }
 tex-reader = { path = "crates/tex-reader" }
+tex-calc = { path = "crates/tex-calc" }
 global-hotkey = "0.8.0"
 slint = { version = "1.18.1", default-features = false, features = [
     "std",
