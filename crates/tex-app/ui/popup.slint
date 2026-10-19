@@ -134,6 +134,7 @@ export component Popup inherits Window {
     in property <string> status-ready-letters;
     in property <string> status-ready-total;
     in property <bool> service-unavailable;
+    in property <bool> restart-needed;
     in property <bool> searching;
     in property <bool> enter-reveals;
     in-out property <int> filter: 0;
@@ -157,7 +158,7 @@ export component Popup inherits Window {
     property <length> row-height: 36px;
     property <string> open-text: @tr("open");
     property <string> reveal-text: @tr("open location");
-    property <string> status-text: root.service-unavailable ? @tr("search service stopped") : root.status-indexing != "" ? @tr("indexing {0}", root.status-indexing) : root.status-failed != "" ? @tr("unavailable: {0}", root.status-failed) : root.status-ready-letters != "" ? @tr("{0} · {1} items", root.status-ready-letters, root.status-ready-total) : "";
+    property <string> status-text: root.restart-needed ? @tr("restart Tex to use the new version") : root.service-unavailable ? @tr("search service stopped") : root.status-indexing != "" ? @tr("indexing {0}", root.status-indexing) : root.status-failed != "" ? @tr("unavailable: {0}", root.status-failed) : root.status-ready-letters != "" ? @tr("{0} · {1} items", root.status-ready-letters, root.status-ready-total) : "";
 
     public function reset() {
         root.query = "";
@@ -366,7 +367,7 @@ export component Popup inherits Window {
             Footer {
                 hints: @tr("↑↓ navigate · enter {0} · ctrl enter {1} · esc close", root.enter-reveals ? root.reveal-text : root.open-text, root.enter-reveals ? root.open-text : root.reveal-text);
                 status: root.status-text;
-                status-color: root.service-unavailable || root.status-failed != "" ? Tokens.warn-text : Tokens.muted;
+                status-color: root.restart-needed || root.service-unavailable || root.status-failed != "" ? Tokens.warn-text : Tokens.muted;
             }
         }
     }

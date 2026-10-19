@@ -23,6 +23,49 @@ jobs:
 
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
+  linux-packages:
+    runs-on: ubuntu-22.04
+    needs: linux
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System packages
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libfontconfig1-dev libxkbcommon-dev libwayland-dev
+
+      - name: Rust
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Version
+        id: version
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "tex-app") | .version')
+          if [ "v$version" != "${{ github.ref_name }}" ]; then echo "tag ${{ github.ref_name }} does not match workspace version $version"; exit 1; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - run: cargo build --release -p tex-app -p tex-indexer
+
+      - name: Packaging tools
+        run: cargo install cargo-deb --version 3.8.0 --locked && cargo install cargo-generate-rpm --version 0.21.0 --locked
+
+      - name: Packages
+        run: sh installer/linux/make-packages.sh "${{ steps.version.outputs.version }}" target target/linux
+
+      - name: Sign
+        env:
+          TEX_UPDATE_KEY: ${{ secrets.TEX_UPDATE_KEY }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ -z "$TEX_UPDATE_KEY" ]; then echo "the TEX_UPDATE_KEY secret is missing"; exit 1; fi
+          for file in "tex_${VERSION}_amd64.deb" "tex-${VERSION}.x86_64.rpm" "tex-${VERSION}-linux-x86_64.tar.gz"; do
+            cargo run --release -p tex-app --example sign_update -- "target/linux/$file" "$VERSION"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: target/linux/
+          if-no-files-found: error
+
   installer:
     runs-on: windows-latest
     needs: linux
@@ -61,7 +104,28 @@ jobs:
           cargo run --release -p tex-app --example sign_update -- "target\installer\Tex-Setup-${{ steps.version.outputs.version }}.exe" "${{ steps.version.outputs.version }}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            target/installer/Tex-Setup-${{ steps.version.outputs.version }}.exe
+            target/installer/Tex-Setup-${{ steps.version.outputs.version }}.exe.sig
+          if-no-files-found: error
+
+  release:
+    runs-on: ubuntu-22.04
+    needs: [installer, linux-packages]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" --draft --title "Tex ${{ steps.version.outputs.version }}" --generate-notes "target\installer\Tex-Setup-${{ steps.version.outputs.version }}.exe" "target\installer\Tex-Setup-${{ steps.version.outputs.version }}.exe.sig"
+          GH_REPO: ${{ github.repository }}
+        run: |
+          ls -l dist
+          test "$(ls dist | wc -l)" -eq 8
+          gh release create "${{ github.ref_name }}" --draft --title "Tex ${GITHUB_REF_NAME#v}" --generate-notes dist/*

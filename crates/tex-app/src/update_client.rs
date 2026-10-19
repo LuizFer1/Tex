@@ -8,14 +8,14 @@ use std::time::{Duration, Instant};
 
 use tex_platform::{http_get, open_locked};
 
-use crate::update::{self, Release, Version, installer_name, parse_signature, verify};
+use crate::update::{self, InstallKind, Release, Version, parse_signature, verify};
 
 const API_LIMIT: u64 = 1024 * 1024;
 const SIGNATURE_LIMIT: u64 = 1024;
 const INSTALLER_LIMIT: u64 = 200 * 1024 * 1024;
 const RECHECK_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
+#[cfg(windows)]
 const INSTALLER_ARGS: [&str; 4] = ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/UPDATE"];
-const PREFIX: &str = "Tex-Setup-";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UpdateStatus {
@@ -25,6 +25,9 @@ pub enum UpdateStatus {
     Downloading(String),
     Ready(String),
     Installing(String),
+    /// Installed through `pkexec` on Linux: Tex starts the new version and exits.
+    #[cfg_attr(windows, allow(dead_code))]
+    Installed(String),
     Failed,
 }
 
@@ -38,14 +41,17 @@ impl UpdateStatus {
             UpdateStatus::Downloading(version) => (3, version),
             UpdateStatus::Ready(version) => (4, version),
             UpdateStatus::Failed => (5, ""),
-            UpdateStatus::Installing(version) => (6, version),
+            UpdateStatus::Installing(version) | UpdateStatus::Installed(version) => (6, version),
         }
     }
 
     pub fn busy(&self) -> bool {
         matches!(
             self,
-            UpdateStatus::Checking | UpdateStatus::Downloading(_) | UpdateStatus::Installing(_)
+            UpdateStatus::Checking
+                | UpdateStatus::Downloading(_)
+                | UpdateStatus::Installing(_)
+                | UpdateStatus::Installed(_)
         )
     }
 
@@ -73,13 +79,20 @@ pub struct UpdateClient {
 }
 
 impl UpdateClient {
-    /// Checks and installs on a worker thread, keeping downloads in `folder`. `on_status` runs there.
+    /// Checks and installs on a worker thread, keeping downloads in `folder`. `on_status` runs
+    /// there. A copy that no package installed (a Linux build without `install-kind`) never
+    /// goes online: every check finds it up to date.
     pub fn start(folder: PathBuf, on_status: impl Fn(UpdateStatus) + Send + 'static) -> Self {
         let (commands, receiver) = mpsc::channel();
         thread::spawn(move || {
+            let Some(kind) = InstallKind::current() else {
+                run_without_updates(&receiver, &on_status);
+                return;
+            };
             let checker = Checker {
                 api: latest_url(&update::repository()),
                 folder,
+                kind,
                 current: Version::current(),
                 public_key: update::PUBLIC_KEY,
                 fetch: http_get,
@@ -142,9 +155,19 @@ fn run<F: Fn(&str, u64) -> io::Result<Vec<u8>>>(
     }
 }
 
+/// Answers every check with "up to date" without going online.
+fn run_without_updates(receiver: &Receiver<Command>, emit: &dyn Fn(UpdateStatus)) {
+    for command in receiver {
+        if command == Command::Check {
+            emit(UpdateStatus::UpToDate);
+        }
+    }
+}
+
 struct Checker<F> {
     api: String,
     folder: PathBuf,
+    kind: InstallKind,
     current: Version,
     public_key: [u8; 32],
     fetch: F,
@@ -158,26 +181,27 @@ struct Ready {
 }
 
 impl<F: Fn(&str, u64) -> io::Result<Vec<u8>>> Checker<F> {
-    /// Finds a newer release and downloads its installer, or reuses one already downloaded
-    /// and signed; `Ok(None)` when there is nothing to install. Removes every other installer
-    /// once a newer release is found, and all of them when Tex is up to date.
+    /// Finds a newer release and downloads its package of this install kind, or reuses one
+    /// already downloaded and signed; `Ok(None)` when there is nothing to install. Removes
+    /// every other download once a newer release is found, and all of them when Tex is up to
+    /// date.
     fn check(&self, emit: &dyn Fn(UpdateStatus)) -> io::Result<Option<Ready>> {
         let answer = (self.fetch)(&self.api, API_LIMIT)?;
         let latest = Release::version_in(&answer).ok_or_else(|| invalid("not a release"))?;
         if latest <= self.current {
-            remove_installers(&self.folder, None);
+            remove_installers(&self.folder, self.kind.prefix(), None);
             return Ok(None);
         }
-        let Some(release) = Release::from_json(&answer) else {
+        let Some(release) = Release::from_json(&answer, self.kind) else {
             return Ok(None);
         };
-        let name = installer_name(release.version);
+        let name = self.kind.asset_name(release.version);
         let ready = Ready {
             version: release.version,
             installer: self.folder.join(&name),
             signature: self.folder.join(format!("{name}.sig")),
         };
-        remove_installers(&self.folder, Some(&name));
+        remove_installers(&self.folder, self.kind.prefix(), Some(&name));
         if self.verified(&ready) {
             return Ok(Some(ready));
         }
@@ -191,12 +215,19 @@ impl<F: Fn(&str, u64) -> io::Result<Vec<u8>>> Checker<F> {
         let installer = (self.fetch)(&release.installer.url, release.installer.size)?;
         let valid = installer.len() as u64 == release.installer.size
             && parse_signature(&signature).is_some_and(|signature| {
-                verify(&installer, release.version, &signature, &self.public_key)
+                verify(
+                    &installer,
+                    &name,
+                    release.version,
+                    &signature,
+                    &self.public_key,
+                )
             });
         if !valid {
             return Err(invalid("the installer does not match its signature"));
         }
         fs::create_dir_all(&self.folder)?;
+        make_private(&self.folder)?;
         save(&ready.signature, &signature)?;
         save(&ready.installer, &installer)?;
         Ok(Some(ready))
@@ -208,26 +239,41 @@ impl<F: Fn(&str, u64) -> io::Result<Vec<u8>>> Checker<F> {
         else {
             return false;
         };
+        let name = self.kind.asset_name(ready.version);
         parse_signature(&signature).is_some_and(|signature| {
-            verify(&installer, ready.version, &signature, &self.public_key)
+            verify(
+                &installer,
+                &name,
+                ready.version,
+                &signature,
+                &self.public_key,
+            )
         })
     }
 
-    /// Verifies the installer again while holding it open without write sharing, so nothing
-    /// can swap it before Windows elevates it, then runs it and waits. Setup closes Tex before
-    /// installing, so returning means it did not install (UAC cancelled or setup failed).
+    /// Verifies the package again while holding it open (on Windows without write sharing, so
+    /// nothing can swap it before it is elevated), then installs it and waits.
     fn install(&self, ready: &Ready, emit: &dyn Fn(UpdateStatus)) -> UpdateStatus {
         let Ok(mut file) = open_locked(&ready.installer) else {
             return UpdateStatus::Failed;
         };
         if !self.verified_open(&mut file, ready) {
             drop(file);
-            remove_installers(&self.folder, None);
+            remove_installers(&self.folder, self.kind.prefix(), None);
             return UpdateStatus::Failed;
         }
         let version = ready.version.to_string();
         emit(UpdateStatus::Installing(version.clone()));
-        let status = match process::Command::new(&ready.installer)
+        let status = self.launch(ready, version);
+        drop(file);
+        status
+    }
+
+    /// Runs the installer. Setup closes Tex before installing, so returning means it did not
+    /// install (UAC cancelled or setup failed).
+    #[cfg(windows)]
+    fn launch(&self, ready: &Ready, version: String) -> UpdateStatus {
+        match process::Command::new(&ready.installer)
             .args(INSTALLER_ARGS)
             .spawn()
         {
@@ -239,8 +285,33 @@ impl<F: Fn(&str, u64) -> io::Result<Vec<u8>>> Checker<F> {
                 eprintln!("update: {error}");
                 UpdateStatus::Failed
             }
+        }
+    }
+
+    /// Asks for the administrator password with `pkexec` and waits while `tex --apply-update`
+    /// verifies the package again as root and installs it.
+    #[cfg(not(windows))]
+    fn launch(&self, ready: &Ready, version: String) -> UpdateStatus {
+        let Some(exe) = tex_platform::current_executable() else {
+            return UpdateStatus::Failed;
         };
-        drop(file);
+        let code = match process::Command::new("pkexec")
+            .arg(exe)
+            .arg("--apply-update")
+            .arg(&ready.installer)
+            .arg(&version)
+            .status()
+        {
+            Ok(status) => status.code(),
+            Err(error) => {
+                eprintln!("update: pkexec: {error}");
+                return UpdateStatus::Failed;
+            }
+        };
+        let status = after_apply(code, version);
+        if status == UpdateStatus::Failed {
+            remove_installers(&self.folder, self.kind.prefix(), None);
+        }
         status
     }
 
@@ -253,13 +324,44 @@ impl<F: Fn(&str, u64) -> io::Result<Vec<u8>>> Checker<F> {
             return false;
         };
         let mut installer = Vec::new();
+        let name = self.kind.asset_name(ready.version);
         file.read_to_end(&mut installer).is_ok()
-            && verify(&installer, ready.version, &signature, &self.public_key)
+            && verify(
+                &installer,
+                &name,
+                ready.version,
+                &signature,
+                &self.public_key,
+            )
     }
 }
 
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.to_owned())
+}
+
+/// What `pkexec tex --apply-update` exiting with `code` means: installed, a package the root
+/// refused, or anything else (password dialog cancelled, installation failed), which leaves
+/// the update ready to try again.
+#[cfg(not(windows))]
+fn after_apply(code: Option<i32>, version: String) -> UpdateStatus {
+    match code {
+        Some(0) => UpdateStatus::Installed(version),
+        Some(update::REFUSED_EXIT) => UpdateStatus::Failed,
+        _ => UpdateStatus::Ready(version),
+    }
+}
+
+/// Only this user may open the downloads folder, so nobody else can swap a package.
+#[cfg(unix)]
+fn make_private(folder: &Path) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(folder, fs::Permissions::from_mode(0o700))
+}
+
+#[cfg(windows)]
+fn make_private(_folder: &Path) -> io::Result<()> {
+    Ok(())
 }
 
 /// Writes next to `path` and renames, so a cut download never looks complete.
@@ -270,8 +372,9 @@ fn save(path: &Path, bytes: &[u8]) -> io::Result<()> {
     fs::rename(&part, path)
 }
 
-/// Deletes downloaded installers, signatures and partial files, except those of `keep`.
-fn remove_installers(folder: &Path, keep: Option<&str>) {
+/// Deletes the downloads whose names start with `prefix` (packages, signatures and partial
+/// files), except those of `keep`.
+fn remove_installers(folder: &Path, prefix: &str, keep: Option<&str>) {
     let Ok(entries) = fs::read_dir(folder) else {
         return;
     };
@@ -281,7 +384,7 @@ fn remove_installers(folder: &Path, keep: Option<&str>) {
             continue;
         };
         let kept = keep.is_some_and(|keep| name == keep || name.strip_suffix(".sig") == Some(keep));
-        if name.starts_with(PREFIX) && !kept {
+        if name.starts_with(prefix) && !kept {
             let _ = fs::remove_file(entry.path());
         }
     }
@@ -327,7 +430,16 @@ mod tests {
     }
 
     fn signature(installer: &[u8], version: &str) -> Vec<u8> {
-        let message = signed_message(Version::parse(version).unwrap(), &sha256_hex(installer));
+        let version = Version::parse(version).unwrap();
+        signed(
+            installer,
+            &InstallKind::Windows.asset_name(version),
+            version,
+        )
+    }
+
+    fn signed(package: &[u8], asset: &str, version: Version) -> Vec<u8> {
+        let message = signed_message(asset, version, &sha256_hex(package)).unwrap();
         let signature = SigningKey::from_bytes(&SEED).sign(&message).to_bytes();
         format!("{}\n", to_hex(&signature)).into_bytes()
     }
@@ -357,6 +469,7 @@ mod tests {
         Checker {
             api: API.to_owned(),
             folder: folder.to_owned(),
+            kind: InstallKind::Windows,
             current: Version::parse("0.4.2").unwrap(),
             public_key: SigningKey::from_bytes(&SEED).verifying_key().to_bytes(),
             fetch: move |url: &str, limit: u64| server.get(url, limit),
@@ -543,6 +656,7 @@ mod tests {
         let checker = Checker {
             api: base.api,
             folder: base.folder,
+            kind: base.kind,
             current: base.current,
             public_key: base.public_key,
             fetch: |url: &str, limit: u64| {
@@ -642,6 +756,15 @@ mod tests {
             UpdateStatus::Installing("0.5.0".into()).ready_version(),
             None
         );
+        assert_eq!(
+            UpdateStatus::Installed("0.5.0".into()).parts(),
+            (6, "0.5.0")
+        );
+        assert_eq!(
+            UpdateStatus::Installed("0.5.0".into()).ready_version(),
+            None
+        );
+        assert!(UpdateStatus::Installed("0.5.0".into()).busy());
         assert!(UpdateStatus::Checking.busy());
         assert!(UpdateStatus::Downloading("0.5.0".into()).busy());
         assert!(UpdateStatus::Installing("0.5.0".into()).busy());
@@ -663,5 +786,110 @@ mod tests {
             latest_url("LuizFer1/Tex"),
             "https://api.github.com/repos/LuizFer1/Tex/releases/latest"
         );
+    }
+
+    const DEB: &str = "https://downloads.test/deb";
+    const DEB_SIG: &str = "https://downloads.test/deb.sig";
+
+    fn deb_server(signature: Vec<u8>) -> Server {
+        let answer = format!(
+            r#"{{"tag_name":"v0.5.0","assets":[{{"name":"Tex-Setup-0.5.0.exe","browser_download_url":"{SETUP}","size":5}},{{"name":"tex_0.5.0_amd64.deb","browser_download_url":"{DEB}","size":7}},{{"name":"tex_0.5.0_amd64.deb.sig","browser_download_url":"{DEB_SIG}","size":129}}]}}"#
+        );
+        Server {
+            routes: vec![
+                (API.into(), answer.into_bytes()),
+                (DEB.into(), b"package".to_vec()),
+                (DEB_SIG.into(), signature),
+            ],
+            asked: RefCell::default(),
+        }
+    }
+
+    fn deb_checker<'a>(
+        server: &'a Server,
+        folder: &Path,
+    ) -> Checker<impl Fn(&str, u64) -> io::Result<Vec<u8>> + 'a> {
+        Checker {
+            kind: InstallKind::Deb,
+            ..checker(server, folder)
+        }
+    }
+
+    #[test]
+    fn downloads_the_package_of_its_install_kind() {
+        let folder = folder("deb");
+        let version = Version::parse("0.5.0").unwrap();
+        let server = deb_server(signed(b"package", "tex_0.5.0_amd64.deb", version));
+        let ready = deb_checker(&server, &folder)
+            .check(&|_| {})
+            .unwrap()
+            .unwrap();
+        assert_eq!(ready.installer, folder.join("tex_0.5.0_amd64.deb"));
+        assert_eq!(
+            names(&folder),
+            ["tex_0.5.0_amd64.deb", "tex_0.5.0_amd64.deb.sig"]
+        );
+        assert!(!server.asked.borrow().iter().any(|url| url == SETUP));
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn refuses_a_package_signed_for_another_asset() {
+        let folder = folder("deb-forged");
+        let version = Version::parse("0.5.0").unwrap();
+        for forged in [
+            signed(b"package", "Tex-Setup-0.5.0.exe", version),
+            signed(b"package", "tex-0.5.0.x86_64.rpm", version),
+        ] {
+            let server = deb_server(forged);
+            assert!(deb_checker(&server, &folder).check(&|_| {}).is_err());
+            assert!(!folder.join("tex_0.5.0_amd64.deb").exists());
+        }
+    }
+
+    #[test]
+    fn without_an_install_kind_every_check_is_up_to_date() {
+        let (sender, receiver) = mpsc::channel();
+        for command in [Command::Check, Command::Apply, Command::Check] {
+            sender.send(command).unwrap();
+        }
+        drop(sender);
+        let statuses = RefCell::new(Vec::new());
+        run_without_updates(&receiver, &|status| statuses.borrow_mut().push(status));
+        assert_eq!(
+            statuses.into_inner(),
+            [UpdateStatus::UpToDate, UpdateStatus::UpToDate]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn downloads_go_to_a_private_folder() {
+        use std::os::unix::fs::PermissionsExt;
+        let folder = folder("private");
+        let server = server("0.5.0", b"setup", signature(b"setup", "0.5.0"));
+        checker(&server, &folder).check(&|_| {}).unwrap();
+        let mode = fs::metadata(&folder).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn the_exit_code_of_the_root_install_decides_what_follows() {
+        assert_eq!(
+            after_apply(Some(0), "0.5.0".into()),
+            UpdateStatus::Installed("0.5.0".into())
+        );
+        assert_eq!(
+            after_apply(Some(update::REFUSED_EXIT), "0.5.0".into()),
+            UpdateStatus::Failed
+        );
+        for code in [Some(126), Some(127), Some(1), Some(4), None] {
+            assert_eq!(
+                after_apply(code, "0.5.0".into()),
+                UpdateStatus::Ready("0.5.0".into())
+            );
+        }
     }
 }

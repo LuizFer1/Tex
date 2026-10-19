@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+#[cfg(target_os = "linux")]
+mod apply_update;
 mod clipboard_client;
 mod history;
 mod icons;
@@ -14,7 +16,7 @@ mod theme;
 mod update;
 mod update_client;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::error::Error;
 use std::io;
@@ -70,6 +72,8 @@ const ICON_CACHE_SIZE: usize = 256;
 const SEARCH_TAB: i32 = 1;
 const CLIPBOARD_TAB: i32 = 2;
 const PREVIEW_CHARS: usize = 100_000;
+const INSTANCE: &str = "Local\\Tex.SingleInstance";
+const RESTARTED: &str = "--restarted";
 
 thread_local! {
     static ICONS: RefCell<IconCache<Image>> = RefCell::new(IconCache::new(ICON_CACHE_SIZE));
@@ -77,6 +81,7 @@ thread_local! {
     static ONBOARDING: RefCell<Option<Onboarding>> = const { RefCell::new(None) };
     static UPDATES: RefCell<Option<Updates>> = const { RefCell::new(None) };
     static BUS: RefCell<Option<AppBus>> = const { RefCell::new(None) };
+    static RESTART: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Weak handles to every window, cheap to clone into callbacks and across threads.
@@ -129,6 +134,8 @@ fn with_onboarding<R>(f: impl FnOnce(&mut Onboarding) -> R) -> Option<R> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    #[cfg(target_os = "linux")]
+    apply_update::exit_if_asked();
     let path = settings_path();
     let upgrade = path.exists();
     let settings = settings::load(&path);
@@ -136,7 +143,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
     let command = app::command_from_args(std::env::args());
-    let Some(_instance) = SingleInstance::acquire("Local\\Tex.SingleInstance")? else {
+    let Some(_instance) = acquire_instance()? else {
         if cfg!(target_os = "linux") {
             let _ = send_command(command.unwrap_or(AppCommand::Settings));
         }
@@ -401,7 +408,35 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     slint::run_event_loop_until_quit()?;
+    if RESTART.get() {
+        start_again();
+    }
     Ok(())
+}
+
+/// This process's claim to be the only Tex. The Tex an update starts (`--restarted`) waits
+/// for the old one to exit instead of giving up.
+#[cfg(target_os = "linux")]
+fn acquire_instance() -> io::Result<Option<SingleInstance>> {
+    if std::env::args().any(|arg| arg == RESTARTED) {
+        return SingleInstance::wait(INSTANCE).map(Some);
+    }
+    SingleInstance::acquire(INSTANCE)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn acquire_instance() -> io::Result<Option<SingleInstance>> {
+    SingleInstance::acquire(INSTANCE)
+}
+
+/// Starts the Tex an update just installed; it waits for this one to exit.
+fn start_again() {
+    let Some(exe) = tex_platform::current_executable() else {
+        return;
+    };
+    if let Err(error) = std::process::Command::new(&exe).arg(RESTARTED).spawn() {
+        eprintln!("update: could not start {}: {error}", exe.display());
+    }
 }
 
 /// Runs a command from the session bus: another Tex, the GNOME extension or a system shortcut.
@@ -532,7 +567,13 @@ fn install_update(windows: &Windows) {
     }
 }
 
+/// Shows a status from the update worker; once a Linux update is installed, Tex quits and
+/// starts the new version.
 fn update_status(windows: &Windows, status: UpdateStatus) {
+    if matches!(status, UpdateStatus::Installed(_)) {
+        RESTART.set(true);
+        let _ = slint::quit_event_loop();
+    }
     with_updates(|updates| updates.status = status.clone());
     show_update_status(windows, &status);
 }
@@ -1917,6 +1958,7 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
     popup.set_status_failed("".into());
     popup.set_status_ready_letters("".into());
     popup.set_service_unavailable(false);
+    popup.set_restart_needed(tex_platform::executable_replaced());
     client.send(Command::Status);
     check_updates_if_stale(windows);
     let area = match monitor {

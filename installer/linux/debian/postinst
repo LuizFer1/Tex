@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+if [ "$1" = "configure" ]; then
+    ln -sf ../lib/tex/tex /usr/bin/tex
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload || true
+        systemctl enable tex-indexer.service || true
+        systemctl restart tex-indexer.service || true
+    fi
+fi
+exit 0

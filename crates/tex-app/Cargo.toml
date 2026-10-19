@@ -28,3 +28,75 @@ getrandom.workspace = true
 [build-dependencies]
 slint-build.workspace = true
 embed-resource.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true
+
+[package.metadata.deb]
+name = "tex"
+maintainer = "Luiz Fernando <luisferndantas@outlook.com>"
+copyright = "2026, Luiz Fernando"
+extended-description = "Find files, folders and apps from one popup and reuse what you copied. Brings the search service (systemd), the GNOME Shell extension and automatic updates."
+section = "utils"
+priority = "optional"
+depends = "$auto, libxkbcommon-x11-0, libx11-6, libxcursor1, libwayland-client0, libwayland-cursor0, pkexec | policykit-1"
+recommends = "xdg-utils"
+maintainer-scripts = "../../installer/linux/debian/"
+assets = [
+    { source = "target/release/tex", dest = "usr/lib/tex/tex", mode = "755" },
+    { source = "target/release/tex-indexer", dest = "usr/lib/tex/tex-indexer", mode = "755" },
+    { source = "../../installer/linux/install-kind/deb", dest = "usr/lib/tex/install-kind", mode = "644" },
+    { source = "../../installer/linux/tex-indexer.service", dest = "usr/lib/systemd/system/tex-indexer.service", mode = "644" },
+    { source = "../../installer/linux/io.github.LuizFer1.Tex.desktop", dest = "usr/share/applications/io.github.LuizFer1.Tex.desktop", mode = "644" },
+    { source = "../../installer/linux/io.github.LuizFer1.Tex.autostart.desktop", dest = "etc/xdg/autostart/io.github.LuizFer1.Tex.desktop", mode = "644" },
+    { source = "../../installer/linux/io.github.LuizFer1.Tex.metainfo.xml", dest = "usr/share/metainfo/io.github.LuizFer1.Tex.metainfo.xml", mode = "644" },
+    { source = "../../installer/linux/io.github.LuizFer1.Tex.update.policy", dest = "usr/share/polkit-1/actions/io.github.LuizFer1.Tex.update.policy", mode = "644" },
+    { source = "../../installer/linux/icons/16.png", dest = "usr/share/icons/hicolor/16x16/apps/io.github.LuizFer1.Tex.png", mode = "644" },
+    { source = "../../installer/linux/icons/24.png", dest = "usr/share/icons/hicolor/24x24/apps/io.github.LuizFer1.Tex.png", mode = "644" },
+    { source = "../../installer/linux/icons/32.png", dest = "usr/share/icons/hicolor/32x32/apps/io.github.LuizFer1.Tex.png", mode = "644" },
+    { source = "../../installer/linux/icons/48.png", dest = "usr/share/icons/hicolor/48x48/apps/io.github.LuizFer1.Tex.png", mode = "644" },
+    { source = "../../installer/linux/icons/64.png", dest = "usr/share/icons/hicolor/64x64/apps/io.github.LuizFer1.Tex.png", mode = "644" },
+    { source = "../../installer/linux/icons/128.png", dest = "usr/share/icons/hicolor/128x128/apps/io.github.LuizFer1.Tex.png", mode = "644" },
+    { source = "../../installer/linux/icons/256.png", dest = "usr/share/icons/hicolor/256x256/apps/io.github.LuizFer1.Tex.png", mode = "644" },
+    { source = "../../gnome-extension/extension.js", dest = "usr/share/gnome-shell/extensions/tex@luizfer1.github.io/extension.js", mode = "644" },
+    { source = "../../gnome-extension/metadata.json", dest = "usr/share/gnome-shell/extensions/tex@luizfer1.github.io/metadata.json", mode = "644" },
+    { source = "../../gnome-extension/LICENSE", dest = "usr/share/gnome-shell/extensions/tex@luizfer1.github.io/LICENSE", mode = "644" },
+]
+
+[package.metadata.generate-rpm]
+name = "tex"
+license = "PolyForm-Noncommercial-1.0.0"
+summary = "Find files, folders and apps, and reuse what you copied"
+url = "https://github.com/LuizFer1/Tex"
+post_install_script = "../../installer/linux/rpm/post.sh"
+pre_uninstall_script = "../../installer/linux/rpm/preun.sh"
+post_uninstall_script = "../../installer/linux/rpm/postun.sh"
+assets = [
+    { source = "target/release/tex", dest = "/usr/lib/tex/tex", mode = "755" },
+    { source = "target/release/tex-indexer", dest = "/usr/lib/tex/tex-indexer", mode = "755" },
+    { source = "../../installer/linux/install-kind/rpm", dest = "/usr/lib/tex/install-kind", mode = "644" },
+    { source = "../../installer/linux/tex-indexer.service", dest = "/usr/lib/systemd/system/tex-indexer.service", mode = "644" },
+    { source = "../../installer/linux/io.github.LuizFer1.Tex.desktop", dest = "/usr/share/applications/io.github.LuizFer1.Tex.desktop", mode = "644" },
+    { source = "../../installer/linux/io.github.LuizFer1.Tex.autostart.desktop", dest = "/etc/xdg/autostart/io.github.LuizFer1.Tex.desktop", mode = "644" },
+    { source = "../../installer/linux/io.github.LuizFer1.Tex.metainfo.xml", dest = "/usr/share/metainfo/io.github.LuizFer1.Tex.metainfo.xml", mode = "644" },
+    { source = "../../installer/linux/io.github.LuizFer1.Tex.update.policy", dest = "/usr/share/polkit-1/actions/io.github.LuizFer1.Tex.update.policy", mode = "644" },
+    { source = "../../installer/linux/icons/16.png", dest = "/usr/share/icons/hicolor/16x16/apps/io.github.LuizFer1.Tex.png", mode = "644" },
+    { source = "../../installer/linux/icons/24.png", dest = "/usr/share/icons/hicolor/24x24/apps/io.github.LuizFer1.Tex.png", mode = "644" },
+    { source = "../../installer/linux/icons/32.png", dest = "/usr/share/icons/hicolor/32x32/apps/io.github.LuizFer1.Tex.png", mode = "644" },
+    { source = "../../installer/linux/icons/48.png", dest = "/usr/share/icons/hicolor/48x48/apps/io.github.LuizFer1.Tex.png", mode = "644" },
+    { source = "../../installer/linux/icons/64.png", dest = "/usr/share/icons/hicolor/64x64/apps/io.github.LuizFer1.Tex.png", mode = "644" },
+    { source = "../../installer/linux/icons/128.png", dest = "/usr/share/icons/hicolor/128x128/apps/io.github.LuizFer1.Tex.png", mode = "644" },
+    { source = "../../installer/linux/icons/256.png", dest = "/usr/share/icons/hicolor/256x256/apps/io.github.LuizFer1.Tex.png", mode = "644" },
+    { source = "../../gnome-extension/extension.js", dest = "/usr/share/gnome-shell/extensions/tex@luizfer1.github.io/extension.js", mode = "644" },
+    { source = "../../gnome-extension/metadata.json", dest = "/usr/share/gnome-shell/extensions/tex@luizfer1.github.io/metadata.json", mode = "644" },
+    { source = "../../gnome-extension/LICENSE", dest = "/usr/share/gnome-shell/extensions/tex@luizfer1.github.io/LICENSE", mode = "644" },
+]
+
+[package.metadata.generate-rpm.requires]
+polkit = "*"
+systemd = "*"
+libxkbcommon-x11 = "*"
+libX11 = "*"
+libXcursor = "*"
+libwayland-client = "*"
+libwayland-cursor = "*"

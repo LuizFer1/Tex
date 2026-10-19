@@ -2,6 +2,7 @@ mod apps;
 mod clipboard;
 mod dbus;
 mod hotkeys;
+mod http;
 mod keys;
 mod paste;
 mod portal;
@@ -12,12 +13,14 @@ mod x11;
 
 pub use clipboard::{ClipboardWatcher, write_image, write_text};
 pub use hotkeys::Hotkeys;
+pub use http::http_get;
 pub use secret::{protect, unprotect};
 pub use service::{AppBus, send_command};
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
@@ -32,19 +35,31 @@ pub struct SingleInstance {
 impl SingleInstance {
     /// `None` when another process already holds the lock named after `name`.
     pub fn acquire(name: &str) -> io::Result<Option<Self>> {
-        let folder = runtime_dir();
-        fs::create_dir_all(&folder)?;
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(folder.join(lock_file_name(name)))?;
+        let lock = open_lock(name)?;
         match lock.try_lock() {
             Ok(()) => Ok(Some(Self { _lock: lock })),
             Err(TryLockError::WouldBlock) => Ok(None),
             Err(TryLockError::Error(error)) => Err(error),
         }
     }
+
+    /// Waits until no other process holds the lock named after `name`, then holds it: the
+    /// Tex an update starts waits like this for the old one to exit.
+    pub fn wait(name: &str) -> io::Result<Self> {
+        let lock = open_lock(name)?;
+        lock.lock()?;
+        Ok(Self { _lock: lock })
+    }
+}
+
+fn open_lock(name: &str) -> io::Result<File> {
+    let folder = runtime_dir();
+    fs::create_dir_all(&folder)?;
+    OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(folder.join(lock_file_name(name)))
 }
 
 fn runtime_dir() -> PathBuf {
@@ -169,6 +184,27 @@ pub fn open_locked(path: &Path) -> io::Result<File> {
     File::open(path)
 }
 
+/// This program's file. A package update replaces it while it runs; `/proc/self/exe` then
+/// names the old one "<path> (deleted)", and the path is where the new one is.
+pub fn current_executable() -> Option<PathBuf> {
+    fs::read_link("/proc/self/exe")
+        .ok()
+        .map(|link| live_path(&link).0)
+}
+
+/// Whether a package update replaced this program's file since it started.
+pub fn executable_replaced() -> bool {
+    fs::read_link("/proc/self/exe").is_ok_and(|link| live_path(&link).1)
+}
+
+/// The path in a `/proc/<pid>/exe` link and whether that file was replaced.
+pub(crate) fn live_path(link: &Path) -> (PathBuf, bool) {
+    match link.as_os_str().as_bytes().strip_suffix(b" (deleted)") {
+        Some(path) => (PathBuf::from(OsStr::from_bytes(path)), true),
+        None => (link.to_path_buf(), false),
+    }
+}
+
 /// Whether windows can have transparent pixels: only on X11 with a compositor. On Wayland the
 /// software renderer's buffers (softbuffer) carry no alpha.
 pub fn transparent_windows() -> bool {
@@ -270,10 +306,6 @@ pub fn paste_into(window: WindowRef) {
     paste::request();
 }
 
-pub fn http_get(_url: &str, _max_bytes: u64) -> io::Result<Vec<u8>> {
-    Err(unsupported())
-}
-
 /// Asks the desktop portal for a file on a thread and calls `on_done` there with its path
 /// (`None` when cancelled or without a portal). Any file goes: Linux programs have no extension.
 pub fn pick_file(
@@ -359,5 +391,37 @@ mod tests {
             xdg_base(None, home, ".config"),
             PathBuf::from("/home/ana/.config")
         );
+    }
+
+    #[test]
+    fn waiting_for_the_lock_returns_once_it_is_free() {
+        let name = format!("tex-wait-{}", std::process::id());
+        let first = SingleInstance::acquire(&name).unwrap().unwrap();
+        let waiter = thread::spawn({
+            let name = name.clone();
+            move || SingleInstance::wait(&name).map(drop)
+        });
+        thread::sleep(std::time::Duration::from_millis(200));
+        assert!(!waiter.is_finished());
+        drop(first);
+        waiter.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn a_replaced_executable_is_named_without_the_deleted_mark() {
+        assert_eq!(
+            live_path(Path::new("/usr/lib/tex/tex")),
+            (PathBuf::from("/usr/lib/tex/tex"), false)
+        );
+        assert_eq!(
+            live_path(Path::new("/usr/lib/tex/tex (deleted)")),
+            (PathBuf::from("/usr/lib/tex/tex"), true)
+        );
+    }
+
+    #[test]
+    fn this_test_program_is_not_replaced() {
+        assert!(!executable_replaced());
+        assert!(current_executable().is_some_and(|exe| exe.is_file()));
     }
 }

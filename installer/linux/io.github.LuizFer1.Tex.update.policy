@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>Tex</vendor>
+  <vendor_url>https://github.com/LuizFer1/Tex</vendor_url>
+  <action id="io.github.LuizFer1.Tex.update">
+    <description>Install a Tex update</description>
+    <description xml:lang="pt_BR">Instalar a atualização do Tex</description>
+    <message>Install the Tex update</message>
+    <message xml:lang="pt_BR">Instalar a atualização do Tex</message>
+    <icon_name>io.github.LuizFer1.Tex</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/tex/tex</annotate>
+  </action>
+</policyconfig>

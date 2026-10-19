@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Tex
+Exec=/usr/lib/tex/tex --autostart
+Icon=io.github.LuizFer1.Tex
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
