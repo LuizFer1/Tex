@@ -33,7 +33,7 @@ impl Unit {
         value * self.factor + self.offset
     }
 
-    pub fn from_base(&self, base: f64) -> f64 {
+    pub fn in_unit(&self, base: f64) -> f64 {
         (base - self.offset) / self.factor
     }
 
@@ -526,7 +526,7 @@ mod tests {
     fn temperature_goes_through_kelvin() {
         let celsius = lookup("c").unwrap();
         let fahrenheit = lookup("f").unwrap();
-        let value = fahrenheit.from_base(celsius.to_base(100.0));
+        let value = fahrenheit.in_unit(celsius.to_base(100.0));
         assert!((value - 212.0).abs() < 1e-9);
     }
 
