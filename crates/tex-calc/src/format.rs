@@ -1,3 +1,4 @@
+use crate::dates;
 use crate::eval::Outcome;
 use crate::lexer::{Tok, Token};
 use crate::units::Unit;
@@ -133,6 +134,33 @@ pub fn answer(tokens: &[Token], outcome: Outcome, locale: Locale) -> Answer {
         Outcome::Duration(seconds) => {
             let text = duration(seconds, locale);
             (text.clone(), text, AnswerKind::Duration)
+        }
+        Outcome::Date(date) => {
+            let text = dates::format_date(date, locale);
+            (
+                text.clone(),
+                text,
+                AnswerKind::Date {
+                    weekday: dates::weekday(date),
+                },
+            )
+        }
+        Outcome::Time {
+            time,
+            place,
+            weekday,
+            offset_minutes,
+        } => {
+            let text = dates::format_time(time, locale);
+            (
+                text.clone(),
+                text,
+                AnswerKind::Time {
+                    place,
+                    weekday,
+                    offset_minutes,
+                },
+            )
         }
     };
     Answer {

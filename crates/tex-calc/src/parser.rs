@@ -1,7 +1,11 @@
 use std::f64::consts::{E, PI, TAU};
 
+use jiff::civil::{Date, Time};
+
+use crate::dates;
 use crate::lexer::{Tok, Token};
 use crate::units::{self, Dim, Unit};
+use crate::zones::{self, Place};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinOp {
@@ -44,13 +48,26 @@ pub enum Expr {
     Fact(Box<Expr>),
     PercentOf(Box<Expr>, Box<Expr>),
     Off(Box<Expr>, Box<Expr>),
+    Date(Date),
+    MonthDay(i8, i8),
+    Today(i8),
+    Clock(Time),
+    ClockIn(Time, Place),
+    Now,
+    TimeIn(Place),
+    Days {
+        to: Box<Expr>,
+        since: bool,
+        work: bool,
+    },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Target {
     Unit(&'static Unit),
     Percent,
     Timespan,
+    Zone(Place),
 }
 
 /// A parsed query. `acts` tells whether it does something (an operation, function, percentage
@@ -91,6 +108,26 @@ const FUNCTIONS: &[(&str, Func)] = &[
 const CONSTANTS: &[(&str, f64)] = &[("pi", PI), ("π", PI), ("e", E), ("tau", TAU), ("τ", TAU)];
 const CONVERT: &[&str] = &["em", "in", "para", "to"];
 const TIMESPAN: &[&str] = &["duracao", "timespan", "duration"];
+const TODAY: &[(&str, i8)] = &[
+    ("hoje", 0),
+    ("today", 0),
+    ("amanha", 1),
+    ("tomorrow", 1),
+    ("ontem", -1),
+    ("yesterday", -1),
+];
+const NOW: &[&str] = &["agora", "now"];
+const TIME_WORDS: &[&str] = &["hora", "horas", "time", "agora", "now"];
+const AT_WORDS: &[&str] = &["em", "no", "na", "in"];
+const DAYS_WORDS: &[&str] = &["dias", "days"];
+const UNTIL: &[&str] = &["ate", "until", "till"];
+const SINCE: &[&str] = &["desde", "since"];
+
+enum Phrase {
+    None,
+    Matched(Expr),
+    Broken,
+}
 
 pub fn parse(tokens: &[Token]) -> Option<Parsed> {
     let mut parser = Parser {
@@ -99,7 +136,11 @@ pub fn parse(tokens: &[Token]) -> Option<Parsed> {
         acts: false,
         time_units: Vec::new(),
     };
-    let expr = parser.sum()?;
+    let expr = match parser.phrase() {
+        Phrase::Matched(expr) => expr,
+        Phrase::Broken => return None,
+        Phrase::None => parser.sum()?,
+    };
     let target = if parser.at_conversion() {
         parser.pos += 1;
         parser.acts = true;
@@ -169,9 +210,126 @@ impl Parser<'_> {
             self.pos += 1;
             return Some(Target::Timespan);
         }
-        let (unit, length) = self.unit_at(0)?;
+        if let Some((unit, length)) = self.unit_at(0) {
+            self.pos += length;
+            return Some(Target::Unit(unit));
+        }
+        let (place, length) = self.zone_at(0)?;
         self.pos += length;
-        Some(Target::Unit(unit))
+        Some(Target::Zone(place))
+    }
+
+    /// `hora em <lugar>` / `time in <place>` and `dias [uteis] ate|desde <data>` /
+    /// `days|workdays until|since <date>`, recognized only at the start of the query.
+    fn phrase(&mut self) -> Phrase {
+        if self.is_word(0, TIME_WORDS) && self.is_word(1, AT_WORDS) {
+            return match self.zone_at(2) {
+                Some((place, length)) if self.pos + 2 + length == self.tokens.len() => {
+                    self.pos += 2 + length;
+                    self.acts = true;
+                    Phrase::Matched(Expr::TimeIn(place))
+                }
+                _ => Phrase::Broken,
+            };
+        }
+        let (skip, work) = if self.is_word(0, DAYS_WORDS) && self.is_word(1, &["uteis"]) {
+            (2, true)
+        } else if self.is_word(0, DAYS_WORDS) {
+            (1, false)
+        } else if self.is_word(0, &["workdays"]) {
+            (1, true)
+        } else {
+            return Phrase::None;
+        };
+        let since = if self.is_word(skip, UNTIL) {
+            false
+        } else if self.is_word(skip, SINCE) {
+            true
+        } else {
+            return Phrase::None;
+        };
+        self.pos += skip + 1;
+        self.acts = true;
+        match self.sum() {
+            Some(to) => Phrase::Matched(Expr::Days {
+                to: Box::new(to),
+                since,
+                work,
+            }),
+            None => Phrase::Broken,
+        }
+    }
+
+    /// The place named `ahead` tokens on: the longest run of up to four words naming a place,
+    /// or `utc`/`gmt` with an offset written right after it (`utc+3`, `gmt-03:00`).
+    fn zone_at(&self, ahead: usize) -> Option<(Place, usize)> {
+        let first = self.peek(ahead).filter(|token| token.tok == Tok::Word)?;
+        if matches!(first.folded.as_str(), "utc" | "gmt")
+            && let Some(sign) = self
+                .peek(ahead + 1)
+                .filter(|token| !token.space_before)
+                .and_then(|token| match token.tok {
+                    Tok::Op('+') => Some(1),
+                    Tok::Op('-') => Some(-1),
+                    _ => None,
+                })
+        {
+            let minutes = match self
+                .peek(ahead + 2)
+                .filter(|token| !token.space_before)?
+                .tok
+            {
+                Tok::Num(hours) if hours.fract() == 0.0 => hours as i32 * 60,
+                Tok::Clock { hour, minute } => i32::from(hour) * 60 + i32::from(minute),
+                _ => return None,
+            };
+            return zones::fixed(sign * minutes).map(|place| (place, 3));
+        }
+        let words: Vec<&str> = (0..4)
+            .map_while(|k| {
+                self.peek(ahead + k)
+                    .filter(|token| token.tok == Tok::Word)
+                    .map(|token| token.folded.as_str())
+            })
+            .collect();
+        (1..=words.len())
+            .rev()
+            .find_map(|length| zones::find(&words[..length].join(" ")).map(|place| (place, length)))
+    }
+
+    fn month_at(&self, ahead: usize) -> Option<i8> {
+        self.peek(ahead)
+            .filter(|token| token.tok == Tok::Word)
+            .and_then(|token| dates::month(&token.folded))
+    }
+
+    fn number_text_at(
+        &self,
+        ahead: usize,
+        lengths: std::ops::RangeInclusive<usize>,
+    ) -> Option<f64> {
+        let token = self.peek(ahead)?;
+        let Tok::Num(value) = token.tok else {
+            return None;
+        };
+        (lengths.contains(&token.text.len()) && token.text.chars().all(|c| c.is_ascii_digit()))
+            .then_some(value)
+    }
+
+    /// The year after a day and month (`31 mar 2027`, `31 de marco de 2027`), or the
+    /// year-less date resolved when evaluated.
+    fn with_year(&mut self, month: i8, day: f64) -> Option<Expr> {
+        if !(1.0..=31.0).contains(&day) {
+            return None;
+        }
+        let skip = usize::from(self.is_word(0, &["de"]) && self.number_text_at(1, 4..=4).is_some());
+        match self.number_text_at(skip, 4..=4) {
+            Some(year) => {
+                self.pos += skip + 1;
+                Some(Expr::Date(Date::new(year as i16, month, day as i8).ok()?))
+            }
+            None => Some(Expr::MonthDay(month, day as i8)),
+        }
     }
 
     /// The unit written after a number, if any. `in` and `em` followed by something that can
@@ -332,6 +490,22 @@ impl Parser<'_> {
                 Some(inner)
             }
             Tok::Word => {
+                if let Some(&(_, offset)) = TODAY.iter().find(|(name, _)| *name == token.folded) {
+                    self.pos += 1;
+                    self.acts = true;
+                    return Some(Expr::Today(offset));
+                }
+                if NOW.contains(&token.folded.as_str()) {
+                    self.pos += 1;
+                    self.acts = true;
+                    return Some(Expr::Now);
+                }
+                if let Some(month) = dates::month(&token.folded) {
+                    self.pos += 1;
+                    let day = self.number_text_at(0, 1..=2)?;
+                    self.pos += 1;
+                    return self.with_year(month, day);
+                }
                 if let Some(&(_, value)) = CONSTANTS.iter().find(|(name, _)| *name == token.folded)
                 {
                     self.pos += 1;
@@ -347,11 +521,38 @@ impl Parser<'_> {
                 };
                 Some(Expr::Call(func, Box::new(arg)))
             }
+            Tok::Day { year, month, day } => {
+                self.pos += 1;
+                Some(match year {
+                    Some(year) => Expr::Date(Date::new(year, month, day).ok()?),
+                    None => Expr::MonthDay(month, day),
+                })
+            }
+            Tok::Clock { hour, minute } => {
+                self.pos += 1;
+                let time = Time::new(hour, minute, 0, 0).ok()?;
+                let from = usize::from(self.is_word(0, &["de", "from"]));
+                match self.zone_at(from) {
+                    Some((place, length)) => {
+                        self.pos += from + length;
+                        Some(Expr::ClockIn(time, place))
+                    }
+                    None => Some(Expr::Clock(time)),
+                }
+            }
             _ => None,
         }
     }
 
     fn quantity(&mut self, value: f64) -> Option<Expr> {
+        let typed = self.tokens[self.pos - 1].text.len();
+        if typed <= 2 {
+            let skip = usize::from(self.is_word(0, &["de"]) && self.month_at(1).is_some());
+            if let Some(month) = self.month_at(skip) {
+                self.pos += skip + 1;
+                return self.with_year(month, value);
+            }
+        }
         let Some(unit) = self.unit_after_number() else {
             return Some(Expr::Num(value));
         };
@@ -439,7 +640,6 @@ mod tests {
             "2024-report",
             "c++",
             "tex em casa",
-            "31 mar",
         ] {
             assert_eq!(parsed(query), None, "{query}");
         }
@@ -481,6 +681,54 @@ mod tests {
         assert!(matches!(expr("10% off 900"), Expr::Off(_, _)));
         assert!(matches!(expr("10% de desconto em 900"), Expr::Off(_, _)));
         assert!(matches!(expr("52% of 900"), Expr::PercentOf(_, _)));
+    }
+
+    #[test]
+    fn dates_and_times_parse() {
+        assert!(matches!(
+            parsed("31 mar").unwrap().expr,
+            Expr::MonthDay(3, 31)
+        ));
+        assert!(matches!(
+            parsed("31 de março de 2027").unwrap().expr,
+            Expr::Date(_)
+        ));
+        assert!(matches!(
+            parsed("march 31").unwrap().expr,
+            Expr::MonthDay(3, 31)
+        ));
+        assert!(!parsed("31 mar").unwrap().acts);
+        assert!(parsed("hoje").unwrap().acts);
+        assert!(matches!(
+            parsed("dias até 31 mar").unwrap().expr,
+            Expr::Days {
+                since: false,
+                work: false,
+                ..
+            }
+        ));
+        assert!(matches!(
+            parsed("dias úteis desde 1 jan").unwrap().expr,
+            Expr::Days {
+                since: true,
+                work: true,
+                ..
+            }
+        ));
+        assert!(matches!(
+            parsed("hora em são paulo").unwrap().expr,
+            Expr::TimeIn(_)
+        ));
+        assert!(matches!(
+            parsed("15:00 de tóquio").unwrap().expr,
+            Expr::ClockIn(..)
+        ));
+        assert!(matches!(
+            parsed("15:00 em tóquio").unwrap().target,
+            Some(Target::Zone(_))
+        ));
+        assert_eq!(parsed("hora em marte"), None);
+        assert!(!parsed("15:00 tóquio").unwrap().acts);
     }
 
     #[test]

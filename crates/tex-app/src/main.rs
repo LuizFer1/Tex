@@ -1737,6 +1737,8 @@ fn calculate(popup: &Popup) {
             tex_calc::AnswerKind::Number => 0,
             tex_calc::AnswerKind::Quantity => 1,
             tex_calc::AnswerKind::Duration => 2,
+            tex_calc::AnswerKind::Date { .. } => 3,
+            tex_calc::AnswerKind::Time { .. } => 4,
         },
     });
     popup.set_has_answer(true);

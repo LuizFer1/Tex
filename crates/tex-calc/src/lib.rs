@@ -38,11 +38,19 @@ pub struct Answer {
     pub kind: AnswerKind,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnswerKind {
     Number,
     Quantity,
     Duration,
+    Date {
+        weekday: u8,
+    },
+    Time {
+        place: String,
+        weekday: u8,
+        offset_minutes: i32,
+    },
 }
 
 /// The calculator's answer to a search query, or `None` when the query is not a complete
@@ -53,6 +61,6 @@ pub fn evaluate(query: &str, context: &Context) -> Option<Answer> {
     if !parsed.acts {
         return None;
     }
-    let outcome = eval::run(&parsed)?;
+    let outcome = eval::run(&parsed, context)?;
     Some(format::answer(&tokens, outcome, context.locale))
 }
