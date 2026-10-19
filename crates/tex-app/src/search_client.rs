@@ -11,7 +11,7 @@ use tex_ipc::{
     write_message,
 };
 
-const LIMIT: u16 = 50;
+pub const LIMIT: u16 = 50;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SearchOptions {

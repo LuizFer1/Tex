@@ -5,7 +5,6 @@ use tex_platform::{STORE_PREFIX, StoreApp};
 use crate::results::strip_app_extension;
 
 /// Whether `path` is the parsing name of a Store app instead of a file path.
-#[allow(dead_code)]
 pub fn is_store_path(path: &str) -> bool {
     path.starts_with(STORE_PREFIX)
 }
@@ -21,7 +20,6 @@ pub fn display_name<'a>(apps: &'a [StoreApp], path: &str) -> Option<&'a str> {
 /// quality (the service's first on ties). Store apps are left out when the filter is Files or
 /// Folders, when apps are hidden, for queries with a folder or drive, and when a shortcut with
 /// the same name is already there. Keeps at most `limit` hits, apps first.
-#[allow(dead_code)]
 pub fn merge(
     hits: Vec<Hit>,
     apps: &[StoreApp],
