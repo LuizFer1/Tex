@@ -1,3 +1,4 @@
+mod lexer;
 mod units;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
