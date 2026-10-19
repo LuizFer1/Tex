@@ -55,8 +55,8 @@ use crate::history::{HistoryList, day_starts_through, size_parts, when_parts};
 use crate::icons::{IconCache, IconLoader, IconState};
 use crate::onboarding::{Onboarding, Outcome};
 use crate::results::{
-    Row, build_rows, file_icon, group_digits, header_counts, readable, ready_summary, short_path,
-    status_parts, step_selection,
+    Row, Selection, build_rows, file_icon, group_digits, header_counts, readable, ready_summary,
+    short_path, status_parts, step_selection, step_with_answer,
 };
 use crate::search_client::{Command, Event, Latest, SearchClient};
 use crate::settings::{
@@ -510,6 +510,29 @@ fn wire_popup(popup: &Popup, windows: &Windows, client: &SearchClient) {
         move |index| {
             if let Some(popup) = popup.upgrade() {
                 popup.set_selected(index);
+                popup.set_answer_selected(false);
+            }
+        }
+    });
+    popup.on_select_answer({
+        let popup = popup.as_weak();
+        move || {
+            if let Some(popup) = popup.upgrade()
+                && popup.get_has_answer()
+            {
+                popup.set_answer_selected(true);
+                popup.set_selected(-1);
+            }
+        }
+    });
+    popup.on_copy_answer({
+        let popup = popup.as_weak();
+        move || {
+            if let Some(popup) = popup.upgrade()
+                && popup.get_has_answer()
+            {
+                let _ = write_text(&popup.get_answer().copy);
+                close_popup(&popup);
             }
         }
     });
@@ -1625,6 +1648,8 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
         popup.invoke_reset();
         popup.set_rows(ModelRc::default());
         popup.set_selected(-1);
+        popup.set_has_answer(false);
+        popup.set_answer_selected(false);
     }
     popup.set_status_indexing("".into());
     popup.set_status_failed("".into());
@@ -1679,9 +1704,52 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
     }
 }
 
+/// Shows the calculator's card for the current query, selecting it, or hides it and gives the
+/// selection back to the first row when the card was selected.
+fn calculate(popup: &Popup) {
+    let (enabled, language) = with_app(|app| {
+        (
+            app.settings.search.calculator,
+            app.settings.general.language,
+        )
+    });
+    let context = tex_calc::Context {
+        locale: app::calc_locale(language),
+    };
+    let answer = if enabled && popup.get_filter() == 0 {
+        tex_calc::evaluate(&popup.get_query(), &context)
+    } else {
+        None
+    };
+    let Some(answer) = answer else {
+        let was_selected = popup.get_answer_selected();
+        popup.set_has_answer(false);
+        popup.set_answer_selected(false);
+        if was_selected {
+            let is_item: Vec<bool> = popup.get_rows().iter().map(|row| !row.header).collect();
+            popup.set_selected(step_selection(&is_item, None, 1).map_or(-1, |index| index as i32));
+        }
+        return;
+    };
+    popup.set_answer(CalcAnswer {
+        expression: answer.expression.into(),
+        result: answer.result.into(),
+        copy: answer.copy.into(),
+        kind: match answer.kind {
+            tex_calc::AnswerKind::Number => 0,
+            tex_calc::AnswerKind::Quantity => 1,
+            tex_calc::AnswerKind::Duration => 2,
+        },
+    });
+    popup.set_has_answer(true);
+    popup.set_answer_selected(true);
+    popup.set_selected(-1);
+}
+
 fn search(popup: &Popup, client: &SearchClient) {
     let query = popup.get_query();
     popup.set_expanded(!query.trim().is_empty());
+    calculate(popup);
     if query.trim().is_empty() {
         popup.set_rows(ModelRc::default());
         popup.set_selected(-1);
@@ -1703,9 +1771,23 @@ fn search(popup: &Popup, client: &SearchClient) {
 
 fn move_selection(popup: &Popup, step: i32) {
     let is_item: Vec<bool> = popup.get_rows().iter().map(|row| !row.header).collect();
-    let current = usize::try_from(popup.get_selected()).ok();
-    if let Some(next) = step_selection(&is_item, current, step as isize) {
-        popup.set_selected(next as i32);
+    let current = if popup.get_answer_selected() {
+        Some(Selection::Answer)
+    } else {
+        usize::try_from(popup.get_selected())
+            .ok()
+            .map(Selection::Row)
+    };
+    match step_with_answer(popup.get_has_answer(), &is_item, current, step as isize) {
+        Some(Selection::Answer) => {
+            popup.set_answer_selected(true);
+            popup.set_selected(-1);
+        }
+        Some(Selection::Row(index)) => {
+            popup.set_answer_selected(false);
+            popup.set_selected(index as i32);
+        }
+        None => {}
     }
 }
 
@@ -1731,7 +1813,11 @@ fn show_event(windows: &Windows, event: Event, icons: &IconLoader, latest: &Late
                 .map(|(row, count)| to_result_row(row, count, icons, &viewer_exts))
                 .collect();
             popup.set_rows(ModelRc::new(VecModel::from(model)));
-            popup.set_selected(selected.map_or(-1, |index| index as i32));
+            popup.set_selected(if popup.get_answer_selected() {
+                -1
+            } else {
+                selected.map_or(-1, |index| index as i32)
+            });
             popup.set_service_unavailable(false);
             popup.set_searching(false);
         }

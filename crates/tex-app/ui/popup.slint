@@ -17,6 +17,76 @@ export struct ResultRow {
     count: int,
 }
 
+export struct CalcAnswer {
+    expression: string,
+    result: string,
+    copy: string,
+    kind: int,
+}
+
+component AnswerCard inherits Rectangle {
+    in property <CalcAnswer> answer;
+    in property <bool> selected;
+    callback clicked();
+    callback double-clicked();
+    callback hovered();
+
+    Rectangle {
+        x: 8px;
+        y: 6px;
+        width: parent.width - 16px;
+        height: parent.height - 12px;
+        border-radius: Tokens.radius-card;
+        background: root.selected ? Tokens.action : Tokens.paper-2;
+        HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 16px;
+            spacing: 14px;
+            Text {
+                horizontal-stretch: 1;
+                text: root.answer.expression;
+                font-family: Tokens.mono-font;
+                font-size: Tokens.size-result;
+                color: root.selected ? Tokens.on-action-muted : Tokens.muted;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            Text {
+                text: "→";
+                font-family: Tokens.mono-font;
+                font-size: Tokens.size-result;
+                color: root.selected ? Tokens.on-action-muted : Tokens.muted;
+                vertical-alignment: center;
+            }
+            Text {
+                horizontal-stretch: 1;
+                text: root.answer.result;
+                font-family: Tokens.mono-font;
+                font-size: Tokens.size-search;
+                font-weight: 500;
+                color: root.selected ? Tokens.on-action : Tokens.ink;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+
+    TouchArea {
+        clicked => {
+            root.clicked();
+        }
+        double-clicked => {
+            root.double-clicked();
+        }
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.move {
+                root.hovered();
+            }
+        }
+    }
+}
+
 component ResultItem inherits Rectangle {
     in property <ResultRow> item;
     in property <bool> selected;
@@ -137,6 +207,10 @@ export component Popup inherits Window {
     in property <bool> service-unavailable;
     in property <bool> searching;
     in property <bool> enter-reveals;
+    in property <bool> has-answer;
+    in property <CalcAnswer> answer;
+    in property <bool> answer-selected;
+    property <length> answer-height: root.has-answer ? 64px : 0px;
     property <bool> selected-readable: root.selected >= 0 && root.selected < root.rows.length && root.rows[root.selected].readable;
     property <string> base-hints: @tr("↑↓ navigate · enter {0} · ctrl enter {1} · esc close", root.enter-reveals ? root.reveal-text : root.open-text, root.enter-reveals ? root.open-text : root.reveal-text);
     in-out property <int> filter: 0;
@@ -157,6 +231,8 @@ export component Popup inherits Window {
     callback activate(int, bool);
     callback read(int);
     callback open-settings();
+    callback select-answer();
+    callback copy-answer();
 
     property <length> row-height: 36px;
     property <string> open-text: @tr("open");
@@ -213,7 +289,11 @@ export component Popup inherits Window {
                 return accept;
             }
             if event.text == Key.Return {
-                if event.modifiers.shift {
+                if root.answer-selected {
+                    if !event.modifiers.shift {
+                        root.copy-answer();
+                    }
+                } else if event.modifiers.shift {
                     root.read(root.selected);
                 } else {
                     root.activate(root.selected, event.modifiers.control);
@@ -309,7 +389,29 @@ export component Popup inherits Window {
             if root.expanded: Rectangle {
                 height: 372px;
 
+                if root.has-answer: AnswerCard {
+                    y: 0px;
+                    width: parent.width;
+                    height: root.answer-height;
+                    answer: root.answer;
+                    selected: root.answer-selected;
+                    clicked => {
+                        root.select-answer();
+                    }
+                    double-clicked => {
+                        root.copy-answer();
+                    }
+                    hovered => {
+                        if !root.answer-selected {
+                            root.select-answer();
+                        }
+                    }
+                }
+
                 if root.rows.length > 0: Rectangle {
+                    y: root.answer-height;
+                    width: parent.width;
+                    height: parent.height - root.answer-height;
                     list := Flickable {
                         property <int> current: root.selected;
                         property <length> current-top: 4px + self.current * root.row-height + self.content-y;
@@ -364,7 +466,7 @@ export component Popup inherits Window {
                     }
                 }
 
-                if root.rows.length == 0 && !root.searching: EmptyState {
+                if root.rows.length == 0 && !root.searching && !root.has-answer: EmptyState {
                     art: Tokens.art-search;
                     title: @tr("nothing for “{0}”", root.query);
                     hint: @tr("Check the categories and ignored folders in Settings › Search.");
@@ -372,7 +474,7 @@ export component Popup inherits Window {
             }
 
             Footer {
-                hints: root.selected-readable ? @tr("{0} · shift enter read", root.base-hints) : root.base-hints;
+                hints: root.answer-selected ? @tr("enter copy result · esc close") : root.selected-readable ? @tr("{0} · shift enter read", root.base-hints) : root.base-hints;
                 status: root.status-text;
                 status-color: root.service-unavailable || root.status-failed != "" ? Tokens.warn-text : Tokens.muted;
             }

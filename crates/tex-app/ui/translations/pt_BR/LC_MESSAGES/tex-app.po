@@ -441,6 +441,9 @@ msgstr "copiar"
 msgid "copy and paste"
 msgstr "copiar e colar"
 
+msgid "enter copy result · esc close"
+msgstr "enter copiar resultado · esc fechar"
+
 msgid "enter {0} · ctrl enter {1} · del delete"
 msgstr "enter {0} · ctrl enter {1} · del excluir"
 
