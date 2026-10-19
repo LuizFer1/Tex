@@ -108,6 +108,41 @@ pub fn step_selection(is_item: &[bool], current: Option<usize>, step: isize) -> 
     current
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Selection {
+    Answer,
+    Row(usize),
+}
+
+/// Like [`step_selection`], with the calculator's card as an optional item before the rows:
+/// going up from the first row selects the card, going down from the card the first row.
+pub fn step_with_answer(
+    has_answer: bool,
+    is_item: &[bool],
+    current: Option<Selection>,
+    step: isize,
+) -> Option<Selection> {
+    let card = has_answer.then_some(Selection::Answer);
+    match current {
+        Some(Selection::Answer) if step > 0 => step_selection(is_item, None, 1)
+            .map(Selection::Row)
+            .or(current),
+        Some(Selection::Answer) => current,
+        Some(Selection::Row(row)) => {
+            let next = step_selection(is_item, Some(row), step);
+            if step < 0 && next == Some(row) && has_answer {
+                card
+            } else {
+                next.map(Selection::Row)
+            }
+        }
+        None if step > 0 && has_answer => card,
+        None => step_selection(is_item, None, step)
+            .map(Selection::Row)
+            .or(card),
+    }
+}
+
 /// Volumes that are not ready, without words so the UI can translate the sentence:
 /// ("C: 45%, D: 3%", "E: F:"). Both empty when every volume is ready.
 pub fn status_parts(volumes: &[VolumeStatus]) -> (String, String) {
@@ -230,6 +265,48 @@ pub fn readable(name: &str, is_dir: bool, is_app: bool, viewer_exts: &[String]) 
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn answer_card_comes_before_the_rows() {
+        let rows = [false, true, true];
+        assert_eq!(
+            step_with_answer(true, &rows, None, 1),
+            Some(Selection::Answer)
+        );
+        assert_eq!(
+            step_with_answer(true, &rows, Some(Selection::Answer), 1),
+            Some(Selection::Row(1))
+        );
+        assert_eq!(
+            step_with_answer(true, &rows, Some(Selection::Row(1)), -1),
+            Some(Selection::Answer)
+        );
+        assert_eq!(
+            step_with_answer(true, &rows, Some(Selection::Answer), -1),
+            Some(Selection::Answer)
+        );
+        assert_eq!(
+            step_with_answer(true, &rows, Some(Selection::Row(2)), -1),
+            Some(Selection::Row(1))
+        );
+        assert_eq!(
+            step_with_answer(true, &[], Some(Selection::Answer), 1),
+            Some(Selection::Answer)
+        );
+        assert_eq!(
+            step_with_answer(true, &[], None, -1),
+            Some(Selection::Answer)
+        );
+        assert_eq!(
+            step_with_answer(false, &rows, Some(Selection::Row(1)), -1),
+            Some(Selection::Row(1))
+        );
+        assert_eq!(
+            step_with_answer(false, &rows, None, 1),
+            Some(Selection::Row(1))
+        );
+        assert_eq!(step_with_answer(false, &[], None, 1), None);
+    }
     use super::*;
     use tex_ipc::VolumeState;
 
