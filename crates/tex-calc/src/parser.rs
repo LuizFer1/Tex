@@ -211,9 +211,11 @@ impl Parser<'_> {
     }
 
     fn starts_implicit(&self) -> bool {
+        let after_number = self.pos > 0 && matches!(self.tokens[self.pos - 1].tok, Tok::Num(_));
         self.is_op('(')
             || self.peek(0).is_some_and(|token| {
                 token.tok == Tok::Word
+                    && !(after_number && token.folded == "e")
                     && (CONSTANTS.iter().any(|(name, _)| *name == token.folded)
                         || FUNCTIONS.iter().any(|(name, _)| *name == token.folded))
             })
@@ -338,11 +340,11 @@ impl Parser<'_> {
                 let &(_, func) = FUNCTIONS.iter().find(|(name, _)| *name == token.folded)?;
                 self.pos += 1;
                 let arg = if self.is_op('(') {
-                    self.postfix()?
+                    self.acts = true;
+                    self.primary()?
                 } else {
                     self.power()?
                 };
-                self.acts = true;
                 Some(Expr::Call(func, Box::new(arg)))
             }
             _ => None,
@@ -405,7 +407,8 @@ mod tests {
         for query in [
             "2+2",
             "2pi",
-            "sqrt 16",
+            "sqrt(16)",
+            "sqrt 16 + 9",
             "5!",
             "10 ft em m",
             "5 ft 3 in",
@@ -415,7 +418,9 @@ mod tests {
         ] {
             assert!(acts(query), "{query}");
         }
-        for query in ["2024", "-5", "50%", "pi", "e", "5 m", "30°"] {
+        for query in [
+            "2024", "-5", "50%", "pi", "e", "5 m", "30°", "sqrt 16", "ln e",
+        ] {
             assert!(!acts(query), "{query}");
         }
     }

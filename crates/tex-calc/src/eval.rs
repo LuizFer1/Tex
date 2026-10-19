@@ -46,6 +46,11 @@ pub fn run(parsed: &Parsed) -> Option<Outcome> {
         }
         _ => return None,
     };
+    if let Outcome::Duration(seconds) = outcome
+        && seconds.abs() > 1e15
+    {
+        return None;
+    }
     outcome.is_finite().then_some(outcome)
 }
 

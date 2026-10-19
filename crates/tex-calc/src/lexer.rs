@@ -84,7 +84,7 @@ pub fn tokens(query: &str, locale: Locale) -> Option<Vec<Token>> {
                     i += 1;
                 }
                 Some(&digit @ ('2' | '3'))
-                    if !chars.get(i + 1).is_some_and(char::is_ascii_digit) =>
+                    if !chars.get(i + 1).is_some_and(|c| c.is_alphanumeric()) =>
                 {
                     let candidate = format!("{word}{digit}");
                     if units::lookup(&candidate).is_some()
@@ -148,7 +148,39 @@ pub fn tokens(query: &str, locale: Locale) -> Option<Vec<Token>> {
         });
         space = false;
     }
-    Some(out)
+    (!looks_like_text(&out)).then_some(out)
+}
+
+fn bare_integer(token: &Token) -> Option<&str> {
+    (matches!(token.tok, Tok::Num(_)) && token.text.bytes().all(|b| b.is_ascii_digit()))
+        .then_some(token.text.as_str())
+}
+
+/// Whether the integers are written like codes, dates or phone numbers rather than a
+/// calculation: a leading zero (`03`), an unspaced `-` next to an integer of four or more
+/// digits (`2024-10`, `555-1234`), or two unspaced `-` or `/` in a row (`19/10/2026`).
+fn looks_like_text(tokens: &[Token]) -> bool {
+    if tokens
+        .iter()
+        .filter_map(bare_integer)
+        .any(|text| text.len() > 1 && text.starts_with('0'))
+    {
+        return true;
+    }
+    let joined = |i: usize, ops: &[char]| {
+        tokens
+            .get(i + 1)
+            .is_some_and(|op| matches!(op.tok, Tok::Op(c) if ops.contains(&c)) && !op.space_before)
+            && tokens
+                .get(i + 2)
+                .is_some_and(|right| !right.space_before && bare_integer(right).is_some())
+            && bare_integer(&tokens[i]).is_some()
+    };
+    (0..tokens.len()).any(|i| {
+        let long = |j: usize| bare_integer(&tokens[j]).is_some_and(|text| text.len() >= 4);
+        (joined(i, &['-']) && (long(i) || long(i + 2)))
+            || (joined(i, &['-', '/']) && joined(i + 2, &['-', '/']))
+    })
 }
 
 fn is_iso_date(chars: &[char]) -> bool {
@@ -181,8 +213,9 @@ pub fn number(text: &str, locale: Locale) -> Option<f64> {
     }
     let int = if int.contains(group) {
         let groups: Vec<&str> = int.split(group).collect();
-        let grouped =
-            (1..=3).contains(&groups[0].len()) && groups[1..].iter().all(|group| group.len() == 3);
+        let grouped = (1..=3).contains(&groups[0].len())
+            && !groups[0].starts_with('0')
+            && groups[1..].iter().all(|group| group.len() == 3);
         if grouped {
             groups.concat()
         } else if groups.len() == 2 && frac.is_none() && !groups[1].is_empty() {
@@ -224,6 +257,8 @@ mod tests {
         assert_eq!(number("1.500", Locale::Pt), Some(1500.0));
         assert_eq!(number("1.5", Locale::Pt), Some(1.5));
         assert_eq!(number("12.50", Locale::Pt), Some(12.5));
+        assert_eq!(number("0.500", Locale::Pt), Some(0.5));
+        assert_eq!(number("0,500", Locale::En), Some(0.5));
         assert_eq!(number("1.234.567,8", Locale::Pt), Some(1234567.8));
         assert_eq!(number("1,5", Locale::Pt), Some(1.5));
         assert_eq!(number(",5", Locale::Pt), Some(0.5));
@@ -263,6 +298,7 @@ mod tests {
         assert_eq!(texts("100 ºC"), ["100", "°C"]);
         assert_eq!(texts("30°"), ["30", "°"]);
         assert_eq!(texts("log2 8"), ["log2", "8"]);
+        assert_eq!(texts("5ft2in"), ["5", "ft", "2", "in"]);
         assert_eq!(texts("2h30min"), ["2", "h", "30", "min"]);
         assert_eq!(texts("a/b"), ["a", "/", "b"]);
     }
@@ -280,5 +316,22 @@ mod tests {
         assert_eq!(tokens("notes.txt", Locale::Pt), None);
         assert_eq!(tokens("2024-10-19", Locale::Pt), None);
         assert_eq!(tokens("1.2.3", Locale::Pt), None);
+    }
+
+    #[test]
+    fn codes_and_dates_are_refused() {
+        for query in [
+            "03 + 1",
+            "2024-10",
+            "555-1234",
+            "19/10/2026",
+            "1/2/3",
+            "123-45-6789",
+        ] {
+            assert_eq!(tokens(query, Locale::Pt), None, "{query}");
+        }
+        for query in ["0", "0,5", "10-5", "1000/4", "1500 - 200", "2024 -10"] {
+            assert!(tokens(query, Locale::Pt).is_some(), "{query}");
+        }
     }
 }
