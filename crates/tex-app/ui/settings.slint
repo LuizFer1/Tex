@@ -53,6 +53,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> show-files;
     in-out property <bool> show-folders;
     in-out property <int> enter-action;
+    in-out property <bool> calculator;
     in property <[DriveRow]> drives;
     in property <bool> drives-unavailable;
 
@@ -501,6 +502,17 @@ export component SettingsWindow inherits Window {
                                             options: [@tr("Open"), @tr("Show in folder")];
                                             current-index <=> root.enter-action;
                                             selected => {
+                                                root.edited();
+                                            }
+                                        }
+                                    }
+                                    SettingRow {
+                                        label: @tr("Calculator in search");
+                                        description: @tr("Shows the result of calculations and conversions above the results.");
+                                        Toggle {
+                                            label: @tr("Calculator in search");
+                                            checked <=> root.calculator;
+                                            toggled => {
                                                 root.edited();
                                             }
                                         }

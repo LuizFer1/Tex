@@ -225,6 +225,14 @@ pub fn decimal_separator(language: Language) -> char {
     }
 }
 
+pub fn calc_locale(language: Language) -> tex_calc::Locale {
+    if translation(language) == "pt_BR" {
+        tex_calc::Locale::Pt
+    } else {
+        tex_calc::Locale::En
+    }
+}
+
 pub fn color_scheme(theme: Theme) -> ColorScheme {
     match theme {
         Theme::Light => ColorScheme::Light,

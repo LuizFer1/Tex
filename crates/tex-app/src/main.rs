@@ -1164,6 +1164,7 @@ fn fill_settings(window: &SettingsWindow, app: &AppState) {
         KeepSearch::Always => 4,
     });
     window.set_include_hidden(search.include_hidden);
+    window.set_calculator(search.calculator);
     window.set_include_system(search.include_system);
     window.set_show_apps(search.show_apps);
     window.set_show_files(search.show_files);
@@ -1264,6 +1265,7 @@ fn read_settings(window: &SettingsWindow, current: &Settings) -> Settings {
         _ => KeepSearch::Minute1,
     };
     search.include_hidden = window.get_include_hidden();
+    search.calculator = window.get_calculator();
     search.include_system = window.get_include_system();
     search.show_apps = window.get_show_apps();
     search.show_files = window.get_show_files();

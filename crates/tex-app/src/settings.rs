@@ -47,6 +47,7 @@ pub struct Search {
     pub show_files: bool,
     pub show_folders: bool,
     pub enter_action: EnterAction,
+    pub calculator: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -141,6 +142,7 @@ impl Default for Search {
             show_files: true,
             show_folders: true,
             enter_action: EnterAction::Open,
+            calculator: true,
         }
     }
 }
@@ -249,6 +251,7 @@ impl Settings {
                 show_files: field(search, "show_files").unwrap_or(s.show_files),
                 show_folders: field(search, "show_folders").unwrap_or(s.show_folders),
                 enter_action: field(search, "enter_action").unwrap_or(s.enter_action),
+                calculator: field(search, "calculator").unwrap_or(s.calculator),
             },
             clipboard: Clipboard {
                 hotkey: field(clipboard, "hotkey").unwrap_or(c.hotkey),
@@ -410,6 +413,18 @@ pub fn save(path: &Path, settings: &Settings) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn calculator_is_on_by_default_and_can_be_turned_off() {
+        assert!(Settings::default().search.calculator);
+        let settings = Settings::from_toml(
+            "[search]
+calculator = false
+",
+        )
+        .unwrap();
+        assert!(!settings.search.calculator);
+    }
 
     #[test]
     fn defaults_match_the_spec() {

@@ -48,6 +48,12 @@ msgstr "Por espaço"
 msgid "By time"
 msgstr "Por tempo"
 
+msgid "Calculator in search"
+msgstr "Calculadora na pesquisa"
+
+msgid "Shows the result of calculations and conversions above the results."
+msgstr "Mostra o resultado de contas e conversões acima dos resultados."
+
 msgid "Cancel"
 msgstr "Cancelar"
 
