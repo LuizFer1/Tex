@@ -71,3 +71,79 @@ fn icons_come_in_every_size() {
         assert_eq!(png_size(&linux(&format!("icons/{size}.png"))), (size, size));
     }
 }
+
+fn manifest() -> toml::Table {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+    toml::from_str(&fs::read_to_string(path).unwrap()).unwrap()
+}
+
+fn from_package(path: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join(path)
+}
+
+fn source_exists(source: &str) {
+    if !source.starts_with("target/release/") {
+        assert!(from_package(source).is_file(), "missing {source}");
+    }
+}
+
+#[test]
+fn deb_and_rpm_carry_the_same_files() {
+    let manifest = manifest();
+    let metadata = &manifest["package"]["metadata"];
+    let mut deb = Vec::new();
+    for asset in metadata["deb"]["assets"].as_array().unwrap() {
+        let source = asset["source"].as_str().unwrap();
+        source_exists(source);
+        deb.push((
+            format!("/{}", asset["dest"].as_str().unwrap()),
+            source.replace("install-kind/deb", "install-kind/*"),
+            asset["mode"].as_str().unwrap().to_owned(),
+        ));
+    }
+    let mut rpm = Vec::new();
+    for asset in metadata["generate-rpm"]["assets"].as_array().unwrap() {
+        let source = asset["source"].as_str().unwrap();
+        source_exists(source);
+        rpm.push((
+            asset["dest"].as_str().unwrap().to_owned(),
+            source.replace("install-kind/rpm", "install-kind/*"),
+            asset["mode"].as_str().unwrap().to_owned(),
+        ));
+    }
+    deb.sort();
+    rpm.sort();
+    assert_eq!(deb, rpm);
+    assert!(!deb.iter().any(|(dest, _, _)| dest == "/usr/bin/tex"));
+    for size in SIZES {
+        let icon =
+            format!("/usr/share/icons/hicolor/{size}x{size}/apps/io.github.LuizFer1.Tex.png");
+        assert!(deb.iter().any(|(dest, _, _)| *dest == icon), "{icon}");
+    }
+}
+
+const LINK: &str = "ln -sf ../lib/tex/tex /usr/bin/tex";
+const UNLINK: &str = "rm -f /usr/bin/tex";
+
+#[test]
+fn package_scripts_exist_and_manage_the_link() {
+    let manifest = manifest();
+    let metadata = &manifest["package"]["metadata"];
+    let scripts = from_package(metadata["deb"]["maintainer-scripts"].as_str().unwrap());
+    let read = |path: PathBuf| fs::read_to_string(path).unwrap().replace("\r\n", "\n");
+    for name in ["postinst", "prerm", "postrm"] {
+        let script = read(scripts.join(name));
+        assert!(script.starts_with("#!/bin/sh\nset -e\n"), "{name}");
+    }
+    assert!(read(scripts.join("postinst")).contains(LINK));
+    assert!(read(scripts.join("postrm")).contains(UNLINK));
+    let rpm = |key: &str| {
+        let path = metadata["generate-rpm"][key].as_str().unwrap();
+        let file = from_package(path);
+        assert!(file.is_file(), "{key}: {path}");
+        read(file)
+    };
+    assert!(rpm("post_install_script").contains(LINK));
+    rpm("pre_uninstall_script");
+    assert!(rpm("post_uninstall_script").contains(UNLINK));
+}
