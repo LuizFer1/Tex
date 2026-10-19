@@ -303,6 +303,7 @@ impl<'a> Worker<'a> {
             if (lineage.hidden && !self.request.include_hidden)
                 || (lineage.system && !self.request.include_system)
                 || lineage.excluded
+                || lineage.in_store_package
                 || !lineage.in_folders
             {
                 continue;
@@ -697,6 +698,20 @@ mod tests {
             ..base(&query)
         };
         search(&[volume], &request, &|| false).unwrap()
+    }
+
+    #[test]
+    fn executables_inside_windows_apps_are_ignored() {
+        let mut c = with_apps();
+        c.upsert(60, ROOT, "WindowsApps", DIR);
+        c.upsert(61, 60, "relatorio_store.exe", FILE);
+        let outcome = run_apps(&c, Filter::All, &[r"C:\ProgramData\Programs"]);
+        assert!(
+            !paths(&outcome)
+                .iter()
+                .any(|path| path.contains("WindowsApps"))
+        );
+        assert_eq!(outcome.total, 5);
     }
 
     #[test]
