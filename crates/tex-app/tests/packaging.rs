@@ -147,3 +147,28 @@ fn package_scripts_exist_and_manage_the_link() {
     rpm("pre_uninstall_script");
     assert!(rpm("post_uninstall_script").contains(UNLINK));
 }
+
+#[test]
+fn the_tarball_installer_knows_every_file() {
+    let script = text("install.sh");
+    assert!(script.starts_with("#!/bin/sh\n"));
+    let sizes: Vec<String> = SIZES.iter().map(u32::to_string).collect();
+    assert!(script.contains(&format!("SIZES=\"{}\"", sizes.join(" "))));
+    let tarball = text("make-tarball.sh");
+    for file in [
+        "installer/linux/install.sh",
+        "installer/linux/tex-indexer.service",
+        "installer/linux/io.github.LuizFer1.Tex.desktop",
+        "installer/linux/io.github.LuizFer1.Tex.autostart.desktop",
+        "installer/linux/io.github.LuizFer1.Tex.metainfo.xml",
+        "installer/linux/io.github.LuizFer1.Tex.update.policy",
+        "installer/linux/install-kind/tar",
+        "installer/linux/icons/",
+        "gnome-extension/extension.js",
+        "gnome-extension/metadata.json",
+        "gnome-extension/LICENSE",
+    ] {
+        assert!(tarball.contains(file), "{file}");
+    }
+    assert!(text("make-packages.sh").contains("make-tarball.sh"));
+}
