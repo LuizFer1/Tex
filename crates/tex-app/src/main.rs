@@ -13,6 +13,7 @@ mod results;
 mod search_client;
 mod settings;
 mod shortcut;
+mod store;
 mod theme;
 mod tools;
 mod update;
@@ -1810,7 +1811,7 @@ fn show_event(windows: &Windows, event: Event, icons: &IconLoader, latest: &Late
             if popup.get_query().trim().is_empty() || !latest.is(results.id) {
                 return;
             }
-            let rows = build_rows(&results.hits);
+            let rows = build_rows(&results.hits, &[]);
             let is_item: Vec<bool> = rows.iter().map(Row::is_item).collect();
             let selected = step_selection(&is_item, None, 1);
             let counts = header_counts(&rows);
