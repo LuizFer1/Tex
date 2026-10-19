@@ -36,6 +36,8 @@ The search box also does math, so a quick calculation needs no other app.
 - Percentages: `52% of 900`, `900 - 10%`.
 - Unit conversions: `10 ft in m`, `100 km/h in m/s`, `1 GB in MB`, `145 min in timespan`.
 - Understands **Portuguese and English** phrases (`10 ft em m`, `52% de 900`), and the **decimal separator** (comma or dot) follows the interface language.
+- Dates and times: `days until 31 mar`, `today + 30 days`, `workdays until mar 31` (Monday to Friday, no holidays), `17:30 - 9:00`. The card shows the weekday under the result.
+- Time zones: `time in tokyo`, `3pm tokyo in sao paulo`. The zones come from a database built into Tex, so they work offline too.
 - Works fully **offline**. There are no currencies, because they would need the network.
 - Turn it off in the **Search** tab of Settings.
 

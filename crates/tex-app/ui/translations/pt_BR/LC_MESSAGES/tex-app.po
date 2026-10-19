@@ -872,3 +872,24 @@ msgstr "este arquivo não é texto"
 
 msgid "Extension tools for this file"
 msgstr "Ferramentas de extensões para este arquivo"
+
+msgid "Monday"
+msgstr "segunda-feira"
+
+msgid "Tuesday"
+msgstr "terça-feira"
+
+msgid "Wednesday"
+msgstr "quarta-feira"
+
+msgid "Thursday"
+msgstr "quinta-feira"
+
+msgid "Friday"
+msgstr "sexta-feira"
+
+msgid "Saturday"
+msgstr "sábado"
+
+msgid "Sunday"
+msgstr "domingo"

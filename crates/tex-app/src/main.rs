@@ -1729,17 +1729,25 @@ fn calculate(popup: &Popup) {
         }
         return;
     };
+    let (kind, place, weekday, offset_minutes) = match answer.kind {
+        tex_calc::AnswerKind::Number => (0, String::new(), 0, 0),
+        tex_calc::AnswerKind::Quantity => (1, String::new(), 0, 0),
+        tex_calc::AnswerKind::Duration => (2, String::new(), 0, 0),
+        tex_calc::AnswerKind::Date { weekday } => (3, String::new(), i32::from(weekday), 0),
+        tex_calc::AnswerKind::Time {
+            place,
+            weekday,
+            offset_minutes,
+        } => (4, place, i32::from(weekday), offset_minutes),
+    };
     popup.set_answer(CalcAnswer {
         expression: answer.expression.into(),
         result: answer.result.into(),
         copy: answer.copy.into(),
-        kind: match answer.kind {
-            tex_calc::AnswerKind::Number => 0,
-            tex_calc::AnswerKind::Quantity => 1,
-            tex_calc::AnswerKind::Duration => 2,
-            tex_calc::AnswerKind::Date { .. } => 3,
-            tex_calc::AnswerKind::Time { .. } => 4,
-        },
+        kind,
+        place: place.into(),
+        weekday,
+        offset_minutes,
     });
     popup.set_has_answer(true);
     popup.set_answer_selected(true);

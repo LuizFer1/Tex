@@ -22,6 +22,9 @@ export struct CalcAnswer {
     result: string,
     copy: string,
     kind: int,
+    place: string,
+    weekday: int,
+    offset-minutes: int,
 }
 
 component AnswerCard inherits Rectangle {
@@ -30,6 +33,10 @@ component AnswerCard inherits Rectangle {
     callback clicked();
     callback double-clicked();
     callback hovered();
+    property <string> weekday-name: root.answer.weekday == 1 ? @tr("Monday") : root.answer.weekday == 2 ? @tr("Tuesday") : root.answer.weekday == 3 ? @tr("Wednesday") : root.answer.weekday == 4 ? @tr("Thursday") : root.answer.weekday == 5 ? @tr("Friday") : root.answer.weekday == 6 ? @tr("Saturday") : @tr("Sunday");
+    property <int> offset-abs: Math.abs(root.answer.offset-minutes);
+    property <string> offset-text: (root.answer.offset-minutes < 0 ? "-" : "+") + Math.floor(root.offset-abs / 60) + " h" + (Math.mod(root.offset-abs, 60) > 0 ? " " + Math.mod(root.offset-abs, 60) + " min" : "");
+    property <string> caption: root.answer.kind == 3 ? root.weekday-name : root.answer.kind == 4 && root.answer.place != "" ? root.answer.place + " · " + root.weekday-name + (root.answer.offset-minutes != 0 ? " · " + root.offset-text : "") : "";
 
     Rectangle {
         x: 8px;
@@ -58,16 +65,26 @@ component AnswerCard inherits Rectangle {
                 color: root.selected ? Tokens.on-action-muted : Tokens.muted;
                 vertical-alignment: center;
             }
-            Text {
+            VerticalLayout {
                 horizontal-stretch: 1;
-                text: root.answer.result;
-                font-family: Tokens.mono-font;
-                font-size: Tokens.size-search;
-                font-weight: 500;
-                color: root.selected ? Tokens.on-action : Tokens.ink;
-                horizontal-alignment: right;
-                vertical-alignment: center;
-                overflow: elide;
+                alignment: center;
+                Text {
+                    text: root.answer.result;
+                    font-family: Tokens.mono-font;
+                    font-size: Tokens.size-search;
+                    font-weight: 500;
+                    color: root.selected ? Tokens.on-action : Tokens.ink;
+                    horizontal-alignment: right;
+                    overflow: elide;
+                }
+                if root.caption != "": Text {
+                    text: root.caption;
+                    font-family: Tokens.mono-font;
+                    font-size: Tokens.size-meta;
+                    color: root.selected ? Tokens.on-action-muted : Tokens.muted;
+                    horizontal-alignment: right;
+                    overflow: elide;
+                }
             }
         }
     }
