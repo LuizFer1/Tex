@@ -86,9 +86,7 @@ pub fn workdays(from: Date, to: Date) -> i64 {
     }
     let days = i64::from((to - from).get_days());
     let start = i64::from(from.weekday().to_monday_one_offset());
-    let partial = (1..=days % 7)
-        .filter(|k| (start - 1 + k) % 7 + 1 <= 5)
-        .count() as i64;
+    let partial = (1..=days % 7).filter(|k| (start - 1 + k) % 7 < 5).count() as i64;
     days / 7 * 5 + partial
 }
 
