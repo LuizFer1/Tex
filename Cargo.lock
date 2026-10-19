@@ -4768,6 +4768,7 @@ dependencies = [
 name = "tex-platform"
 version = "0.4.4"
 dependencies = [
+ "windows",
  "windows-sys 0.59.0",
 ]
 

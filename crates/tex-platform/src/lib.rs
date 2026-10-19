@@ -34,6 +34,10 @@ mod folder;
 #[cfg(windows)]
 pub use folder::pick_folder;
 #[cfg(windows)]
+mod store;
+#[cfg(windows)]
+pub use store::{STORE_PREFIX, StoreApp, store_apps};
+#[cfg(windows)]
 mod winkey;
 #[cfg(windows)]
 pub use winkey::{WinKeyHook, catch_windows_key};
