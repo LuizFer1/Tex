@@ -4779,7 +4779,7 @@ dependencies = [
 
 [[package]]
 name = "tex-app"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "ed25519-dalek",
  "embed-resource",
@@ -4799,7 +4799,7 @@ dependencies = [
 
 [[package]]
 name = "tex-clipboard"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "chacha20poly1305",
  "png",
@@ -4809,14 +4809,14 @@ dependencies = [
 
 [[package]]
 name = "tex-index"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "unicode-normalization",
 ]
 
 [[package]]
 name = "tex-indexer"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "libc",
  "tex-index",
@@ -4827,7 +4827,7 @@ dependencies = [
 
 [[package]]
 name = "tex-ipc"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "postcard",
  "serde",
@@ -4835,7 +4835,7 @@ dependencies = [
 
 [[package]]
 name = "tex-platform"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "global-hotkey",
  "libc",
