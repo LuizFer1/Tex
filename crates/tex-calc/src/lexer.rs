@@ -12,6 +12,15 @@ pub enum Tok {
     Word,
     Op(char),
     Arrow,
+    Day {
+        year: Option<i16>,
+        month: i8,
+        day: i8,
+    },
+    Clock {
+        hour: i8,
+        minute: i8,
+    },
 }
 
 /// One token. `text` is what was typed (operators already mapped: `×` is `*`, `**` is `^`),
@@ -39,12 +48,18 @@ pub fn tokens(query: &str, locale: Locale) -> Option<Vec<Token>> {
             continue;
         }
         let start = i;
-        let (tok, text) = if c.is_ascii_digit()
+        let special = if c.is_ascii_digit() {
+            special(&chars[i..], locale)
+        } else {
+            None
+        };
+        let (tok, text) = if let Some(found) = special {
+            let (tok, length) = found?;
+            i += length;
+            (tok, chars[start..i].iter().collect())
+        } else if c.is_ascii_digit()
             || (matches!(c, '.' | ',') && chars.get(i + 1).is_some_and(char::is_ascii_digit))
         {
-            if is_iso_date(&chars[i..]) {
-                return None;
-            }
             while i < chars.len() && (chars[i].is_ascii_digit() || matches!(chars[i], '.' | ',')) {
                 i += 1;
             }
@@ -183,13 +198,103 @@ fn looks_like_text(tokens: &[Token]) -> bool {
     })
 }
 
-fn is_iso_date(chars: &[char]) -> bool {
-    let pattern = "dddd-dd-dd";
-    chars.len() >= pattern.len()
-        && pattern.chars().zip(chars).all(|(p, c)| match p {
-            'd' => c.is_ascii_digit(),
-            _ => *c == '-',
+/// Dates (`2026-10-19`; `31/03` and `31/03/2027` day first in Portuguese, month first in
+/// English, two digits each without a year so `1/2` stays a fraction) and times of day
+/// (`9:00`, `17:30`, `9am`, `5:30 pm`) at the start of `chars`: the token and its length,
+/// `Some(None)` when the shape matches but the value is invalid.
+fn special(chars: &[char], locale: Locale) -> Option<Option<(Tok, usize)>> {
+    let run = |from: usize| {
+        chars.get(from..).map_or(0, |rest| {
+            rest.iter().take_while(|c| c.is_ascii_digit()).count()
         })
+    };
+    let value = |from: usize, length: usize| -> i32 {
+        chars[from..from + length]
+            .iter()
+            .collect::<String>()
+            .parse()
+            .unwrap_or(0)
+    };
+    let digit_at = |at: usize| chars.get(at).is_some_and(char::is_ascii_digit);
+    let first = run(0);
+    if first == 4
+        && chars.get(4) == Some(&'-')
+        && run(5) == 2
+        && chars.get(7) == Some(&'-')
+        && run(8) == 2
+        && !digit_at(10)
+    {
+        let (year, month, day) = (value(0, 4), value(5, 2), value(8, 2));
+        return Some(day_token(Some(year), month, day).map(|tok| (tok, 10)));
+    }
+    if (1..=2).contains(&first) && chars.get(first) == Some(&'/') {
+        let second = run(first + 1);
+        if (1..=2).contains(&second) {
+            let end = first + 1 + second;
+            let year = (chars.get(end) == Some(&'/')
+                && run(end + 1) == 4
+                && !digit_at(end + 5)
+                && chars.get(end + 5) != Some(&'/'))
+            .then(|| value(end + 1, 4));
+            let length = if year.is_some() { end + 5 } else { end };
+            let plain = year.is_none()
+                && first == 2
+                && second == 2
+                && !digit_at(end)
+                && chars.get(end) != Some(&'/');
+            if year.is_some() || plain {
+                let (a, b) = (value(0, first), value(first + 1, second));
+                let (day, month) = match locale {
+                    Locale::Pt => (a, b),
+                    Locale::En => (b, a),
+                };
+                return Some(day_token(year, month, day).map(|tok| (tok, length)));
+            }
+        }
+    }
+    if !(1..=2).contains(&first) {
+        return None;
+    }
+    let (mut hour, mut minute, mut length) = (value(0, first), 0, first);
+    let colon = chars.get(first) == Some(&':') && run(first + 1) == 2 && !digit_at(first + 3);
+    if colon {
+        minute = value(first + 1, 2);
+        length = first + 3;
+    }
+    let gap = usize::from(chars.get(length) == Some(&' '));
+    let half: String = chars
+        .get(length + gap..length + gap + 2)
+        .map(|pair| pair.iter().collect::<String>().to_ascii_lowercase())
+        .unwrap_or_default();
+    let after = chars
+        .get(length + gap + 2)
+        .is_some_and(|c| c.is_alphanumeric());
+    if (half == "am" || half == "pm") && !after {
+        if !(1..=12).contains(&hour) || minute > 59 {
+            return Some(None);
+        }
+        hour = hour % 12 + if half == "pm" { 12 } else { 0 };
+        length += gap + 2;
+    } else if !colon {
+        return None;
+    } else if hour > 23 || minute > 59 {
+        return Some(None);
+    }
+    Some(Some((
+        Tok::Clock {
+            hour: i8::try_from(hour).ok()?,
+            minute: i8::try_from(minute).ok()?,
+        },
+        length,
+    )))
+}
+
+fn day_token(year: Option<i32>, month: i32, day: i32) -> Option<Tok> {
+    let month = i8::try_from(month).ok()?;
+    let day = i8::try_from(day).ok()?;
+    let year = year.map(i16::try_from).transpose().ok()?;
+    jiff::civil::Date::new(year.unwrap_or(2024), month, day).ok()?;
+    Some(Tok::Day { year, month, day })
 }
 
 /// Reads a run of digits, `.` and `,` with the decimal separator of `locale`. The other
@@ -314,20 +419,63 @@ mod tests {
     fn unknown_text_is_refused() {
         assert_eq!(tokens("c:\\users", Locale::Pt), None);
         assert_eq!(tokens("notes.txt", Locale::Pt), None);
-        assert_eq!(tokens("2024-10-19", Locale::Pt), None);
         assert_eq!(tokens("1.2.3", Locale::Pt), None);
     }
 
     #[test]
-    fn codes_and_dates_are_refused() {
+    fn dates_and_times_of_day() {
+        let pt = |query: &str| {
+            tokens(query, Locale::Pt).map(|tokens| {
+                tokens
+                    .into_iter()
+                    .map(|token| token.tok)
+                    .collect::<Vec<_>>()
+            })
+        };
+        let en = |query: &str| {
+            tokens(query, Locale::En).map(|tokens| {
+                tokens
+                    .into_iter()
+                    .map(|token| token.tok)
+                    .collect::<Vec<_>>()
+            })
+        };
+        let day = |year, month, day| Tok::Day { year, month, day };
+        let clock = |hour, minute| Tok::Clock { hour, minute };
+        assert_eq!(pt("2026-10-19"), Some(vec![day(Some(2026), 10, 19)]));
+        assert_eq!(pt("31/03"), Some(vec![day(None, 3, 31)]));
+        assert_eq!(en("03/31"), Some(vec![day(None, 3, 31)]));
+        assert_eq!(pt("31/03/2027"), Some(vec![day(Some(2027), 3, 31)]));
+        assert_eq!(pt("19/10/2026"), Some(vec![day(Some(2026), 10, 19)]));
+        assert_eq!(pt("1/2/2027"), Some(vec![day(Some(2027), 2, 1)]));
+        assert_eq!(
+            pt("1/2"),
+            Some(vec![Tok::Num(1.0), Tok::Op('/'), Tok::Num(2.0)])
+        );
+        assert_eq!(pt("9:00"), Some(vec![clock(9, 0)]));
+        assert_eq!(pt("17:30"), Some(vec![clock(17, 30)]));
+        assert_eq!(pt("9am"), Some(vec![clock(9, 0)]));
+        assert_eq!(pt("5:30pm"), Some(vec![clock(17, 30)]));
+        assert_eq!(pt("12am"), Some(vec![clock(0, 0)]));
+        assert_eq!(pt("12 pm"), Some(vec![clock(12, 0)]));
+        assert_eq!(pt("9 amanha").map(|tokens| tokens.len()), Some(2));
         for query in [
-            "03 + 1",
-            "2024-10",
-            "555-1234",
-            "19/10/2026",
-            "1/2/3",
-            "123-45-6789",
+            "2024-13-45",
+            "31/02",
+            "45/99",
+            "25:00",
+            "13pm",
+            "9:5",
+            "9:",
+            "2024-1",
         ] {
+            assert_eq!(pt(query), None, "{query}");
+        }
+    }
+
+    #[test]
+    fn codes_and_dates_are_refused() {
+        for query in ["03 + 1", "2024-10", "555-1234", "1/2/3", "123-45-6789"] {
             assert_eq!(tokens(query, Locale::Pt), None, "{query}");
         }
         for query in ["0", "0,5", "10-5", "1000/4", "1500 - 200", "2024 -10"] {
