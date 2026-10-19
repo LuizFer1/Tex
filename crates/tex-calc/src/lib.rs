@@ -1,3 +1,4 @@
+mod dates;
 mod eval;
 mod format;
 mod lexer;
