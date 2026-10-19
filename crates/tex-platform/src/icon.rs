@@ -24,6 +24,9 @@ pub fn init_icon_thread() {
 
 /// The large icon the shell shows for `path` (for a shortcut, its target's icon), as RGBA.
 pub fn app_icon(path: &str) -> Option<IconPixels> {
+    if path.starts_with(crate::STORE_PREFIX) {
+        return store_icon(path);
+    }
     let wide: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
     let mut info: SHFILEINFOW = unsafe { zeroed() };
     let found = unsafe {
@@ -41,6 +44,35 @@ pub fn app_icon(path: &str) -> Option<IconPixels> {
     let pixels = icon_pixels(info.hIcon);
     unsafe { DestroyIcon(info.hIcon) };
     pixels
+}
+
+/// The 256 px logo of a Store app, read through its shell item (`SHGetFileInfoW` has no icon for `shell:` paths).
+fn store_icon(path: &str) -> Option<IconPixels> {
+    use windows::Win32::Foundation::SIZE;
+    use windows::Win32::UI::Shell::{
+        IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF_BIGGERSIZEOK, SIIGBF_ICONONLY,
+    };
+    use windows::core::HSTRING;
+    let factory: IShellItemImageFactory =
+        unsafe { SHCreateItemFromParsingName(&HSTRING::from(path), None) }.ok()?;
+    let bitmap = unsafe {
+        factory.GetImage(
+            SIZE { cx: 256, cy: 256 },
+            SIIGBF_ICONONLY | SIIGBF_BIGGERSIZEOK,
+        )
+    }
+    .ok()?;
+    let pixels = bitmap_bgra(bitmap.0);
+    unsafe { DeleteObject(bitmap.0) };
+    let (width, height, mut rgba) = pixels?;
+    for pixel in rgba.chunks_exact_mut(4) {
+        pixel.swap(0, 2);
+    }
+    Some(IconPixels {
+        width,
+        height,
+        rgba,
+    })
 }
 
 /// Converts an HICON to RGBA. Icons without an alpha channel take transparency from their mask.
@@ -131,5 +163,33 @@ mod tests {
     fn missing_files_have_no_icon() {
         init_icon_thread();
         assert!(app_icon(r"C:\definitely\not\here\nothing.exe").is_none());
+    }
+
+    #[test]
+    fn store_apps_have_a_visible_icon() {
+        init_icon_thread();
+        let Some(app) = crate::store_apps().into_iter().next() else {
+            return;
+        };
+        let icon = app_icon(&app.path).unwrap();
+        assert_eq!(icon.rgba.len(), (icon.width * icon.height * 4) as usize);
+        assert!(icon.rgba.iter().skip(3).step_by(4).any(|&alpha| alpha > 0));
+        let terminal = crate::store_apps().into_iter().find(|app| {
+            app.path
+                .ends_with(r"Microsoft.WindowsTerminal_8wekyb3d8bbwe!App")
+        });
+        if let Some(terminal) = terminal {
+            let icon = app_icon(&terminal.path).unwrap();
+            let opaque = icon
+                .rgba
+                .iter()
+                .skip(3)
+                .step_by(4)
+                .filter(|&&a| a > 0)
+                .count();
+            assert_eq!(icon.width, icon.height);
+            assert!(icon.width >= 32);
+            assert!(opaque * 10 >= (icon.width * icon.height) as usize);
+        }
     }
 }
