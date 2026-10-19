@@ -159,7 +159,7 @@ cargo build --release
 target\release\tex-indexer.exe install     # in an administrator terminal; --all-users lets every account search; uninstall removes it
 ```
 
-To build the installer, install [Inno Setup 6](https://jrsoftware.org/isinfo.php) and, after the release build, run `ISCC.exe /DAppVersion=0.4.3 installer\tex.iss` with the workspace version. The result is `target\installer\Tex-Setup-0.4.3.exe`.
+To build the installer, install [Inno Setup 6](https://jrsoftware.org/isinfo.php) and, after the release build, run `ISCC.exe /DAppVersion=0.4.4 installer\tex.iss` with the workspace version. The result is `target\installer\Tex-Setup-0.4.4.exe`.
 
 To try the app without administrator rights, serve a single folder instead:
 
