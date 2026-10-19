@@ -3,6 +3,7 @@ mod format;
 mod lexer;
 mod parser;
 mod units;
+mod zones;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Locale {
