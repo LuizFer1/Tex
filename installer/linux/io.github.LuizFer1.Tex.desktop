@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Tex
+GenericName=File search and clipboard history
+GenericName[pt_BR]=Busca de arquivos e histórico do clipboard
+Comment=Find files, folders and apps, and reuse what you copied
+Comment[pt_BR]=Encontre arquivos, pastas e apps e reuse o que você copiou
+Exec=/usr/lib/tex/tex
+Icon=io.github.LuizFer1.Tex
+Terminal=false
+Categories=Utility;
+Keywords=search;find;files;clipboard;history;
+Keywords[pt_BR]=busca;pesquisa;arquivos;clipboard;histórico;
+StartupNotify=false
+SingleMainWindow=true

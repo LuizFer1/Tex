@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.LuizFer1.Tex</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>PolyForm-Noncommercial-1.0.0</project_license>
+  <name>Tex</name>
+  <summary>Find files, folders and apps, and reuse what you copied</summary>
+  <summary xml:lang="pt_BR">Encontre arquivos, pastas e apps e reuse o que você copiou</summary>
+  <description>
+    <p>Tex searches every disk and the installed apps from one popup, and keeps a private, encrypted history of the text and images you copy.</p>
+    <p xml:lang="pt_BR">O Tex pesquisa todos os discos e os apps instalados num só popup e guarda um histórico privado e criptografado dos textos e imagens que você copia.</p>
+  </description>
+  <launchable type="desktop-id">io.github.LuizFer1.Tex.desktop</launchable>
+  <url type="homepage">https://github.com/LuizFer1/Tex</url>
+  <developer id="io.github.luizfer1">
+    <name>Luiz Fernando</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+</component>

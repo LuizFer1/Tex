@@ -1,0 +1,4 @@
+*.sh text eol=lf
+installer/linux/** text eol=lf
+gnome-extension/** text eol=lf
+*.png binary
