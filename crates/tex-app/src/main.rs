@@ -1713,9 +1713,7 @@ fn calculate(popup: &Popup) {
             app.settings.general.language,
         )
     });
-    let context = tex_calc::Context {
-        locale: app::calc_locale(language),
-    };
+    let context = tex_calc::Context::now(app::calc_locale(language));
     let answer = if enabled && popup.get_filter() == 0 {
         tex_calc::evaluate(&popup.get_query(), &context)
     } else {

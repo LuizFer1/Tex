@@ -1,7 +1,16 @@
 use tex_calc::{AnswerKind, Context, Locale, evaluate};
 
+const NOW: &str = "2026-10-19T10:00:00-03:00[America/Sao_Paulo]";
+
+fn context(locale: Locale) -> Context {
+    Context {
+        locale,
+        now: NOW.parse().unwrap(),
+    }
+}
+
 fn result(query: &str, locale: Locale) -> Option<String> {
-    evaluate(query, &Context { locale }).map(|answer| answer.result)
+    evaluate(query, &context(locale)).map(|answer| answer.result)
 }
 
 fn check(locale: Locale, cases: &[(&str, &str)]) {
@@ -157,7 +166,7 @@ fn durations() {
 
 #[test]
 fn answer_parts() {
-    let pt = Context { locale: Locale::Pt };
+    let pt = context(Locale::Pt);
     let answer = evaluate("1000 * 2", &pt).unwrap();
     assert_eq!(
         (answer.result.as_str(), answer.copy.as_str()),
@@ -176,7 +185,7 @@ fn answer_parts() {
         evaluate("145 min em duração", &pt).unwrap().kind,
         AnswerKind::Duration
     );
-    let en = Context { locale: Locale::En };
+    let en = context(Locale::En);
     let answer = evaluate("1000*1.5", &en).unwrap();
     assert_eq!(
         (answer.result.as_str(), answer.copy.as_str()),

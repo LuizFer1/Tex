@@ -41,6 +41,7 @@ ed25519-dalek = "3.0.0"
 sha2 = "0.11"
 getrandom = "0.4.3"
 pulldown-cmark = { version = "0.13.4", default-features = false }
+jiff = "0.2.38"
 
 [profile.release]
 lto = true

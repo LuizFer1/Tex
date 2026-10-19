@@ -13,6 +13,17 @@ pub enum Locale {
 #[derive(Debug, Clone)]
 pub struct Context {
     pub locale: Locale,
+    pub now: jiff::Zoned,
+}
+
+impl Context {
+    /// The context of a query typed now, in the system's time zone.
+    pub fn now(locale: Locale) -> Context {
+        Context {
+            locale,
+            now: jiff::Zoned::now(),
+        }
+    }
 }
 
 /// The card's content: the query as shown, the result as shown, and the text to copy

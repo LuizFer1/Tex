@@ -8,3 +8,4 @@ publish.workspace = true
 
 [dependencies]
 tex-index.workspace = true
+jiff.workspace = true
