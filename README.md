@@ -27,6 +27,18 @@ One search box for everything on your computer.
 - Type a **path** to search inside folders: `Tex/.exe` finds `.exe` files anywhere inside folders named like "Tex", and `Projetos/Tex/` lists everything below them.
 - The selected result **opens directly** from the search.
 
+### Quick calculator
+
+The search box also does math, so a quick calculation needs no other app.
+
+- Calculates **while you type** and shows the result above the files. **Enter** copies it.
+- Operations and functions: `2^10`, `sqrt(144)`.
+- Percentages: `52% of 900`, `900 - 10%`.
+- Unit conversions: `10 ft in m`, `100 km/h in m/s`, `1 GB in MB`, `145 min in timespan`.
+- Understands **Portuguese and English** phrases (`10 ft em m`, `52% de 900`), and the **decimal separator** (comma or dot) follows the interface language.
+- Works fully **offline**. There are no currencies, because they would need the network.
+- Turn it off in the **Search** tab of Settings.
+
 ### Clipboard history
 
 Tex keeps what you copy, so you can find it and use it again later. Press **Alt+V** (you can change it) to open the history.
