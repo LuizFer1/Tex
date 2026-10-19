@@ -316,7 +316,7 @@ impl Parser<'_> {
             .then_some(value)
     }
 
-    /// The year after a day and month (`31 mar 2027`, `31 de marco de 2027`), or the
+    /// The year after a day and month (`31 mar 2027`, `31 de março de 2027`), or the
     /// year-less date resolved when evaluated.
     fn with_year(&mut self, month: i8, day: f64) -> Option<Expr> {
         if !(1.0..=31.0).contains(&day) {

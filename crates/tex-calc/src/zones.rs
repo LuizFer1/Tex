@@ -61,6 +61,11 @@ const ALIASES: &[(&str, &str, &str)] = &[
         "America/Mexico_City",
     ),
     ("mexico", "México", "America/Mexico_City"),
+    (
+        "buenos aires",
+        "Buenos Aires",
+        "America/Argentina/Buenos_Aires",
+    ),
     ("argentina", "Argentina", "America/Argentina/Buenos_Aires"),
     ("chile", "Chile", "America/Santiago"),
     ("peru", "Peru", "America/Lima"),
@@ -227,7 +232,7 @@ mod tests {
         assert_eq!(iana("rio de janeiro").as_deref(), Some("America/Sao_Paulo"));
         assert_eq!(
             iana("buenos aires").as_deref(),
-            Some("America/Buenos_Aires")
+            Some("America/Argentina/Buenos_Aires")
         );
         assert_eq!(find("marte"), None);
         assert_eq!(find("eastern"), None);
