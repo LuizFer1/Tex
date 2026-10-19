@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tex — Seu computador, ao alcance</title>
+<meta name="description" content="Ache qualquer arquivo em segundos e nunca mais perca o que você copiou. Assistente de mesa para Windows.">
+<meta name="theme-color" content="#0F0D0A">
+<link rel="icon" type="image/png" href="assets/app-icon.png">
+<link rel="stylesheet" href="fonts/fonts.css">
+<style>
+body{margin:0}
+.tex{--bg:#0F0D0A;--card:#17140F;--card2:#201C15;--line:#2A251C;--line-hi:#3D3527;--ink:#F3EAD3;--ink2:#C9BC9A;--muted:#A8987A;--acc:#5FCF6E;--btn:#17602A;--btn-ink:#FFFFFF;--field:#0F0D0A;--sel:#2E9E3F;font-family:'Geist','Helvetica Neue',system-ui,sans-serif;color:var(--ink);background:var(--bg);min-height:100vh;-webkit-font-smoothing:antialiased}
+.tex.light{--bg:#FFFAEC;--card:#FFFDF5;--card2:#FBF1CF;--line:#EAD9A8;--line-hi:#D9C58D;--ink:#2A2117;--ink2:#5A4A2E;--muted:#7A6A48;--acc:#1F7D30;--btn:#17602A;--btn-ink:#FFFFFF;--field:#FFFAEC}
+.tex .app{--a-paper:#1F1A14;--a-paper2:#2A241A;--a-ink:#F3EAD3;--a-ink2:#D0C3A0;--a-muted:#B3A37C;--a-muted2:#8A7A55;--a-border:#4A3F2A;--a-border2:#352D1F;--a-shadow:rgba(0,0,0,.6);font-family:'Nunito',system-ui,sans-serif;color:var(--a-ink)}
+.tex.light .app{--a-paper:#FFFAEC;--a-paper2:#FBF1CF;--a-ink:#2A2117;--a-ink2:#5A4A2E;--a-muted:#7A6A48;--a-muted2:#A89670;--a-border:#EAD9A8;--a-border2:#F0E4BD;--a-shadow:rgba(42,33,23,.28)}
+.tex .app .pm{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.tex a{color:var(--ink)}
+.tex a:hover{color:var(--acc)}
+.tex a:focus-visible,.tex button:focus-visible{outline:2px solid var(--acc);outline-offset:3px}
+.tex .mono{font-family:'Geist Mono',ui-monospace,Menlo,Consolas,monospace}
+.tex .lbl{font-family:'Geist Mono',ui-monospace,monospace;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.tex .card{background:var(--card);border:1px solid var(--line);border-radius:28px}
+.tex .pill{display:inline-flex;align-items:center;gap:10px;min-height:48px;padding:0 22px;border-radius:999px;text-decoration:none;font-weight:600;font-size:15px;white-space:nowrap}
+.tex .pill-main{background:var(--btn);color:var(--btn-ink)}
+.tex .pill-main:hover{color:var(--btn-ink);filter:brightness(1.08)}
+.tex .pill-line{border:1px solid var(--line-hi);color:var(--ink)}
+.tex .bento{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:16px}
+.tex .s12{grid-column:span 12}.tex .s6{grid-column:span 6}.tex .s4{grid-column:span 4}.tex .s5{grid-column:span 5}.tex .s7{grid-column:span 7}.tex .s8{grid-column:span 8}
+.tex .r2{grid-row:span 2}
+@media (min-width:1600px){.tex .bento{gap:20px}.tex .card,.tex .bento>div,.tex .bento>article{border-radius:32px}}
+@media (max-width:920px){.tex .bento>*{grid-column:span 12 !important;grid-row:auto !important}.tex .hide-sm{display:none !important}}
+
+@property --a{syntax:'<angle>';inherits:false;initial-value:0deg}
+@keyframes rise{from{opacity:0;transform:translateY(32px) scale(.975);filter:blur(8px)}to{opacity:1;transform:none;filter:blur(0)}}
+@keyframes draw{from{background-size:0% .12em}to{background-size:100% .12em}}
+@keyframes orbit{to{--a:360deg}}
+@keyframes beat{0%{box-shadow:0 0 0 0 var(--acc)}70%{box-shadow:0 0 0 10px transparent}100%{box-shadow:0 0 0 0 transparent}}
+@keyframes caret{50%{opacity:0}}
+.tex .bento>*{position:relative;transition:translate .6s cubic-bezier(.2,.8,.2,1),border-color .4s}
+.tex .bento>*::before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;pointer-events:none;background:conic-gradient(from var(--a),transparent 0 62%,var(--acc) 80%,transparent 96%);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);opacity:0;transition:opacity .5s;animation:orbit 3.6s linear infinite}
+.tex .bento>*:hover{translate:0 -4px}
+.tex .bento>*:hover::before{opacity:1}
+.tex #topo>*{animation:rise 1s cubic-bezier(.2,.8,.2,1) both}
+.tex #topo>*:nth-child(2){animation-delay:.12s}
+.tex #topo>*:nth-child(3){animation-delay:.24s}
+@supports (animation-timeline: view()){
+.tex .bento:not(#topo)>*{animation:rise linear both;animation-timeline:view();animation-range:entry 0% entry 45%}
+.tex .bento:not(#topo)>*:nth-child(2){animation-range:entry 8% entry 55%}
+.tex .bento:not(#topo)>*:nth-child(3){animation-range:entry 16% entry 65%}
+}
+.tex .hl{background-image:linear-gradient(#F9C623,#F9C623);background-repeat:no-repeat;background-position:0 92%;background-size:0% .12em;animation:draw .9s cubic-bezier(.7,0,.2,1) 1s forwards}
+.tex .fade{-webkit-mask-image:linear-gradient(to right,transparent 0,#000 9%,#000 91%,transparent 100%),linear-gradient(to bottom,transparent 0,#000 6%,#000 94%,transparent 100%);-webkit-mask-composite:source-in;mask-image:linear-gradient(to right,transparent 0,#000 9%,#000 91%,transparent 100%),linear-gradient(to bottom,transparent 0,#000 6%,#000 94%,transparent 100%);mask-composite:intersect}
+.tex .shine{color:#FFFFFF}
+.tex .beam{position:relative;overflow:hidden;isolation:isolate}
+.tex .beam::after{content:"";position:absolute;top:-10%;bottom:-10%;left:0;width:40%;background:linear-gradient(100deg,rgba(255,255,255,0) 0%,rgba(255,255,255,.12) 30%,rgba(255,255,255,.65) 50%,rgba(255,255,255,.12) 70%,rgba(255,255,255,0) 100%);transform:translateX(280%) skewX(-20deg);pointer-events:none}
+.tex .beam:hover::after{animation:beam 1.4s cubic-bezier(.4,0,.2,1) infinite}
+.tex .beam-y::after{background:linear-gradient(100deg,rgba(249,198,35,0) 0%,rgba(249,198,35,.15) 30%,rgba(249,198,35,.6) 50%,rgba(249,198,35,.15) 70%,rgba(249,198,35,0) 100%)}
+.tex .beam-l::after{background:linear-gradient(100deg,rgba(255,246,201,0) 0%,rgba(255,246,201,.2) 30%,rgba(255,250,225,.9) 50%,rgba(255,246,201,.2) 70%,rgba(255,246,201,0) 100%)}
+@keyframes beam{0%{transform:translateX(280%) skewX(-20deg)}60%,100%{transform:translateX(-180%) skewX(-20deg)}}
+.tex .pulse{animation:beat 2.4s ease-out infinite}
+.tex .caret{display:inline-block;width:2px;height:1em;margin-left:2px;vertical-align:-.15em;background:#2E9E3F;animation:caret 1.1s steps(1) infinite}
+.tex .knob{left:2px;transition:left 120ms ease}
+.tex.light .knob{left:20px}
+.tex .lang{appearance:none;display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0 12px;box-sizing:border-box;border:1px solid var(--line-hi);background:var(--card2);border-radius:999px;color:var(--muted);cursor:pointer;font:500 13px 'Geist Mono',ui-monospace,monospace;letter-spacing:.06em}
+.tex .lang:hover{color:var(--ink)}
+.tex.settled .hl{animation:none;background-size:100% .12em}
+@media (prefers-reduced-motion:reduce){.tex *,.tex *::before{animation:none !important;transition:none !important}.tex .hl{background-size:100% .12em}}
+</style>
+</head>
+<body>
+
+<div class="tex dark" id="tex">
+
+<!-- Topo -->
+<header style="max-width: 1600px; margin: 0 auto; padding: 20px clamp(16px, 3.5vw, 64px); display: flex; align-items: center; flex-wrap: wrap; gap: 12px; box-sizing: border-box">
+<a href="#topo" style="display: flex; align-items: center; gap: 10px; text-decoration: none">
+<img src="assets/app-icon.png" alt="" style="width: 32px; height: 32px; border-radius: 9px; object-fit: cover">
+<span style="font-weight: 800; font-size: 20px; letter-spacing: -0.02em">Tex</span>
+</a>
+<div style="flex: 1"></div>
+<button type="button" id="lang-toggle" class="lang" aria-label="Português" data-i18n-aria="lang-aria">PT</button>
+<button type="button" id="theme-toggle" aria-pressed="false" aria-label="Tema claro" data-i18n-aria="theme-aria" style="display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 8px; background: transparent; border: none; cursor: pointer; color: var(--muted); font: 500 13px 'Geist', sans-serif">
+<span class="hide-sm" data-i18n="theme-label">Claro</span>
+<span style="position: relative; display: block; width: 38px; height: 20px; box-sizing: border-box; border: 1px solid var(--line-hi); background: var(--card2); border-radius: 999px">
+<span class="knob" style="position: absolute; top: 2px; width: 14px; height: 14px; border-radius: 999px; background: var(--acc)"></span>
+</span>
+</button>
+<a class="pill pill-main beam" href="https://github.com/LuizFer1/Tex/releases" style="min-height: 44px; padding: 0 18px; font-size: 14px"><span class="shine" data-i18n="download">Baixar para Windows</span></a>
+</header>
+
+<main style="max-width: 1600px; margin: 0 auto; padding: 24px clamp(16px, 3.5vw, 64px) 64px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
+
+<!-- Hero -->
+<section id="topo" class="bento" aria-label="Apresentação" data-i18n-aria="hero-aria">
+<div class="card s8 r2" style="padding: clamp(28px, 4vw, 56px); display: flex; flex-direction: column; justify-content: space-between; gap: clamp(24px, 4vh, 48px); min-height: min(520px, 60vh)">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px">
+<span style="display: inline-flex; align-items: center; gap: 10px; margin-right: 10px"><span aria-hidden="true" class="pulse" style="width: 8px; height: 8px; border-radius: 50%; background: var(--acc)"></span><span class="lbl" style="color: var(--ink)" data-i18n="win">Para Windows</span></span>
+<span style="display: inline-flex; align-items: center; gap: 10px; margin-right: 10px"><span aria-hidden="true" class="pulse" style="--acc: #4A7BF7; width: 8px; height: 8px; border-radius: 50%; background: #4A7BF7"></span><span class="lbl" data-i18n="linux">Linux em desenvolvimento</span></span>
+<span style="display: inline-flex; align-items: center; gap: 10px"><span aria-hidden="true" style="width: 8px; height: 8px; box-sizing: border-box; border-radius: 50%; background: var(--line-hi)"></span><span class="lbl" data-i18n="mac">macOS no futuro</span></span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 28px">
+<h1 data-i18n-html="hero-title" style="margin: 0; font-weight: 800; font-size: clamp(44px, min(5.8vw, 10vh), 108px); line-height: 0.96; letter-spacing: -0.04em; text-wrap: balance">Seu computador, <span class="hl">ao alcance.</span></h1>
+<p data-i18n="hero-lead" style="margin: 0; font-size: 19px; line-height: 1.55; max-width: 500px; color: var(--ink2); text-wrap: pretty">Ache qualquer arquivo em segundos e nunca mais perca o que você copiou.</p>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 12px">
+<a class="pill pill-main beam" href="https://github.com/LuizFer1/Tex/releases"><span class="shine" data-i18n="download">Baixar para Windows</span>
+<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12l7 7 7-7"></path></svg></a>
+<a class="pill pill-line beam beam-y" href="https://github.com/LuizFer1/Tex"><span data-i18n="github">Contribua no GitHub</span></a>
+<a class="pill pill-line beam beam-y" href="https://ko-fi.com/fernandodantasdev">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"></path><path d="M17 11h1.5a2.5 2.5 0 0 1 0 5H17"></path><path d="M8 3v3M12 3v3"></path></svg>
+<span data-i18n="coffee">Pague-me um café</span></a>
+</div>
+</div>
+
+<div class="s4" style="background: #FDD52F; border-radius: 28px; overflow: hidden; min-height: 300px">
+<img class="shot fade" src="assets/mascot-welcome.png" alt="Tex, a criança de capuz de dinossauro verde, sorrindo" data-i18n-alt="alt-welcome" style="position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; object-position: 50% 100%">
+</div>
+
+<div class="card s4" style="padding: 28px; display: flex; flex-direction: column; gap: 18px">
+<span class="lbl" data-i18n="shortcuts">Atalhos</span>
+<div style="display: flex; flex-direction: column; gap: 10px; font-size: 15px">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line)"><span class="mono" style="font-weight: 500" data-i18n="key-space">Alt + Espaço</span><span style="color: var(--muted)" data-i18n="act-search">buscar</span></div>
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px"><span class="mono" style="font-weight: 500">Alt + V</span><span style="color: var(--muted)" data-i18n="act-history">histórico</span></div>
+</div>
+</div>
+</section>
+
+<!-- Título -->
+<section style="padding: clamp(40px, 7vh, 72px) 0 8px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 20px">
+<h2 data-i18n="two" style="margin: 0; font-size: clamp(34px, 3.6vw, 68px); font-weight: 800; letter-spacing: -0.03em; line-height: 1">Dois atalhos. Tudo à mão.</h2>
+<span class="lbl" data-i18n="k-pair">Busca · Histórico</span>
+</section>
+
+<!-- Busca -->
+<section class="bento" aria-label="Busca" data-i18n-aria="search-aria">
+<article class="card s8 r2" style="padding: clamp(24px, 3vw, 40px); display: flex; flex-wrap: wrap; align-items: center; gap: 28px 40px; overflow: hidden">
+<div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 14px">
+<span class="mono" style="font-size: 13px; color: var(--acc)" data-i18n="k01">01 · Busca</span>
+<h3 data-i18n="h-find" style="margin: 0; font-size: clamp(32px, min(3.4vw, 6vh), 52px); font-weight: 800; letter-spacing: -0.04em; line-height: 0.98">Ache pelo nome.</h3>
+<p data-i18n="p-find" style="margin: 0; font-size: 18px; line-height: 1.55; color: var(--ink2); max-width: 520px; text-wrap: pretty">Arquivos, pastas e programas num campo só. O resultado aparece enquanto você digita.</p>
+</div>
+<figure class="app" aria-label="Janela de pesquisa do Tex procurando por “notas”" data-i18n-aria="fig-search" style="margin: 0; flex: 999 1 460px; display: flex; flex-direction: column; min-width: 0">
+<div aria-hidden="true" class="pm" style="align-self: flex-start; display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px 0 6px; background: #2E9E3F; color: #FFFAEC; border-radius: 6px 6px 0 0; font-size: 11px; font-weight: 600"><img src="assets/app-icon.png" alt="" style="width: 16px; height: 16px; border-radius: 4px"><span data-i18n="tab-search">tex — pesquisa</span></div>
+<div aria-hidden="true" style="background: var(--a-paper); border-radius: 0 6px 6px 6px; box-shadow: 0 0 0 1px #2E9E3F, 0 20px 50px var(--a-shadow); overflow: hidden">
+<div style="display: flex; align-items: center; gap: 12px; padding: 18px 20px 14px">
+<span class="pm" style="font-size: 24px; font-weight: 500; color: #2E9E3F">›</span>
+<span class="pm" data-i18n-html="query" style="font-size: 24px; color: var(--a-ink)">notas<span class="caret"></span></span>
+</div>
+<div style="display: flex; align-items: flex-end; gap: 22px; padding: 0 20px; border-bottom: 1px solid var(--a-border); font-size: 13px; font-weight: 500">
+<span data-i18n="f-all" style="padding-bottom: 9px; border-bottom: 2px solid #2E9E3F; margin-bottom: -1px; color: var(--a-ink)">Tudo</span>
+<span data-i18n="f-apps" style="padding-bottom: 11px; color: var(--a-muted)">Apps</span>
+<span data-i18n="f-files" style="padding-bottom: 11px; color: var(--a-muted)">Arquivos</span>
+<span data-i18n="f-folders" style="padding-bottom: 11px; color: var(--a-muted)">Pastas</span>
+<span style="flex: 1"></span>
+<span class="pm hide-sm" style="padding-bottom: 10px; font-size: 11px; color: var(--a-muted)">tab ⇥</span>
+</div>
+<div style="padding: 4px 0 10px">
+<div class="pm" style="display: flex; align-items: center; gap: 10px; padding: 14px 20px 6px; font-size: 11px; font-weight: 500; color: var(--a-muted); letter-spacing: 0.06em"><span data-i18n="h-apps">APPS</span><span style="flex: 1; height: 1px; background: var(--a-border2)"></span></div>
+<div style="display: grid; grid-template-columns: 20px minmax(0,1fr) minmax(0,42%) 22px; align-items: center; gap: 12px; margin: 0 8px; padding: 8px 12px; border-radius: 4px">
+<svg width="17" height="17" viewBox="0 0 256 256"><path d="M216 40H40a16 16 0 0 0-16 16v144a16 16 0 0 0 16 16h176a16 16 0 0 0 16-16V56a16 16 0 0 0-16-16ZM80 176H64v-16h16Zm0-40H64v-16h16Zm0-40H64V80h16Zm112 80h-88v-16h88Zm0-40h-88v-16h88Zm0-40h-88V80h88Z" fill="#2E9E3F"></path></svg>
+<div data-i18n-html="app-name" style="font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Bloco de <span style="text-decoration: underline; text-decoration-color: #F9C623; text-decoration-thickness: 3px; text-underline-offset: 3px">Notas</span></div>
+<div class="pm" style="font-size: 11.5px; color: var(--a-muted); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis"></div>
+<span></span>
+</div>
+<div class="pm" style="display: flex; align-items: center; gap: 10px; padding: 14px 20px 6px; font-size: 11px; font-weight: 500; color: var(--a-muted); letter-spacing: 0.06em"><span data-i18n="h-files">ARQUIVOS</span><span style="flex: 1; height: 1px; background: var(--a-border2)"></span></div>
+<div style="display: grid; grid-template-columns: 20px minmax(0,1fr) minmax(0,42%) 22px; align-items: center; gap: 12px; margin: 0 8px; padding: 8px 12px; border-radius: 4px; background: #2E9E3F; color: #FFFAEC">
+<svg width="17" height="17" viewBox="0 0 256 256"><path d="M213.66 82.34l-56-56A8 8 0 0 0 152 24H56a16 16 0 0 0-16 16v176a16 16 0 0 0 16 16h144a16 16 0 0 0 16-16V88a8 8 0 0 0-2.34-5.66ZM152 88V44l44 44Z" fill="#FFFAEC"></path></svg>
+<div data-i18n-html="file-name" style="font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis"><span style="text-decoration: underline; text-decoration-color: #F9C623; text-decoration-thickness: 3px; text-underline-offset: 3px">notas</span>-reuniao.md</div>
+<div class="pm" data-i18n="path-work" style="font-size: 11.5px; color: #D3ECC9; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">…\Documentos\Trabalho</div>
+<span class="pm" style="font-size: 13px; font-weight: 500; color: #F9C623; text-align: right">↵</span>
+</div>
+<div style="display: grid; grid-template-columns: 20px minmax(0,1fr) minmax(0,42%) 22px; align-items: center; gap: 12px; margin: 0 8px; padding: 8px 12px; border-radius: 4px">
+<svg width="17" height="17" viewBox="0 0 256 256"><path d="M213.66 82.34l-56-56A8 8 0 0 0 152 24H56a16 16 0 0 0-16 16v176a16 16 0 0 0 16 16h144a16 16 0 0 0 16-16V88a8 8 0 0 0-2.34-5.66ZM152 88V44l44 44Z" fill="#4A7BF7"></path></svg>
+<div data-i18n-html="file-name" style="font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis"><span style="text-decoration: underline; text-decoration-color: #F9C623; text-decoration-thickness: 3px; text-underline-offset: 3px">notas</span>-reuniao.md</div>
+<div class="pm" data-i18n="path-personal" style="font-size: 11.5px; color: var(--a-muted); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">…\Documentos\Pessoal</div>
+<span></span>
+</div>
+<div class="pm" style="display: flex; align-items: center; gap: 10px; padding: 14px 20px 6px; font-size: 11px; font-weight: 500; color: var(--a-muted); letter-spacing: 0.06em"><span data-i18n="h-folders">PASTAS</span><span style="flex: 1; height: 1px; background: var(--a-border2)"></span></div>
+<div style="display: grid; grid-template-columns: 20px minmax(0,1fr) minmax(0,42%) 22px; align-items: center; gap: 12px; margin: 0 8px; padding: 8px 12px; border-radius: 4px">
+<svg width="17" height="17" viewBox="0 0 256 256"><path d="M216 72h-85.33l-27.74-20.8a16.12 16.12 0 0 0-9.6-3.2H40a16 16 0 0 0-16 16v136a16 16 0 0 0 16 16h176.89A15.13 15.13 0 0 0 232 200.89V88a16 16 0 0 0-16-16Z" fill="#F5A623"></path></svg>
+<div data-i18n-html="folder-name" style="font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis"><span style="text-decoration: underline; text-decoration-color: #F9C623; text-decoration-thickness: 3px; text-underline-offset: 3px">Notas</span> de estudo</div>
+<div class="pm" data-i18n="path-user" style="font-size: 11.5px; color: var(--a-muted); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">…\Usuários\ana\Documentos</div>
+<span></span>
+</div>
+</div>
+<div class="pm" style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; padding: 9px 20px; background: var(--a-paper2); border-top: 1px solid var(--a-border); font-size: 11px; color: var(--a-ink2)">
+<span data-i18n="foot-nav">↑↓ navegar</span><span data-i18n="foot-open">↵ abrir</span><span class="hide-sm" data-i18n="foot-local">ctrl ↵ abrir local</span><span data-i18n="foot-clear">esc limpar</span>
+</div>
+</div>
+</figure>
+</article>
+
+<div class="s4 r2" style="background: #FCD834; border-radius: 28px; overflow: hidden; min-height: 280px">
+<img class="shot fade" src="assets/mascot-search.png" alt="Tex com uma lupa, olhando uma pasta com arquivos" data-i18n-alt="alt-search" style="position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; object-position: 50% 50%">
+</div>
+</section>
+
+<!-- Histórico -->
+<section class="bento" aria-label="Histórico" data-i18n-aria="hist-aria" style="margin-top: 16px">
+<div class="s4" style="background: #FCD834; border-radius: 28px; overflow: hidden; min-height: 280px">
+<img class="shot fade" src="assets/mascot-clipboard.png" alt="Tex segurando uma prancheta com itens copiados" data-i18n-alt="alt-clip" style="position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; object-position: 50% 50%">
+</div>
+
+<article class="card s8 r2" style="padding: clamp(24px, 3vw, 40px); display: flex; flex-wrap: wrap; align-items: center; gap: 28px 40px; overflow: hidden">
+<div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 14px">
+<span class="mono" data-i18n="k02" style="font-size: 13px; color: var(--acc)">02 · Histórico</span>
+<h3 data-i18n="h-clip" style="margin: 0; font-size: clamp(32px, min(3.4vw, 6vh), 52px); font-weight: 800; letter-spacing: -0.04em; line-height: 0.98">Copiou? Está guardado.</h3>
+<p data-i18n="p-clip" style="margin: 0; font-size: 18px; line-height: 1.55; color: var(--ink2); max-width: 520px; text-wrap: pretty">Textos e imagens ficam salvos. Busque, favorite e cole de novo quando precisar.</p>
+</div>
+<figure class="app" aria-label="Janela do histórico do Tex com textos e uma imagem copiados" data-i18n-aria="fig-hist" style="margin: 0; flex: 999 1 460px; display: flex; flex-direction: column; min-width: 0">
+<div aria-hidden="true" class="pm" style="align-self: flex-start; display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px 0 6px; background: #2E9E3F; color: #FFFAEC; border-radius: 6px 6px 0 0; font-size: 11px; font-weight: 600"><img src="assets/app-icon.png" alt="" style="width: 16px; height: 16px; border-radius: 4px">tex — clipboard</div>
+<div aria-hidden="true" style="background: var(--a-paper); border-radius: 0 6px 6px 6px; box-shadow: 0 0 0 1px #2E9E3F, 0 20px 50px var(--a-shadow); overflow: hidden">
+<div style="display: flex; align-items: center; gap: 10px; padding: 16px 20px 12px">
+<span class="pm" style="font-size: 20px; font-weight: 500; color: #2E9E3F">›</span>
+<span class="pm" data-i18n="ph-hist" style="flex: 1; min-width: 0; font-size: 18px; color: var(--a-muted2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">buscar no histórico</span>
+<span class="pm" style="display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 9px; box-sizing: border-box; border: 1.5px solid var(--a-muted2); border-radius: 3px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: var(--a-ink2)"><span style="width: 7px; height: 7px; background: #2E9E3F"></span><span data-i18n="rec">GRAVANDO</span></span>
+</div>
+<div style="display: flex; align-items: flex-end; gap: 22px; padding: 0 20px; border-bottom: 1px solid var(--a-border); font-size: 13px; font-weight: 500">
+<span data-i18n="f-all" style="padding-bottom: 9px; border-bottom: 2px solid #2E9E3F; margin-bottom: -1px; color: var(--a-ink)">Tudo</span>
+<span data-i18n="f-fav" style="padding-bottom: 11px; color: var(--a-muted)">Favoritos</span>
+<span data-i18n="f-text" style="padding-bottom: 11px; color: var(--a-muted)">Texto</span>
+<span data-i18n="f-img" style="padding-bottom: 11px; color: var(--a-muted)">Imagens</span>
+</div>
+<div style="padding: 4px 0 12px">
+<div class="pm" data-i18n="h-today" style="padding: 12px 20px 6px; font-size: 11px; font-weight: 500; color: var(--a-muted); letter-spacing: 0.06em">HOJE</div>
+<div style="display: grid; grid-template-columns: 44px 18px minmax(0,1fr) 16px; align-items: center; gap: 10px; margin: 2px 10px; padding: 9px 10px; border-radius: 5px; background: var(--a-paper2); box-shadow: inset 0 0 0 1.5px #2E9E3F">
+<span class="pm" style="font-size: 11.5px; color: var(--a-muted)">14:32</span>
+<svg width="15" height="15" viewBox="0 0 256 256"><path d="M213.66 82.34l-56-56A8 8 0 0 0 152 24H56a16 16 0 0 0-16 16v176a16 16 0 0 0 16 16h144a16 16 0 0 0 16-16V88a8 8 0 0 0-2.34-5.66ZM152 88V44l44 44Z" fill="#4A7BF7"></path></svg>
+<span data-i18n="clip1" style="font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Reunião passou para quinta, às 15h.</span>
+<svg width="13" height="13" viewBox="0 0 256 256"><path d="M234.29 114.85l-45 38.83L203 211.75a16.4 16.4 0 0 1-24.5 17.82L128 198.49l-50.53 31.08A16.4 16.4 0 0 1 53 211.75l13.76-58.07-45-38.83A16.46 16.46 0 0 1 31.08 86l59-4.76 22.76-55.08a16.36 16.36 0 0 1 30.27 0l22.75 55.08 59 4.76a16.46 16.46 0 0 1 9.37 28.86Z" fill="#2E9E3F"></path></svg>
+</div>
+<div style="display: grid; grid-template-columns: 44px 18px minmax(0,1fr) 16px; align-items: center; gap: 10px; margin: 2px 10px; padding: 9px 10px">
+<span class="pm" style="font-size: 11.5px; color: var(--a-muted)">13:05</span>
+<svg width="15" height="15" viewBox="0 0 256 256"><path d="M216 40H40a16 16 0 0 0-16 16v144a16 16 0 0 0 16 16h176a16 16 0 0 0 16-16V56a16 16 0 0 0-16-16Zm-60 48a12 12 0 1 1-12 12 12 12 0 0 1 12-12Zm60 112H40v-20.69l52.69-52.68 56 56 31.31-31.32L216 187.31Z" fill="#8B45C9"></path></svg>
+<span style="display: flex; align-items: center; gap: 10px; min-width: 0"><span style="width: 44px; height: 28px; flex: none; box-sizing: border-box; border-radius: 2px; border: 1px solid var(--a-muted2); background: #F9C623"></span><span data-i18n="clip-img" style="font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">foto-viagem.png</span><span class="pm hide-sm" style="font-size: 11px; color: var(--a-muted)">1280×720</span></span>
+<span></span>
+</div>
+<div style="display: grid; grid-template-columns: 44px 18px minmax(0,1fr) 16px; align-items: center; gap: 10px; margin: 2px 10px; padding: 9px 10px">
+<span class="pm" style="font-size: 11.5px; color: var(--a-muted)">11:48</span>
+<svg width="15" height="15" viewBox="0 0 256 256"><path d="M213.66 82.34l-56-56A8 8 0 0 0 152 24H56a16 16 0 0 0-16 16v176a16 16 0 0 0 16 16h144a16 16 0 0 0 16-16V88a8 8 0 0 0-2.34-5.66ZM152 88V44l44 44Z" fill="#4A7BF7"></path></svg>
+<span data-i18n="clip3" style="font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Lista: café, pão, leite, maçã</span>
+<span></span>
+</div>
+</div>
+<div class="pm" style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; padding: 9px 20px; background: var(--a-paper2); border-top: 1px solid var(--a-border); font-size: 11px; color: var(--a-ink2)">
+<span data-i18n="foot-copy">↵ copiar</span><span data-i18n="foot-del">del excluir</span><span style="flex: 1"></span><span class="hide-sm" data-i18n="foot-saving" style="color: var(--a-muted)">salvando novas cópias</span>
+</div>
+</div>
+</figure>
+</article>
+
+<div class="card s4" style="padding: 28px; display: flex; flex-direction: column; justify-content: space-between; gap: 20px">
+<span class="lbl" data-i18n="priv">Privacidade</span>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span data-i18n="priv-h" style="font-size: 30px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.05">Sem conta. Sem nuvem.</span>
+<span data-i18n="priv-p" style="font-size: 15px; line-height: 1.5; color: var(--muted)">Tudo fica no seu computador e funciona sem internet.</span>
+</div>
+</div>
+</section>
+
+<!-- Funcionalidades menores -->
+<section style="padding: clamp(40px, 7vh, 72px) 0 8px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 20px">
+<h2 data-i18n="h-more" style="margin: 0; font-size: clamp(30px, 3vw, 52px); font-weight: 800; letter-spacing: -0.03em; line-height: 1">E mais alguns atalhos.</h2>
+<span class="lbl" data-i18n="k-more">Calculadora · Leitor</span>
+</section>
+
+<section class="bento" aria-label="Funcionalidades menores" data-i18n-aria="more-aria">
+<article class="card s6" style="padding: clamp(24px, 3vw, 40px); display: flex; flex-direction: column; gap: 28px">
+<div style="display: flex; flex-direction: column; gap: 12px">
+<span class="mono" data-i18n="k03" style="font-size: 13px; color: var(--acc)">03 · Calculadora rápida</span>
+<h3 data-i18n="h-calc" style="margin: 0; font-size: clamp(26px, min(2.4vw, 4.5vh), 38px); font-weight: 800; letter-spacing: -0.03em; line-height: 1.05">Contas sem abrir outro programa.</h3>
+<p data-i18n="p-calc" style="margin: 0; font-size: 17px; line-height: 1.55; color: var(--ink2); max-width: 480px; text-wrap: pretty">Digite a conta na busca e o resultado aparece em cima da lista. Enter copia.</p>
+</div>
+<figure class="app" aria-label="Busca do Tex calculando 52% de 900, com resultado 468" data-i18n-aria="fig-calc" style="margin: 0; margin-top: auto">
+<div aria-hidden="true" style="background: var(--a-paper); border-radius: 6px; box-shadow: 0 0 0 1px #2E9E3F, 0 20px 50px var(--a-shadow); overflow: hidden">
+<div style="display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--a-border)">
+<span class="pm" style="font-size: 22px; font-weight: 500; color: #2E9E3F">›</span>
+<span class="pm" data-i18n="calc-q" style="font-size: 22px; color: var(--a-ink)">52% de 900</span>
+</div>
+<div style="display: flex; align-items: center; gap: 12px; margin: 8px; padding: 12px 14px; border-radius: 4px; background: #2E9E3F; color: #FFFAEC">
+<span class="pm" style="flex: 1; font-size: 22px; font-weight: 500">= 468</span>
+<span class="pm" data-i18n="calc-copy" style="font-size: 11px; color: #D3ECC9">↵ copiar</span>
+</div>
+</div>
+</figure>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<span class="mono" data-i18n="ex1" style="font-size: 12.5px; padding: 6px 12px; border: 1px solid var(--line-hi); border-radius: 999px; color: var(--ink2)">10 ft em m</span>
+<span class="mono" data-i18n="ex2" style="font-size: 12.5px; padding: 6px 12px; border: 1px solid var(--line-hi); border-radius: 999px; color: var(--ink2)">dias até 31 mar</span>
+<span class="mono" data-i18n="ex3" style="font-size: 12.5px; padding: 6px 12px; border: 1px solid var(--line-hi); border-radius: 999px; color: var(--ink2)">hora em tóquio</span>
+</div>
+</article>
+
+<article class="card s6" style="padding: clamp(24px, 3vw, 40px); display: flex; flex-direction: column; gap: 28px">
+<div style="display: flex; flex-direction: column; gap: 12px">
+<span class="mono" data-i18n="k04" style="font-size: 13px; color: var(--acc)">04 · Pré-visualização</span>
+<h3 data-i18n="h-read" style="margin: 0; font-size: clamp(26px, min(2.4vw, 4.5vh), 38px); font-weight: 800; letter-spacing: -0.03em; line-height: 1.05">Espie o arquivo antes de abrir.</h3>
+<p data-i18n-html="p-read" style="margin: 0; font-size: 17px; line-height: 1.55; color: var(--ink2); max-width: 480px; text-wrap: pretty"><span class="mono" style="color: var(--ink)">Shift + Enter</span> num arquivo de texto mostra o conteúdo ali mesmo, com Markdown formatado. Dá para buscar dentro dele e corrigir textos curtos.</p>
+</div>
+<figure class="app" aria-label="Pré-visualização do arquivo notas-reuniao.md no Tex" data-i18n-aria="fig-read" style="margin: 0; margin-top: auto">
+<div aria-hidden="true" style="background: var(--a-paper); border-radius: 6px; box-shadow: 0 0 0 1px #2E9E3F, 0 20px 50px var(--a-shadow); overflow: hidden">
+<div class="pm" style="display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--a-paper2); border-bottom: 1px solid var(--a-border); font-size: 12px; color: var(--a-muted)">
+<svg width="14" height="14" viewBox="0 0 256 256"><path d="M213.66 82.34l-56-56A8 8 0 0 0 152 24H56a16 16 0 0 0-16 16v176a16 16 0 0 0 16 16h144a16 16 0 0 0 16-16V88a8 8 0 0 0-2.34-5.66ZM152 88V44l44 44Z" fill="#4A7BF7"></path></svg>
+<span data-i18n="read-file" style="color: var(--a-ink2)">notas-reuniao.md</span>
+</div>
+<div style="padding: 18px 22px 22px; display: flex; flex-direction: column; gap: 10px">
+<span data-i18n="read-h" style="font-size: 20px; font-weight: 600; color: var(--a-ink)">Notas da reunião</span>
+<span data-i18n-html="read-p" style="font-size: 14px; line-height: 1.6; color: var(--a-ink2)">Lançamento confirmado para <strong style="font-weight: 600; color: var(--a-ink)">quinta, às 15h</strong>.</span>
+<ul style="margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.7; color: var(--a-ink2)">
+<li data-i18n="read-li1">Revisar os textos da página</li>
+<li data-i18n="read-li2">Trocar as imagens do topo</li>
+</ul>
+</div>
+</div>
+</figure>
+</article>
+</section>
+
+<!-- Fecho -->
+<section class="bento" aria-label="Baixar" data-i18n-aria="close-aria" style="margin-top: clamp(40px, 7vh, 72px)">
+<div class="s12" style="background: #F9C623; color: #2A2117; border-radius: 28px; padding: clamp(28px, 4vw, 56px); display: flex; flex-direction: column; justify-content: space-between; gap: 40px">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<span data-i18n="close-h" style="font-size: clamp(32px, min(3.4vw, 6vh), 52px); font-weight: 800; letter-spacing: -0.04em; line-height: 0.98; text-wrap: balance">Seu computador, ao alcance.</span>
+<p data-i18n-html="close-p" style="margin: 0; font-size: clamp(17px, 1.3vw, 20px); line-height: 1.5; letter-spacing: -0.01em; color: #4A3B22; max-width: 560px; text-wrap: pretty"><strong style="font-weight: 600; color: #2A2117">Feito por uma pessoa só.</strong> Se o Tex te ajuda, um café no Ko-fi mantém o projeto andando.</p>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px">
+<a class="pill beam" href="https://github.com/LuizFer1/Tex/releases" style="background: #0F0D0A; color: #FFFFFF"><span class="shine" data-i18n="download">Baixar para Windows</span>
+<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12l7 7 7-7"></path></svg></a>
+<a class="pill beam beam-l" href="https://ko-fi.com/fernandodantasdev" style="border: 1.5px solid #2A2117; color: #2A2117">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"></path><path d="M17 11h1.5a2.5 2.5 0 0 1 0 5H17"></path><path d="M8 3v3M12 3v3"></path></svg>
+<span data-i18n="coffee">Pague-me um café</span></a>
+<a class="pill beam beam-l" href="https://github.com/LuizFer1/Tex" style="border: 1.5px solid #2A2117; color: #2A2117"><span data-i18n="github">Contribua no GitHub</span></a>
+</div>
+</div>
+</section>
+
+<footer style="margin-top: 40px; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; font-size: 12px; line-height: 1.6; color: var(--muted)" class="mono">
+<span><a href="https://github.com/LuizFer1/Tex" style="color: var(--muted)">GitHub</a> · <a href="https://github.com/LuizFer1/Tex/releases" style="color: var(--muted)" data-i18n="foot-releases">Versões</a> · <a href="https://ko-fi.com/fernandodantasdev" style="color: var(--muted)">Ko-fi</a> · <span data-i18n="foot-use">Uso pessoal e não comercial</span> · <a href="https://polyformproject.org/licenses/noncommercial/1.0.0" style="color: var(--muted)">PolyForm Noncommercial 1.0.0</a></span>
+<span>Required Notice: Copyright (c) 2026 Luiz Fernando (https://github.com/LuizFer1/Tex)</span>
+</footer>
+
+</main>
+</div>
+<script>
+(function () {
+  var root = document.getElementById('tex');
+  var themeBtn = document.getElementById('theme-toggle');
+  var langBtn = document.getElementById('lang-toggle');
+  var currentLang = 'pt';
+  var mark = 'text-decoration: underline; text-decoration-color: #F9C623; text-decoration-thickness: 3px; text-underline-offset: 3px';
+  function hi(text) { return '<span style="' + mark + '">' + text + '</span>'; }
+  var copy = {
+    pt: {
+      title: 'Tex — Seu computador, ao alcance',
+      description: 'Ache qualquer arquivo em segundos e nunca mais perca o que você copiou. Assistente de mesa para Windows.',
+      'lang-aria': 'Português',
+      'theme-aria': 'Tema claro',
+      'theme-label': 'Claro',
+      download: 'Baixar para Windows',
+      'hero-aria': 'Apresentação',
+      win: 'Para Windows',
+      linux: 'Linux em desenvolvimento',
+      mac: 'macOS no futuro',
+      'hero-title': 'Seu computador, <span class="hl">ao alcance.</span>',
+      'hero-lead': 'Ache qualquer arquivo em segundos e nunca mais perca o que você copiou.',
+      github: 'Contribua no GitHub',
+      coffee: 'Pague-me um café',
+      'alt-welcome': 'Tex, a criança de capuz de dinossauro verde, sorrindo',
+      shortcuts: 'Atalhos',
+      'key-space': 'Alt + Espaço',
+      'act-search': 'buscar',
+      'act-history': 'histórico',
+      two: 'Dois atalhos. Tudo à mão.',
+      'k-pair': 'Busca · Histórico',
+      'search-aria': 'Busca',
+      k01: '01 · Busca',
+      'h-find': 'Ache pelo nome.',
+      'p-find': 'Arquivos, pastas e programas num campo só. O resultado aparece enquanto você digita.',
+      'fig-search': 'Janela de pesquisa do Tex procurando por “notas”',
+      'tab-search': 'tex — pesquisa',
+      query: 'notas<span class="caret"></span>',
+      'f-all': 'Tudo',
+      'f-apps': 'Apps',
+      'f-files': 'Arquivos',
+      'f-folders': 'Pastas',
+      'h-apps': 'APPS',
+      'app-name': 'Bloco de ' + hi('Notas'),
+      'h-files': 'ARQUIVOS',
+      'file-name': hi('notas') + '-reuniao.md',
+      'path-work': '…\\Documentos\\Trabalho',
+      'path-personal': '…\\Documentos\\Pessoal',
+      'h-folders': 'PASTAS',
+      'folder-name': hi('Notas') + ' de estudo',
+      'path-user': '…\\Usuários\\ana\\Documentos',
+      'foot-nav': '↑↓ navegar',
+      'foot-open': '↵ abrir',
+      'foot-local': 'ctrl ↵ abrir local',
+      'foot-clear': 'esc limpar',
+      'alt-search': 'Tex com uma lupa, olhando uma pasta com arquivos',
+      'hist-aria': 'Histórico',
+      k02: '02 · Histórico',
+      'h-clip': 'Copiou? Está guardado.',
+      'p-clip': 'Textos e imagens ficam salvos. Busque, favorite e cole de novo quando precisar.',
+      'fig-hist': 'Janela do histórico do Tex com textos e uma imagem copiados',
+      'ph-hist': 'buscar no histórico',
+      rec: 'GRAVANDO',
+      'f-fav': 'Favoritos',
+      'f-text': 'Texto',
+      'f-img': 'Imagens',
+      'h-today': 'HOJE',
+      clip1: 'Reunião passou para quinta, às 15h.',
+      'clip-img': 'foto-viagem.png',
+      clip3: 'Lista: café, pão, leite, maçã',
+      'foot-copy': '↵ copiar',
+      'foot-del': 'del excluir',
+      'foot-saving': 'salvando novas cópias',
+      'alt-clip': 'Tex segurando uma prancheta com itens copiados',
+      priv: 'Privacidade',
+      'priv-h': 'Sem conta. Sem nuvem.',
+      'priv-p': 'Tudo fica no seu computador e funciona sem internet.',
+      'h-more': 'E mais alguns atalhos.',
+      'k-more': 'Calculadora · Leitor',
+      'more-aria': 'Funcionalidades menores',
+      k03: '03 · Calculadora rápida',
+      'h-calc': 'Contas sem abrir outro programa.',
+      'p-calc': 'Digite a conta na busca e o resultado aparece em cima da lista. Enter copia.',
+      'fig-calc': 'Busca do Tex calculando 52% de 900, com resultado 468',
+      'calc-q': '52% de 900',
+      'calc-copy': '↵ copiar',
+      ex1: '10 ft em m',
+      ex2: 'dias até 31 mar',
+      ex3: 'hora em tóquio',
+      k04: '04 · Pré-visualização',
+      'h-read': 'Espie o arquivo antes de abrir.',
+      'p-read': '<span class="mono" style="color: var(--ink)">Shift + Enter</span> num arquivo de texto mostra o conteúdo ali mesmo, com Markdown formatado. Dá para buscar dentro dele e corrigir textos curtos.',
+      'fig-read': 'Pré-visualização do arquivo notas-reuniao.md no Tex',
+      'read-file': 'notas-reuniao.md',
+      'read-h': 'Notas da reunião',
+      'read-p': 'Lançamento confirmado para <strong style="font-weight: 600; color: var(--a-ink)">quinta, às 15h</strong>.',
+      'read-li1': 'Revisar os textos da página',
+      'read-li2': 'Trocar as imagens do topo',
+      'close-aria': 'Baixar',
+      'close-h': 'Seu computador, ao alcance.',
+      'close-p': '<strong style="font-weight: 600; color: #2A2117">Feito por uma pessoa só.</strong> Se o Tex te ajuda, um café no Ko-fi mantém o projeto andando.',
+      'foot-releases': 'Versões',
+      'foot-use': 'Uso pessoal e não comercial'
+    },
+    en: {
+      title: 'Tex — Your desktop, within reach',
+      description: 'Find any file in seconds and never lose what you copied. A desktop assistant for Windows.',
+      'lang-aria': 'English',
+      'theme-aria': 'Light theme',
+      'theme-label': 'Light',
+      download: 'Download for Windows',
+      'hero-aria': 'Intro',
+      win: 'For Windows',
+      linux: 'Linux in development',
+      mac: 'macOS later',
+      'hero-title': 'Your desktop, <span class="hl">within reach.</span>',
+      'hero-lead': 'Find any file in seconds and never lose what you copied.',
+      github: 'Contribute on GitHub',
+      coffee: 'Buy me a coffee',
+      'alt-welcome': 'Tex, the kid in a green dinosaur hood, smiling',
+      shortcuts: 'Shortcuts',
+      'key-space': 'Alt + Space',
+      'act-search': 'search',
+      'act-history': 'history',
+      two: 'Two shortcuts. Everything at hand.',
+      'k-pair': 'Search · History',
+      'search-aria': 'Search',
+      k01: '01 · Search',
+      'h-find': 'Find it by name.',
+      'p-find': 'Files, folders, and programs in one field. Results show up as you type.',
+      'fig-search': 'Tex search window looking for “notes”',
+      'tab-search': 'tex — search',
+      query: 'notes<span class="caret"></span>',
+      'f-all': 'All',
+      'f-apps': 'Apps',
+      'f-files': 'Files',
+      'f-folders': 'Folders',
+      'h-apps': 'APPS',
+      'app-name': hi('Notes'),
+      'h-files': 'FILES',
+      'file-name': hi('notes') + '-meeting.md',
+      'path-work': '…\\Documents\\Work',
+      'path-personal': '…\\Documents\\Personal',
+      'h-folders': 'FOLDERS',
+      'folder-name': 'Study ' + hi('notes'),
+      'path-user': '…\\Users\\ana\\Documents',
+      'foot-nav': '↑↓ navigate',
+      'foot-open': '↵ open',
+      'foot-local': 'ctrl ↵ open location',
+      'foot-clear': 'esc clear',
+      'alt-search': 'Tex with a magnifying glass, looking at a folder of files',
+      'hist-aria': 'History',
+      k02: '02 · History',
+      'h-clip': 'Copied? It’s kept.',
+      'p-clip': 'Text and images stay saved. Search, favorite, and paste them again when you need them.',
+      'fig-hist': 'Tex history window with copied text and an image',
+      'ph-hist': 'search history',
+      rec: 'RECORDING',
+      'f-fav': 'Favorites',
+      'f-text': 'Text',
+      'f-img': 'Images',
+      'h-today': 'TODAY',
+      clip1: 'Meeting moved to Thursday, 3pm.',
+      'clip-img': 'trip-photo.png',
+      clip3: 'List: coffee, bread, milk, apple',
+      'foot-copy': '↵ copy',
+      'foot-del': 'del delete',
+      'foot-saving': 'saving new copies',
+      'alt-clip': 'Tex holding a clipboard of copied items',
+      priv: 'Privacy',
+      'priv-h': 'No account. No cloud.',
+      'priv-p': 'It stays on your computer and works without internet.',
+      'h-more': 'And a few more shortcuts.',
+      'k-more': 'Calculator · Reader',
+      'more-aria': 'Smaller features',
+      k03: '03 · Quick calculator',
+      'h-calc': 'Math without opening another program.',
+      'p-calc': 'Type the sum in search and the result sits above the list. Enter copies it.',
+      'fig-calc': 'Tex search calculating 52% of 900, result 468',
+      'calc-q': '52% of 900',
+      'calc-copy': '↵ copy',
+      ex1: '10 ft in m',
+      ex2: 'days until 31 mar',
+      ex3: 'time in tokyo',
+      k04: '04 · Preview',
+      'h-read': 'Look at the file before you open it.',
+      'p-read': '<span class="mono" style="color: var(--ink)">Shift + Enter</span> on a text file shows it right there, with formatted Markdown. You can search inside it and fix short texts.',
+      'fig-read': 'Preview of notes-meeting.md in Tex',
+      'read-file': 'notes-meeting.md',
+      'read-h': 'Meeting notes',
+      'read-p': 'Launch confirmed for <strong style="font-weight: 600; color: var(--a-ink)">Thursday, 3pm</strong>.',
+      'read-li1': 'Review the page copy',
+      'read-li2': 'Swap the top images',
+      'close-aria': 'Download',
+      'close-h': 'Your desktop, within reach.',
+      'close-p': '<strong style="font-weight: 600; color: #2A2117">Built by one person.</strong> If Tex helps you, a coffee on Ko-fi keeps the project going.',
+      'foot-releases': 'Releases',
+      'foot-use': 'Personal, noncommercial use'
+    }
+  };
+
+  function fill(dict) {
+    var nodes = root.querySelectorAll('[data-i18n]');
+    for (var i = 0; i < nodes.length; i++) {
+      var key = nodes[i].getAttribute('data-i18n');
+      if (dict[key] != null) nodes[i].textContent = dict[key];
+    }
+    nodes = root.querySelectorAll('[data-i18n-html]');
+    for (var j = 0; j < nodes.length; j++) {
+      var htmlKey = nodes[j].getAttribute('data-i18n-html');
+      if (dict[htmlKey] != null) nodes[j].innerHTML = dict[htmlKey];
+    }
+    nodes = document.querySelectorAll('[data-i18n-aria]');
+    for (var k = 0; k < nodes.length; k++) {
+      var ariaKey = nodes[k].getAttribute('data-i18n-aria');
+      if (dict[ariaKey] != null) nodes[k].setAttribute('aria-label', dict[ariaKey]);
+    }
+    nodes = root.querySelectorAll('[data-i18n-alt]');
+    for (var n = 0; n < nodes.length; n++) {
+      var altKey = nodes[n].getAttribute('data-i18n-alt');
+      if (dict[altKey] != null) nodes[n].setAttribute('alt', dict[altKey]);
+    }
+  }
+
+  function applyLang(lang, paint) {
+    if (lang !== 'en') lang = 'pt';
+    currentLang = lang;
+    var dict = copy[lang];
+    document.documentElement.lang = lang === 'en' ? 'en' : 'pt-BR';
+    document.title = dict.title;
+    var desc = document.querySelector('meta[name="description"]');
+    if (desc) desc.setAttribute('content', dict.description);
+    langBtn.textContent = lang === 'en' ? 'EN' : 'PT';
+    langBtn.setAttribute('aria-label', dict['lang-aria']);
+    if (paint) {
+      fill(dict);
+      root.classList.add('settled');
+    }
+  }
+
+  function applyTheme(light) {
+    root.classList.toggle('light', light);
+    root.classList.toggle('dark', !light);
+    themeBtn.setAttribute('aria-pressed', light ? 'true' : 'false');
+  }
+
+  var savedTheme = null;
+  var savedLang = null;
+  try {
+    savedTheme = localStorage.getItem('tex-theme');
+    savedLang = localStorage.getItem('tex-lang');
+  } catch (e) {}
+  applyTheme(savedTheme === 'light');
+  applyLang(savedLang === 'en' ? 'en' : 'pt', savedLang === 'en');
+
+  themeBtn.addEventListener('click', function () {
+    var light = !root.classList.contains('light');
+    applyTheme(light);
+    try { localStorage.setItem('tex-theme', light ? 'light' : 'dark'); } catch (e) {}
+  });
+  langBtn.addEventListener('click', function () {
+    var lang = currentLang === 'en' ? 'pt' : 'en';
+    applyLang(lang, true);
+    try { localStorage.setItem('tex-lang', lang); } catch (e) {}
+  });
+})();
+</script>
+</body>
+</html>
