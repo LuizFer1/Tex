@@ -265,6 +265,8 @@ pub fn readable(name: &str, is_dir: bool, is_app: bool, viewer_exts: &[String]) 
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use tex_ipc::VolumeState;
 
     #[test]
     fn answer_card_comes_before_the_rows() {
@@ -307,8 +309,6 @@ mod tests {
         );
         assert_eq!(step_with_answer(false, &[], None, 1), None);
     }
-    use super::*;
-    use tex_ipc::VolumeState;
 
     #[test]
     fn readable_rows_are_files_the_reader_knows() {
