@@ -29,6 +29,8 @@ pub enum Block {
     },
     Image {
         alt: String,
+        src: String,
+        title: String,
     },
 }
 
@@ -46,11 +48,18 @@ pub fn blocks(text: &str) -> Vec<Block> {
 }
 
 #[derive(Default)]
+struct Img {
+    alt: String,
+    src: String,
+    title: String,
+}
+
+#[derive(Default)]
 struct Walker {
     blocks: Vec<Block>,
     inline: String,
-    image: Option<String>,
-    pending_image: Option<String>,
+    image: Option<Img>,
+    pending_image: Option<Img>,
     links: Vec<String>,
     quote: usize,
     lists: Vec<Option<u64>>,
@@ -130,7 +139,15 @@ impl Walker {
                 self.links.push(dest_url.to_string());
                 self.push_inline("[");
             }
-            Tag::Image { .. } => self.image = Some(String::new()),
+            Tag::Image {
+                dest_url, title, ..
+            } => {
+                self.image = Some(Img {
+                    alt: String::new(),
+                    src: dest_url.to_string(),
+                    title: title.to_string(),
+                })
+            }
             _ => {}
         }
     }
@@ -191,15 +208,21 @@ impl Walker {
             TagEnd::Strikethrough => self.push_inline("~~"),
             TagEnd::Link => {
                 let url = self.links.pop().unwrap_or_default();
+                if self.pending_image.is_some() && self.inline == "[" {
+                    self.inline.clear();
+                    return;
+                }
                 let url = url.replace('>', "%3E").replace(' ', "%20");
                 self.push_inline(&format!("](<{url}>)"));
             }
             TagEnd::Image => {
-                if let Some(alt) = self.image.take() {
-                    if self.inline.trim().is_empty() {
-                        self.pending_image = Some(alt);
+                if let Some(image) = self.image.take() {
+                    if self.inline.trim().is_empty()
+                        || (self.inline == "[" && !self.links.is_empty())
+                    {
+                        self.pending_image = Some(image);
                     } else {
-                        self.inline.push_str(&escape(&alt));
+                        self.inline.push_str(&escape(&image.alt));
                     }
                 }
             }
@@ -210,27 +233,27 @@ impl Walker {
     fn text(&mut self, text: &str) {
         if let Some((_, buffer)) = &mut self.code {
             buffer.push_str(text);
-        } else if let Some(alt) = &mut self.image {
-            alt.push_str(text);
+        } else if let Some(image) = &mut self.image {
+            image.alt.push_str(text);
         } else {
             self.push_inline(&escape(text));
         }
     }
 
     fn push_inline(&mut self, markup: &str) {
-        if let Some(alt) = &mut self.image {
-            alt.push_str(markup);
+        if let Some(image) = &mut self.image {
+            image.alt.push_str(markup);
             return;
         }
-        if let Some(alt) = self.pending_image.take() {
-            self.inline.push_str(&escape(&alt));
+        if let Some(image) = self.pending_image.take() {
+            self.inline.push_str(&escape(&image.alt));
         }
         self.inline.push_str(markup);
     }
 
     fn take_inline(&mut self) -> String {
-        if let Some(alt) = self.pending_image.take() {
-            self.inline.push_str(&escape(&alt));
+        if let Some(image) = self.pending_image.take() {
+            self.inline.push_str(&escape(&image.alt));
         }
         std::mem::take(&mut self.inline).trim().to_string()
     }
@@ -251,10 +274,14 @@ impl Walker {
             && self.marker.is_none()
             && self.quote == 0
             && self.lists.is_empty()
-            && let Some(alt) = self.pending_image.take()
+            && let Some(image) = self.pending_image.take()
         {
             self.inline.clear();
-            self.blocks.push(Block::Image { alt });
+            self.blocks.push(Block::Image {
+                alt: image.alt,
+                src: image.src,
+                title: image.title,
+            });
             return;
         }
         let inline = self.take_inline();
@@ -454,15 +481,35 @@ mod tests {
         );
     }
 
+    fn image(alt: &str, src: &str, title: &str) -> Block {
+        Block::Image {
+            alt: alt.into(),
+            src: src.into(),
+            title: title.into(),
+        }
+    }
+
     #[test]
     fn a_lone_image_is_its_own_block() {
         assert_eq!(
-            blocks("![logo](x.png)\n"),
-            [Block::Image { alt: "logo".into() }]
+            blocks("![logo](x.png \"Tex\")\n"),
+            [image("logo", "x.png", "Tex")]
         );
         assert_eq!(
             blocks("ver ![logo](x.png) aqui\n"),
             [paragraph("ver logo aqui")]
+        );
+    }
+
+    #[test]
+    fn an_image_inside_a_link_is_an_image_block_without_the_link() {
+        assert_eq!(
+            blocks("[![badge](b.svg)](https://example.com)\n"),
+            [image("badge", "b.svg", "")]
+        );
+        assert_eq!(
+            blocks("[![badge](b.svg) texto](https://example.com)\n"),
+            [paragraph("[badge texto](<https://example.com>)")]
         );
     }
 }

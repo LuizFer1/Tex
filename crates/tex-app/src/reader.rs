@@ -308,7 +308,7 @@ pub fn block_rows(blocks: &[Block]) -> Vec<BlockRow> {
                     });
                 }
             }
-            Block::Image { alt } => rows.push(BlockRow {
+            Block::Image { alt, .. } => rows.push(BlockRow {
                 kind: BlockKind::Image,
                 plain: alt.clone(),
                 ..BlockRow::default()
@@ -640,7 +640,11 @@ mod tests {
                 header: vec!["a".into(), "b".into()],
                 rows: vec![vec!["1".into()]],
             },
-            Block::Image { alt: "logo".into() },
+            Block::Image {
+                alt: "logo".into(),
+                src: "x.png".into(),
+                title: String::new(),
+            },
         ]);
         assert_eq!(rows.len(), 5);
         assert_eq!(
