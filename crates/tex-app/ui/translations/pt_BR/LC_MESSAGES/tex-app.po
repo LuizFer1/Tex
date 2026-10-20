@@ -729,6 +729,36 @@ msgstr "Não foi possível ler este arquivo"
 msgid "Image: {0}"
 msgstr "Imagem: {0}"
 
+msgid "Image: {0} ({1})"
+msgstr "Imagem: {0} ({1})"
+
+msgid "Loading image…"
+msgstr "Carregando imagem…"
+
+msgid "the file could not be read"
+msgstr "não foi possível ler o arquivo"
+
+msgid "it could not be downloaded"
+msgstr "não foi possível baixar"
+
+msgid "it is too large"
+msgstr "é grande demais"
+
+msgid "the file is damaged"
+msgstr "o arquivo está danificado"
+
+msgid "only https addresses are loaded"
+msgstr "só endereços https são carregados"
+
+msgid "images from the internet are off"
+msgstr "as imagens da internet estão desligadas"
+
+msgid "too many images are open"
+msgstr "há imagens demais abertas"
+
+msgid "format not supported"
+msgstr "formato não suportado"
+
 msgid "Loading…"
 msgstr "Carregando…"
 

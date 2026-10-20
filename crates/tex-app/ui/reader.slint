@@ -11,6 +11,15 @@ export struct ReaderBlock {
     plain: string,
     cells: [styled-text],
     header: bool,
+    src: string,
+    title: string,
+    // 0 loading, 1 ready, 2 not shown (image-reason says why)
+    image-state: int,
+    image-reason: int,
+    image: image,
+    // the other frames of an animated image and the delay of each in ms; empty for a still one
+    frames: [image],
+    delays: [int],
 }
 
 export struct ToolRow {
@@ -32,6 +41,8 @@ export struct ProblemRow {
 
 component BlockView inherits VerticalLayout {
     in property <ReaderBlock> block;
+    in property <bool> animate;
+    property <int> frame;
     callback link-clicked(string);
 
     padding-left: 32px;
@@ -142,12 +153,68 @@ component BlockView inherits VerticalLayout {
         }
     }
 
-    if root.block.kind == 7: Text {
-        text: @tr("Image: {0}", root.block.plain);
+    pure function image-reason-text(reason: int) -> string {
+        if reason == 2 {
+            return @tr("the file could not be read");
+        }
+        if reason == 3 {
+            return @tr("it could not be downloaded");
+        }
+        if reason == 4 {
+            return @tr("it is too large");
+        }
+        if reason == 5 {
+            return @tr("the file is damaged");
+        }
+        if reason == 6 {
+            return @tr("only https addresses are loaded");
+        }
+        if reason == 7 {
+            return @tr("images from the internet are off");
+        }
+        if reason == 8 {
+            return @tr("too many images are open");
+        }
+        @tr("format not supported")
+    }
+
+    if root.block.kind == 7 && root.block.image-state == 2: Text {
+        text: @tr("Image: {0} ({1})", root.block.plain, root.image-reason-text(root.block.image-reason));
         color: Tokens.muted;
         font-size: Tokens.size-label;
         font-italic: true;
         wrap: word-wrap;
+    }
+
+    if root.block.kind == 7 && root.block.image-state == 0: Rectangle {
+        height: 96px;
+        background: Tokens.paper-2;
+        border-radius: Tokens.radius-card;
+        Text {
+            text: @tr("Loading image…");
+            color: Tokens.muted;
+            font-size: Tokens.size-label;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
+    if root.block.kind == 7 && root.block.image-state == 1: Rectangle {
+        property <length> shown-width: root.block.image.width > 0 ? min(root.block.image.width * 1px, self.width) : 0px;
+        height: root.block.image.width > 0 ? self.shown-width * root.block.image.height / root.block.image.width : 0px;
+        Image {
+            width: parent.shown-width;
+            height: parent.height;
+            image-fit: contain;
+            source: root.block.frames.length > 1 ? root.block.frames[root.frame] : root.block.image;
+        }
+        Timer {
+            running: root.animate && root.block.frames.length > 1;
+            interval: max(20, root.block.delays[root.frame]) * 1ms;
+            triggered => {
+                root.frame = Math.mod(root.frame + 1, root.block.frames.length);
+            }
+        }
     }
 }
 
@@ -165,6 +232,7 @@ export component ReaderWindow inherits Window {
     in property <string> file-name;
     in property <string> folder;
     in property <bool> window-maximized;
+    in property <bool> window-focused;
     in property <bool> markdown;
     in-out property <bool> wrap: true;
     // 0 loading, 1 ready, 2 indexing (first lines shown), 3 failed
@@ -648,6 +716,7 @@ export component ReaderWindow inherits Window {
                         visible: root.markdown && root.state == 1 && !root.editing;
                         for block[index] in root.blocks: Rectangle {
                             property <bool> is-target: index == root.jump-target;
+                            property <bool> in-view: self.y + blocks-list.content-y + self.height > 0px && self.y + blocks-list.content-y < blocks-list.visible-height;
                             height: view.preferred-height;
                             background: index == root.current-row ? Tokens.selection : transparent;
                             init => {
@@ -663,6 +732,7 @@ export component ReaderWindow inherits Window {
                             view := BlockView {
                                 width: parent.width;
                                 block: block;
+                                animate: root.window-focused && root.markdown && root.state == 1 && !root.editing && parent.in-view;
                                 link-clicked(link) => {
                                     root.link-clicked(link);
                                 }

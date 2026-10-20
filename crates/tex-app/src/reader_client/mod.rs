@@ -272,8 +272,13 @@ fn wire(window: &ReaderWindow, windows: &Windows, id: u64, path: &Path) {
         let reader = window.as_weak();
         move |window, event| {
             match event {
-                WindowEvent::Focused(true) => {
-                    let _ = slint::invoke_from_event_loop(move || check_outside(id));
+                WindowEvent::Focused(focused) => {
+                    if let Some(reader) = reader.upgrade() {
+                        reader.set_window_focused(*focused);
+                    }
+                    if *focused {
+                        let _ = slint::invoke_from_event_loop(move || check_outside(id));
+                    }
                 }
                 WindowEvent::Resized(_) => {
                     let maximized = window
