@@ -5,6 +5,7 @@ mod clipboard_client;
 mod frame;
 mod history;
 mod icons;
+mod image_cache;
 mod onboarding;
 mod placement;
 mod reader;
