@@ -1,15 +1,14 @@
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
+use image::codecs::gif::GifDecoder;
+use image::{AnimationDecoder, ImageDecoder, ImageFormat, ImageReader, Limits};
+
 pub const MAX_FILE_BYTES: u64 = 20 * 1024 * 1024;
-#[allow(dead_code)]
 pub const MAX_PIXELS: u64 = 64 * 1_000_000;
-#[allow(dead_code)]
 pub const MAX_FRAMES: usize = 300;
-#[allow(dead_code)]
 pub const MAX_RGBA_BYTES: u64 = 128 * 1024 * 1024;
-#[allow(dead_code)]
 const MIN_DELAY_MS: u32 = 20;
-#[allow(dead_code)]
 const DEFAULT_DELAY_MS: u32 = 100;
 
 /// Why an image is not shown; the codes are the ones `ui/reader.slint` turns into sentences.
@@ -118,6 +117,116 @@ fn hex(byte: u8) -> Option<u8> {
     char::from(byte).to_digit(16).map(|digit| digit as u8)
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Frame {
+    pub rgba: Vec<u8>,
+    pub delay_ms: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Decoded {
+    pub frames: Vec<Frame>,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Fails with `TooLarge` when `frames` frames of `width` x `height` pass a limit, `Corrupt` on a
+/// zero side.
+fn check_size(width: u32, height: u32, frames: usize) -> Result<(), Reason> {
+    if width == 0 || height == 0 {
+        return Err(Reason::Corrupt);
+    }
+    let pixels = u64::from(width) * u64::from(height);
+    if pixels > MAX_PIXELS
+        || frames > MAX_FRAMES
+        || pixels * 4 * frames.max(1) as u64 > MAX_RGBA_BYTES
+    {
+        return Err(Reason::TooLarge);
+    }
+    Ok(())
+}
+
+fn limits() -> Limits {
+    let mut limits = Limits::default();
+    limits.max_alloc = Some(MAX_RGBA_BYTES + 16 * 1024 * 1024);
+    limits
+}
+
+fn map_error(error: image::ImageError) -> Reason {
+    match error {
+        image::ImageError::Limits(_) => Reason::TooLarge,
+        image::ImageError::Unsupported(_) => Reason::Unsupported,
+        _ => Reason::Corrupt,
+    }
+}
+
+fn delay_ms(numer: u32, denom: u32) -> u32 {
+    let ms = numer / denom.max(1);
+    if ms < MIN_DELAY_MS {
+        DEFAULT_DELAY_MS
+    } else {
+        ms
+    }
+}
+
+/// Decodes PNG, JPEG, GIF, WebP or BMP bytes, chosen by content; a GIF keeps every frame.
+pub fn decode(bytes: &[u8]) -> Result<Decoded, Reason> {
+    let format = match image::guess_format(bytes) {
+        Ok(
+            format @ (ImageFormat::Png
+            | ImageFormat::Jpeg
+            | ImageFormat::Gif
+            | ImageFormat::WebP
+            | ImageFormat::Bmp),
+        ) => format,
+        _ => return Err(Reason::Unsupported),
+    };
+    if format == ImageFormat::Gif {
+        return decode_gif(bytes);
+    }
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
+    reader.limits(limits());
+    let (width, height) = reader.into_dimensions().map_err(map_error)?;
+    check_size(width, height, 1)?;
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
+    reader.limits(limits());
+    let rgba = reader.decode().map_err(map_error)?.into_rgba8();
+    Ok(Decoded {
+        width,
+        height,
+        frames: vec![Frame {
+            rgba: rgba.into_raw(),
+            delay_ms: 0,
+        }],
+    })
+}
+
+fn decode_gif(bytes: &[u8]) -> Result<Decoded, Reason> {
+    let mut decoder = GifDecoder::new(Cursor::new(bytes)).map_err(map_error)?;
+    decoder.set_limits(limits()).map_err(map_error)?;
+    let (width, height) = decoder.dimensions();
+    check_size(width, height, 1)?;
+    let mut frames = Vec::new();
+    for frame in decoder.into_frames() {
+        let frame = frame.map_err(map_error)?;
+        let (numer, denom) = frame.delay().numer_denom_ms();
+        let delay = delay_ms(numer, denom);
+        check_size(width, height, frames.len() + 1)?;
+        frames.push(Frame {
+            rgba: frame.into_buffer().into_raw(),
+            delay_ms: delay,
+        });
+    }
+    if frames.is_empty() {
+        return Err(Reason::Corrupt);
+    }
+    Ok(Decoded {
+        width,
+        height,
+        frames,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,5 +297,81 @@ mod tests {
             resolve("C:\\fotos\\x.png", dir()),
             Source::Local(std::path::PathBuf::from("C:\\fotos\\x.png"))
         );
+    }
+
+    use image::codecs::gif::GifEncoder;
+    use image::{Delay, DynamicImage, Frame as GifFrame, ImageFormat, Rgba, RgbaImage};
+    use std::io::Cursor;
+
+    fn solid(width: u32, height: u32, color: [u8; 4]) -> RgbaImage {
+        RgbaImage::from_pixel(width, height, Rgba(color))
+    }
+
+    fn encode(image: &RgbaImage, format: ImageFormat) -> Vec<u8> {
+        let mut out = Cursor::new(Vec::new());
+        DynamicImage::ImageRgba8(image.clone())
+            .write_to(&mut out, format)
+            .unwrap();
+        out.into_inner()
+    }
+
+    fn gif(delays: &[u32], width: u32, height: u32) -> Vec<u8> {
+        let mut out = Vec::new();
+        {
+            let mut encoder = GifEncoder::new(&mut out);
+            for (index, delay) in delays.iter().enumerate() {
+                let frame = GifFrame::from_parts(
+                    solid(width, height, [index as u8 * 40, 0, 0, 255]),
+                    0,
+                    0,
+                    Delay::from_numer_denom_ms(*delay, 1),
+                );
+                encoder.encode_frame(frame).unwrap();
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn decodes_each_static_format() {
+        let image = solid(3, 2, [10, 20, 30, 255]);
+        for format in [ImageFormat::Png, ImageFormat::Bmp, ImageFormat::WebP] {
+            let decoded = decode(&encode(&image, format)).unwrap();
+            assert_eq!((decoded.width, decoded.height), (3, 2), "{format:?}");
+            assert_eq!(decoded.frames.len(), 1);
+            assert_eq!(decoded.frames[0].rgba.len(), 3 * 2 * 4);
+        }
+        let rgb = DynamicImage::ImageRgba8(image).to_rgb8();
+        let mut jpeg = Cursor::new(Vec::new());
+        DynamicImage::ImageRgb8(rgb)
+            .write_to(&mut jpeg, ImageFormat::Jpeg)
+            .unwrap();
+        assert_eq!(decode(&jpeg.into_inner()).unwrap().width, 3);
+    }
+
+    #[test]
+    fn gif_frames_keep_their_delays_and_short_ones_become_100_ms() {
+        let decoded = decode(&gif(&[0, 10, 40, 500], 2, 2)).unwrap();
+        let delays: Vec<u32> = decoded.frames.iter().map(|frame| frame.delay_ms).collect();
+        assert_eq!(delays, [100, 100, 40, 500]);
+        assert!(decoded.frames.iter().all(|frame| frame.rgba.len() == 16));
+    }
+
+    #[test]
+    fn rejects_what_is_not_an_image_or_is_not_listed() {
+        assert_eq!(decode(b"hello"), Err(Reason::Unsupported));
+        assert_eq!(decode(b""), Err(Reason::Unsupported));
+        let mut png = encode(&solid(4, 4, [0, 0, 0, 255]), ImageFormat::Png);
+        png.truncate(png.len() / 2);
+        assert_eq!(decode(&png), Err(Reason::Corrupt));
+    }
+
+    #[test]
+    fn rejects_images_over_the_limits() {
+        assert_eq!(check_size(9000, 9000, 1), Err(Reason::TooLarge));
+        assert_eq!(check_size(4000, 4000, 9), Err(Reason::TooLarge));
+        assert_eq!(check_size(100, 100, MAX_FRAMES + 1), Err(Reason::TooLarge));
+        assert_eq!(check_size(4000, 4000, 1), Ok(()));
+        assert_eq!(check_size(0, 10, 1), Err(Reason::Corrupt));
     }
 }
