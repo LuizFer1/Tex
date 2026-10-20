@@ -1186,6 +1186,7 @@ fn fill_settings(window: &SettingsWindow, app: &AppState) {
     window.set_winkey_error(app.winkey_error.as_str().into());
     window.set_start_with_windows(general.start_with_windows);
     window.set_auto_update(general.auto_update);
+    window.set_remote_images(general.remote_images);
     window.set_popup_monitor(match general.popup_monitor {
         PopupMonitor::Cursor => 0,
         PopupMonitor::Primary => 1,
@@ -1286,6 +1287,7 @@ fn read_settings(window: &SettingsWindow, current: &Settings) -> Settings {
     general.windows_key = window.get_windows_key();
     general.start_with_windows = window.get_start_with_windows();
     general.auto_update = window.get_auto_update();
+    general.remote_images = window.get_remote_images();
     general.popup_monitor = match window.get_popup_monitor() {
         1 => PopupMonitor::Primary,
         _ => PopupMonitor::Cursor,

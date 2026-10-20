@@ -684,6 +684,15 @@ msgstr "Procurar atualizações automaticamente"
 msgid "Only asks Tex's page on GitHub for new versions. Nothing about you is sent."
 msgstr "Só consulta a página do Tex no GitHub. Nada sobre você é enviado."
 
+msgid "Reader"
+msgstr "Leitor"
+
+msgid "Load images from the internet"
+msgstr "Carregar imagens da internet"
+
+msgid "Markdown files can show pictures hosted online. Loading one tells that site you opened the file. Off by default."
+msgstr "Arquivos Markdown podem mostrar imagens hospedadas na internet. Carregar uma avisa o site de que você abriu o arquivo. Desligado por padrão."
+
 msgid "Checking for updates…"
 msgstr "Procurando…"
 
