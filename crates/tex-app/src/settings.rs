@@ -34,6 +34,7 @@ pub struct General {
     pub start_with_windows: bool,
     pub popup_monitor: PopupMonitor,
     pub auto_update: bool,
+    pub remote_images: bool,
     pub onboarding_done: bool,
 }
 
@@ -126,6 +127,7 @@ impl Default for General {
             start_with_windows: true,
             popup_monitor: PopupMonitor::Cursor,
             auto_update: true,
+            remote_images: false,
             onboarding_done: false,
         }
     }
@@ -240,6 +242,7 @@ impl Settings {
                     .unwrap_or(g.start_with_windows),
                 popup_monitor: field(general, "popup_monitor").unwrap_or(g.popup_monitor),
                 auto_update: field(general, "auto_update").unwrap_or(g.auto_update),
+                remote_images: field(general, "remote_images").unwrap_or(g.remote_images),
                 onboarding_done: field(general, "onboarding_done").unwrap_or(g.onboarding_done),
             },
             search: Search {
@@ -484,6 +487,15 @@ calculator = false
         assert!(settings.general.onboarding_done);
         assert!(!settings.general.auto_update);
         assert!(settings.to_toml().contains("onboarding_done = true"));
+    }
+
+    #[test]
+    fn remote_images_default_off_and_bad_values_fall_back() {
+        assert!(!Settings::default().general.remote_images);
+        let on = Settings::from_toml("[general]\nremote_images = true\n").unwrap();
+        assert!(on.general.remote_images);
+        let bad = Settings::from_toml("[general]\nremote_images = \"sim\"\n").unwrap();
+        assert!(!bad.general.remote_images);
     }
 
     #[test]

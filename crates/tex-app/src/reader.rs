@@ -238,6 +238,8 @@ pub struct BlockRow {
     pub plain: String,
     pub cells: Vec<String>,
     pub header: bool,
+    pub src: String,
+    pub title: String,
 }
 
 /// One row per block; a table becomes a header row and one row per line, all with the same columns.
@@ -308,9 +310,15 @@ pub fn block_rows(blocks: &[Block]) -> Vec<BlockRow> {
                     });
                 }
             }
-            Block::Image { alt } => rows.push(BlockRow {
+            Block::Image { alt, src, title } => rows.push(BlockRow {
                 kind: BlockKind::Image,
-                plain: alt.clone(),
+                plain: if alt.is_empty() {
+                    src.clone()
+                } else {
+                    alt.clone()
+                },
+                src: src.clone(),
+                title: title.clone(),
                 ..BlockRow::default()
             }),
         }
@@ -640,7 +648,11 @@ mod tests {
                 header: vec!["a".into(), "b".into()],
                 rows: vec![vec!["1".into()]],
             },
-            Block::Image { alt: "logo".into() },
+            Block::Image {
+                alt: "logo".into(),
+                src: "img/x.png".into(),
+                title: "Tex".into(),
+            },
         ]);
         assert_eq!(rows.len(), 5);
         assert_eq!(
@@ -653,10 +665,25 @@ mod tests {
         );
         assert!(rows[2].header);
         assert_eq!(rows[3].cells, ["1", ""]);
+        let image = rows.last().unwrap();
         assert_eq!(
-            (rows[4].kind, rows[4].plain.as_str()),
+            (image.kind, image.plain.as_str()),
             (BlockKind::Image, "logo")
         );
+        assert_eq!(
+            (image.src.as_str(), image.title.as_str()),
+            ("img/x.png", "Tex")
+        );
+    }
+
+    #[test]
+    fn an_image_without_alt_shows_its_source() {
+        let rows = block_rows(&[Block::Image {
+            alt: String::new(),
+            src: "img/x.png".into(),
+            title: String::new(),
+        }]);
+        assert_eq!(rows[0].plain, "img/x.png");
     }
 
     #[test]

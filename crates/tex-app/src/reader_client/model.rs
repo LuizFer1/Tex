@@ -42,6 +42,9 @@ pub(super) fn reader_block(styled: StyledRow) -> ReaderBlock {
         plain: row.plain.into(),
         cells: ModelRc::new(VecModel::from(cells)),
         header: row.header,
+        src: row.src.into(),
+        title: row.title.into(),
+        ..ReaderBlock::default()
     }
 }
 

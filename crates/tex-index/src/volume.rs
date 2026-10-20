@@ -13,6 +13,7 @@ pub(crate) struct Lineage {
     pub excluded: bool,
     pub in_home: bool,
     pub in_app_root: bool,
+    pub in_store_package: bool,
     pub in_folders: bool,
     pub nearest: Option<Record>,
     pub depth: u16,
@@ -262,6 +263,7 @@ impl VolumeIndex {
             excluded: false,
             in_home: false,
             in_app_root: false,
+            in_store_package: false,
             in_folders: false,
             nearest: None,
             depth: 0,
@@ -286,6 +288,9 @@ impl VolumeIndex {
             }
             if entry.is_hidden() {
                 lineage.hidden = true;
+            }
+            if entry.is_dir() && self.entry_name(entry).eq_ignore_ascii_case(b"WindowsApps") {
+                lineage.in_store_package = true;
             }
             if entry.is_system()
                 || Some(current) == self.windows_dir
@@ -685,6 +690,39 @@ mod tests {
                 .lineage(22, None, &[41], &[], None)
                 .unwrap()
                 .in_app_root
+        );
+    }
+
+    #[test]
+    fn windows_apps_marks_store_packages() {
+        let mut volume = sample();
+        volume.upsert(50, ROOT, "Program Files", DIR);
+        volume.upsert(51, 50, "WindowsApps", DIR);
+        volume.upsert(
+            52,
+            51,
+            "Microsoft.WindowsTerminal_1.0_x64__8wekyb3d8bbwe",
+            DIR,
+        );
+        volume.upsert(53, 52, "WindowsTerminal.exe", FILE);
+        volume.upsert(54, 50, "windowsapps.exe", FILE);
+        assert!(
+            volume
+                .lineage(53, None, &[], &[], None)
+                .unwrap()
+                .in_store_package
+        );
+        assert!(
+            !volume
+                .lineage(54, None, &[], &[], None)
+                .unwrap()
+                .in_store_package
+        );
+        assert!(
+            !volume
+                .lineage(22, None, &[], &[], None)
+                .unwrap()
+                .in_store_package
         );
     }
 

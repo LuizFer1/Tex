@@ -2,210 +2,205 @@
 
 > Your desktop, within reach.
 
----
+Tex is a personal desktop assistant for Windows. It lives in the tray and comes up when you call it: one box to find files, folders, and apps, a history of what you copy, a calculator in that same box, and a reader for the text files you find.
 
-## Name
+![Tex](crates/tex-app/ui/assets/app-icon.png)
 
-**Tex** is a personal desktop assistant. It brings two everyday tasks into one place: **finding** files, folders, and apps, and **reusing** what you copied before.
-
-The name is short on purpose. Tex is meant to be called up, used in a few seconds, and put away.
+[Download the installer](https://github.com/LuizFer1/Tex/releases). **Alt+Space** opens search. **Alt+V** opens the clipboard history. Both shortcuts can be changed.
 
 ---
 
-## Purpose
+## Search
 
-Finding a file often means opening folder after folder, disk by disk. Something copied an hour ago is gone the moment you copy something else. Tex exists to remove that friction: less time looking, less time retyping.
+Results appear as you type, from an index that stays up to date instead of walking every folder on each query.
 
-### Universal search
+- Files and folders on every disk available to you, and installed apps, in the same list. Microsoft Store apps, such as Windows Terminal, are included.
+- Results are grouped into apps, files, and folders. **Tab** switches All, Apps, Files, and Folders. Apps are listed first.
+- Files and folders show where they are, so two items with the same name can be told apart.
+- A path narrows the search. `Tex/.exe` finds `.exe` files inside folders named like Tex. `Projetos/Tex/` lists what is below them.
+- **Enter** opens the selection. **Ctrl+Enter** shows a file or folder in its folder. Settings can swap the two.
+- **Shift+Enter** opens a readable file in the reader.
+- **Esc**, or a click outside, closes the popup. The Windows key also opens Tex, unless you turn that off. The popup follows the monitor under the cursor.
 
-One search box for everything on your computer.
+Hidden files are included by default. System files are not. Both, and whole folders you want left out, are in Settings › Search.
 
-- Covers **files and folders on every disk** available to the user.
-- Includes **installed apps** in the same results. There is no separate search for each kind.
-- Results are **grouped by category** and can be **filtered** by files, folders, or apps.
-- Files and folders show **where they are**, so two items with the same name can be told apart.
-- Type a **path** to search inside folders: `Tex/.exe` finds `.exe` files anywhere inside folders named like "Tex", and `Projetos/Tex/` lists everything below them.
-- The selected result **opens directly** from the search.
+## Calculator
 
-### Quick calculator
+A calculation shows a card above the list, on the All tab, while you type. **Enter** copies the result and closes the popup.
 
-The search box also does math, so a quick calculation needs no other app.
-
-- Calculates **while you type** and shows the result above the files. **Enter** copies it.
-- Operations and functions: `2^10`, `sqrt(144)`.
+- Arithmetic and functions: `2^10`, `sqrt(144)`.
 - Percentages: `52% of 900`, `900 - 10%`.
-- Unit conversions: `10 ft in m`, `100 km/h in m/s`, `1 GB in MB`, `145 min in timespan`.
-- Understands **Portuguese and English** phrases (`10 ft em m`, `52% de 900`), and the **decimal separator** (comma or dot) follows the interface language.
-- Dates and times: `days until 31 mar`, `today + 30 days`, `workdays until mar 31` (Monday to Friday, no holidays), `17:30 - 9:00`. The card shows the weekday under the result.
-- Time zones: `time in tokyo`, `3pm tokyo in sao paulo`. The zones come from a database built into Tex, so they work offline too.
-- Works fully **offline**. There are no currencies, because they would need the network.
-- Turn it off in the **Search** tab of Settings.
+- Units: `10 ft in m`, `100 km/h in m/s`, `1 GB in MB`, `145 min in timespan`. Adjacent quantities add, as in `5 ft 3 in`.
+- Dates and clock times: `days until 31 mar`, `today + 30 days`, `workdays until mar 31`, `17:30 - 9:00`. Workdays are Monday to Friday, with no holiday calendar. The card shows the weekday under a date.
+- Time zones: `time in tokyo`, `3pm tokyo in sao paulo`. The zone data is built into Tex.
 
-### Clipboard history
+Phrases work in Portuguese and English (`10 ft em m`, `52% de 900`). The decimal separator follows the interface language. A lone number, a file name, or a path does not open the card. There is no currency conversion. Turn the card off in Settings › Search.
 
-Tex keeps what you copy, so you can find it and use it again later. Press **Alt+V** (you can change it) to open the history.
+## Clipboard
 
-- Text and images are **captured automatically** whenever you copy them. There is nothing to turn on per copy.
-- **Every copy is a new entry.** Copying the same content twice creates two separate entries. Duplicates are kept on purpose, because each copy is its own moment in the history. The one exception: some apps write a single copy to the clipboard more than once, so the same content written again within 1 second of the last saved entry counts as that same copy.
-- Each entry is **independent**. Editing, renaming, favoriting, deleting, or expiring one entry never affects another, even when their content is identical.
-- The history lists entries newest first, with a **preview** on the side. You can **search** names and text, and filter by favorites, text, or images.
-- **Enter** (or a double click) **copies the entry back** to the clipboard and closes the history. If you choose "Copy and paste" in Settings, it also pastes into the window you were using. **Ctrl+Enter** does the other one.
-- **Ctrl+D** favorites an entry, **F2** gives it a **custom name**, **Ctrl+E** edits a text, and **Del** deletes it while the search box is empty (a favorite asks first). **Ctrl+,** opens the clipboard settings.
-- Copies Tex makes itself are not captured again, so picking an old entry does not add a new one.
-- Capture can be **paused** from the tray menu or in Settings. Settings also has the size limit per entry, which kinds to capture, the cleanup policy, ignored apps, and a button that clears everything except favorites.
+Tex keeps what you copy so you can find it later. Text and images are captured as you copy them.
 
-### Text and images
+- The history lists entries newest first, with a preview. Search matches names and text. Images match by name. Filters cover favorites, text, and images.
+- **Enter** copies the entry back and closes the history. With "Copy and paste" in Settings, it also pastes into the window you were using. **Ctrl+Enter** does the other action.
+- **Ctrl+D** favorites an entry, **F2** gives it a name, **Ctrl+E** edits a text, and **Del** deletes it while the search box is empty. Deleting a favorite asks first.
+- Copies Tex writes itself are not captured again.
 
-The first version supports two kinds of content.
+Every copy is its own entry, even when the content matches an older one. Rename, edit, favorite, delete, and expiry act on that entry alone. The one exception: some apps write a single copy more than once, so the same content written again within 1 second of the last saved entry counts as that same copy.
 
-| Action | Text | Image |
+| | Text | Image |
 | --- | --- | --- |
-| Automatic capture | ✅ plain text | ✅ bitmaps (1 to 32 bits, uncompressed) |
-| View / preview | ✅ | ✅ |
-| Search by content | ✅ | — (by name) |
-| Copy again | ✅ | ✅ |
-| Favorite / unfavorite | ✅ | ✅ |
-| Rename | ✅ | ✅ |
-| Edit stored content | ✅ | — (rename only) |
-| Delete | ✅ | ✅ |
+| Capture | Plain text. HTML and RTF are stored as plain text. | Uncompressed bitmaps, 1 to 32 bits. |
+| Search | By content and by name. | By name. |
+| Copy back, favorite, rename, delete | Yes. | Yes. |
+| Edit the stored content | Yes. | Rename only. |
 
-Formatted text (HTML, RTF) is kept as plain text. Large files, folders, and ZIP files are planned for later, not for the first version.
+Each entry also has a size limit: 1, 5, 10, 25, or 50 MB. The default is 10 MB. Pause capture from the tray menu or from Settings, choose which kinds to keep, ignore apps, and clear everything except favorites.
 
-### Retention
+### How long entries stay
 
-The history should not grow forever. You choose one policy, and Tex applies it to each entry.
+You pick one policy. Tex applies it in the background, with the history closed and with capture paused.
 
-**By time.** Non-favorite entries expire after the period you pick:
+**By time.** Non-favorites expire after 3 days, 1 week, or 1 month. One week is the default.
 
-- 3 days
-- 1 week
-- 1 month
+**By storage.** The history limit is 250 MB, 500 MB, 1 GB, 2 GB, or 5 GB. One gigabyte is the default. At 90% of the limit, Tex removes the oldest non-favorites until usage is at 80% or below. Settings shows how much of the limit is in use.
 
-**By storage.** You pick a size limit for the history: 250 MB, 500 MB, 1 GB, 2 GB, or 5 GB.
+A favorite never expires by time, is never removed by storage cleanup, and does not count toward the limit. It stays until you delete it.
 
-- When usage reaches **90% of the limit**, Tex starts removing the **oldest non-favorite** entries.
-- Cleanup goes on until usage is at **80% or less**, instead of deleting one entry at a time at the edge.
-- Settings shows how much of the limit is in use.
+Large files, folders, and ZIP archives are outside the clipboard history.
 
-Cleanup runs in the background while Tex sits in the tray, even with the history closed or capture paused. Switching policy applies the new one right away.
+## Reader
 
-### Favorites
+**Shift+Enter** on a file in the popup opens it in its own window.
 
-Favorites are the entries you want to keep.
+Markdown is rendered, with its images: PNG, JPEG, GIF, WebP, and BMP, from local files or from `https://` addresses. GIFs animate only while they are on screen and the window has focus. These types open as plain text: `txt`, `log`, `json`, `jsonl`, `csv`, `tsv`, `toml`, `yaml`, `yml`, `ini`, `cfg`, `conf`, `env`, and `xml`. A file with no extension opens when its contents look like text. Logs, CSV, TSV, and JSONL keep one line per row. **Alt+Z** toggles wrapping.
 
-- A favorite **never expires** by time.
-- A favorite is **never removed** by storage cleanup, and favorites **do not count** toward the storage limit.
-- A favorite stays until **you** delete it.
-- Any entry can be favorited or unfavorited at any time.
+**Ctrl+F** searches. **F3** and **Shift+F3** move between hits. **Ctrl+E** edits a text of up to 128 KB. **Ctrl+S** saves, keeping the file's encoding, byte-order mark, and line endings. Closing with unsaved changes asks whether to save them. A change made by another program is noticed when the window gets the focus.
 
-### Privacy
+Larger text files can still be read. Other types open when a [reader extension](#reader-extensions) provides a viewer.
 
-What you copy can be anything: notes, addresses, links, private messages. Tex treats it that way.
+## Keys
 
-- The history is stored **locally**, on your computer only, in `%LOCALAPPDATA%\Tex`.
-- Names and content are **encrypted** (XChaCha20-Poly1305). The key is protected by Windows for your account, so another user of the computer cannot read the history. If the key is lost, Tex sets the old history aside and starts an empty one.
-- The only connection Tex makes is to check GitHub for a new version of Tex and download it, which you can turn off in Settings. Nothing about you or your files is sent. There is no account, no cloud, and no tracking.
-- You stay responsible for what you keep. Tex does not try to detect passwords on its own. Instead you can pause capture, ignore specific apps, let Tex skip what password managers mark as private, and review and delete entries.
-
----
-
-## Stack
-
-| Layer | Technology |
+| Key | Action |
 | --- | --- |
-| UI | Rust + [Slint](https://slint.dev) |
-| Features (search, clipboard capture, retention) | Rust |
-| Clipboard history | SQLite |
+| **Alt+Space** | Open search. The Windows key does this too, unless you turn it off. |
+| **Alt+V** | Open the clipboard history. |
+| **↑ / ↓** | Move the selection. |
+| **Tab** | Switch All, Apps, Files, and Folders. |
+| **Enter** | Open the selection, copy a calculation, or copy a history entry. |
+| **Ctrl+Enter** | Show the file in its folder, or the other clipboard action. |
+| **Shift+Enter** | Open the file in the reader. |
+| **Esc** | Close the popup, the history, or the reader. |
+| **Ctrl+,** | Settings, from search or from the history. |
 
-**Rust** builds the whole app, interface and features, into a single native desktop program.
+Clicking the tray icon opens or closes the popup. The menu has Open Tex, Clipboard history, Settings, About Tex, Pause capture, and Quit.
 
-- **Fast search.** Results across every disk have to feel instant, which points to a local index kept up to date rather than scanning disks on every query.
-- **Clipboard access.** The app watches the system clipboard in the background and reads both text and images.
-- **Background cleanup.** Retention by time and by storage runs on its own, without the user opening the app.
+The two global shortcuts can be changed in Settings. They cannot be the same one.
 
-**SQLite** stores the clipboard history in a local file on disk.
+## Privacy
 
-- One row per copy, so duplicate content stays as independent entries.
-- Each row carries what retention needs: when it was copied, its size, and whether it is a favorite.
-- Text and images are both stored in the history, so their size is measured to enforce the storage limit.
-- Names and content are encrypted at rest, with a key protected by Windows (DPAPI).
+The history is a file on this computer, in `%LOCALAPPDATA%\Tex`. Names and content are encrypted with XChaCha20-Poly1305. Windows protects the key for your user account. If the key is missing or cannot open the database, Tex sets the old history aside and starts an empty one.
 
-**No external services.** No account SDK, no analytics SDK, no backend SDK. The only network call is the optional update check against this repository's GitHub Releases. Every other feature works with no network and no telemetry.
+Tex does not try to recognize passwords. You can pause capture, ignore apps, let Tex skip copies that other apps mark as private, and delete entries yourself.
 
----
+The only network use is checking [this repository's releases](https://github.com/LuizFer1/Tex/releases) for a new version and downloading the signed installer. The check waits until the first-run questions are done, and it stays off while "Check for updates automatically" is off. "Check now" in Settings runs it on purpose. Nothing about you or your files is sent.
+
+The second network use is remote images in Markdown files. Tex loads an `https://` image only when **Load images from the internet** is on in Settings › General, which is off by default, or when you press **Load images from the internet** in the reader's banner for that window. While it is off, the reader shows the image's alt text. Remote images are kept in memory only, never on disk.
+
+## First run and settings
+
+The first launch asks nine questions. Each one already has the usual choice selected: light or dark theme, whether the Windows key opens search, whether Tex starts with Windows, whether it checks for updates, what Enter does on a result, whether search includes hidden files, whether Tex may keep what you copy, whether picking a history entry also pastes it, and when old entries are removed. Nothing is captured until you finish or close the questions.
+
+Every answer can be changed later. Settings is in the tray menu, or **Ctrl+,** in the search box, on three tabs:
+
+- **General.** Language (follow Windows, Portuguese, or English), theme (light, dark, or follow Windows; light is the default), shortcuts, the Windows key, start with Windows, which monitor the popup uses, and updates. "Redo" walks through the first-run questions again.
+- **Search.** How long the last query stays, hidden and system files, excluded folders, which categories appear, what Enter does, and the calculator.
+- **Clipboard.** The history shortcut, pause, which kinds to capture, the size limit per entry, copy or copy-and-paste, the cleanup policy, apps to ignore, and clearing the history.
+
+With updates on, Tex downloads a new version in the background. "Update to …" in the tray menu, or "Update and restart" in Settings, runs the installer. The installer is checked against a signature shipped with Tex before it runs.
 
 ## Install
 
-Download `Tex-Setup-<version>.exe` from [Releases](https://github.com/LuizFer1/Tex/releases) and run it. It asks for administrator rights because the search service reads the NTFS file tables, and it asks whether only your account or everyone who signs in to the computer can search.
+Download `Tex-Setup-<version>.exe` from [Releases](https://github.com/LuizFer1/Tex/releases) and run it. It asks for administrator rights because the search service reads the NTFS file tables, and it asks whether only your account or everyone who signs in can search.
 
-On first run Tex asks a few questions, each with the usual choice already selected: light or dark theme, whether the Windows key also opens search, whether Tex starts with Windows, whether it checks for updates, what Enter does on a result, whether search includes hidden files, and, for the clipboard history, whether Tex may keep what you copy, whether picking an entry also pastes it, and when old entries are deleted. Nothing is captured until you finish or close the questions. Every answer can be changed later in Settings (tray menu, or Ctrl+, in the search box), along with the shortcuts, language, what search includes, and how the clipboard history works. With updates on, Tex downloads new versions in the background and installs them when you click "Update to <version>" in the tray menu or "Update and restart" in Settings.
+Started by the installer with "Start with Windows" off, Tex exits without opening a window.
 
----
+## Building
 
-## Development
-
-Requires stable Rust with the MSVC toolchain. Windows only for now.
+Stable Rust with the MSVC toolchain. Windows only for now. The OS-specific code sits behind one API, so another system can be added without rewriting the interface.
 
 ```sh
-cargo run -p tex-app      # run a debug build
-cargo build --release     # build target/release/tex.exe
+cargo run -p tex-app          # debug build, with a console
+cargo build --release         # target/release/tex.exe, no console
 cargo test
+cargo clippy --all-targets
+cargo fmt
 ```
+
+Only one Tex runs at a time. Quit the one in the tray before starting another.
 
 Search needs the indexing service, which reads the NTFS file tables and must run as administrator:
 
 ```sh
 cargo build --release
-target\release\tex-indexer.exe install     # in an administrator terminal; --all-users lets every account search; uninstall removes it
+target\release\tex-indexer.exe install            # administrator terminal
+target\release\tex-indexer.exe install --all-users
+target\release\tex-indexer.exe uninstall
 ```
 
-To build the installer, install [Inno Setup 6](https://jrsoftware.org/isinfo.php) and, after the release build, run `ISCC.exe /DAppVersion=0.4.4 installer\tex.iss` with the workspace version. The result is `target\installer\Tex-Setup-0.4.4.exe`.
-
-To try the app without administrator rights, serve a single folder instead:
+`cargo run -p tex-indexer -- console` runs the same indexer in the foreground. To try the app without administrator rights, serve one folder instead:
 
 ```sh
 cargo run --release -p tex-indexer --example fake_server -- C:\Users\you
 ```
 
-Press **Alt+Space** to open the search popup and type. **↑/↓** move the selection, **Enter** opens the item and **Ctrl+Enter** shows it in its folder (Settings can swap the two), **Tab** switches between All, Apps, Files and Folders, and **Esc** or clicking outside closes the popup. Apps (Start Menu shortcuts and executables) are listed first. Press **Alt+V** for the clipboard history. Clicking the tray icon opens or closes the popup, and its menu has Open Tex, Clipboard history, Settings, About Tex, Pause capture, and Quit.
+The installer is [Inno Setup 6](https://jrsoftware.org/isinfo.php). After a release build, from PowerShell, with the workspace version:
 
-Measured with the installed 0.3.0 release on Windows 10 at 1920×1080, with every window closed after a session of use: `tex.exe` holds about 36 MB working set (7 MB private) and uses almost no CPU. The search service's memory grows with the number of files indexed.
+```powershell
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.4.5 installer\tex.iss
+```
 
----
+The result is `target\installer\Tex-Setup-0.4.5.exe`.
+
+Settings live in `%APPDATA%\Tex\settings.toml`. The search index and the service log live in `%ProgramData%\Tex`. The clipboard database lives in `%LOCALAPPDATA%\Tex`.
+
+Tex is a Cargo workspace. `tex-app` is the program and the Slint interface. `tex-indexer` is the search service. `tex-index`, `tex-clipboard`, `tex-reader`, and `tex-calc` are the pure cores behind search, history, the reader, and the calculator. `tex-platform` is the Windows code. `tex-ipc` is the pipe between the app and the service.
+
+The whole program is Rust. The interface is [Slint](https://slint.dev) with the software renderer. The clipboard history is SQLite, one row per copy, with names and content encrypted at rest. There is no account, no analytics, and no backend. Apart from the optional update check, every feature works offline.
 
 ## Reader extensions
 
-The text reader (Shift+Enter on a file in the search popup) can be extended with external programs, in any language. Each extension is a folder with an `extension.toml` in `%APPDATA%\Tex\extensions\<folder>\`. Tools → "Open extensions folder" in the reader opens (and creates) it. Extensions are read again every time a file is opened and every time the Tools menu opens, so a new or changed extension needs no restart. A broken manifest is listed in the Tools menu with the reason and is not loaded.
+The reader can call external programs, in any language. Each extension is a folder with an `extension.toml` in `%APPDATA%\Tex\extensions\<folder>\`. Tools → "Open extensions folder" opens that directory and creates it if needed. Extensions are read again every time a file is opened and every time the Tools menu opens. A broken manifest is listed in the menu, with the reason, and is not loaded.
 
-An extension has **tools**, which transform the document or the selection, and **viewers**, which open new file types by converting them to Markdown or plain text:
+A **tool** transforms the document or the selection. A **viewer** opens a new file type by turning it into Markdown or plain text.
 
 ```toml
 name = "Format JSON"                 # required
 
 [[tool]]                             # any number of tools
 title = "Format"                     # required; shown in the Tools menu
-files = ["json", ".jsonl"]           # required; file extensions, with or without the dot, any case; "*" = every file
+files = ["json", ".jsonl"]           # required; extensions, with or without the dot, any case; "*" = every file
 command = ["python", "format.py"]    # required; program and arguments
 input = "document"                   # "document" (default) | "selection" (edit mode, non-empty selection)
 output = "replace"                   # "show" (default, output panel) | "replace" (document or selection) | "none"
 shortcut = "Ctrl+Shift+F"            # optional
 
 [[viewer]]                           # any number of viewers
-files = ["srt", "vtt"]               # required; "*" is not allowed here
+files = ["srt", "vtt"]               # required; "*" is not allowed on a viewer
 command = ["python", "srt.py"]       # required
 output = "markdown"                  # "markdown" (default) | "text"
 ```
 
-- `output = "replace"` needs an editable document (text up to 128 KB, or one already changed in the reader); the result is not saved until Ctrl+S. `"show"` puts the output in a panel under the text, with Copy and Close. `"none"` only says "done".
-- A file type opened by a viewer becomes readable from the popup. When two viewers claim the same type, the one in the folder that comes first alphabetically wins and the Tools menu lists the conflict. The viewer's output is what the reader shows; Ctrl+E still edits the raw file when it is text.
-- Shortcuts use the same names as Tex's own shortcuts (`Ctrl`, `Alt`, `Shift`, `Win`, a letter, digit, `F1`–`F24` or a key name such as `Space`). The reader keeps Ctrl+E, Ctrl+S, Ctrl+Shift+E, Ctrl+Shift+S, Ctrl+F, Shift+F3 and Alt+Z; a tool shortcut needs Ctrl or Alt; a tool asking for a reserved key, a key without Ctrl or Alt, or a key an earlier tool took, still works from the menu without the shortcut, and the menu says why. Ctrl+Alt shortcuts only work with a letter or an F key, because AltGr arrives as Ctrl+Alt on Windows and would fire them while typing characters such as `@` or `€`.
+- `output = "replace"` needs an editable document: text up to 128 KB, or one already changed in the reader. The result is not saved until **Ctrl+S**. `"show"` puts the output in a panel under the text, with Copy and Close. `"none"` reports that the tool finished.
+- A type opened by a viewer becomes readable from the popup. When two viewers claim the same type, the folder that comes first alphabetically wins, and the Tools menu lists the conflict. **Ctrl+E** still edits the raw file when it is text.
+- Shortcuts use the same names as Tex's own (`Ctrl`, `Alt`, `Shift`, `Win`, a letter, a digit, `F1`–`F24`, or a key name such as `Space`). The reader keeps **Ctrl+E**, **Ctrl+S**, **Ctrl+Shift+E**, **Ctrl+Shift+S**, **Ctrl+F**, **Shift+F3**, and **Alt+Z**. A tool shortcut needs Ctrl or Alt. A tool that asks for a reserved key, a key without Ctrl or Alt, or a key an earlier tool took, still runs from the menu, and the menu says why. A Ctrl+Alt shortcut works only with a letter or an F key, because AltGr arrives as Ctrl+Alt and would otherwise fire the tool while typing a character.
 
-Protocol:
+The command runs in the extension's folder, with no console window. `command[0]` is a file in that folder when one exists under that name, and otherwise a program on `PATH`. Later arguments that name files in the folder are passed as full paths. No part of `command` may be an absolute path or contain `..`.
 
-- The command runs in the extension's folder, without a console window. `command[0]` is a file in that folder if one exists with that name, otherwise a program on the `PATH`; later arguments that name files in the folder are passed as full paths. Parts of `command` may not be absolute paths or contain `..`: every path stays inside the extension's folder.
-- stdin gets the document or the selection as UTF-8 (empty for viewers); stdout must be UTF-8. Environment: `TEX_FILE` (the file's full path), `TEX_EXTENSION_DIR` and `TEX_VERSION`.
-- A non-zero exit code is a failure: the reader shows the first line of stderr (or the exit code) in a banner, or on the error screen for a viewer.
-- Limits: 10 seconds and 16 MB of output. While a tool runs the reader shows "Running…" with Cancel. Cancel, the time limit or too much output stops the command and every process it started.
+Standard input receives the document or the selection as UTF-8, empty for a viewer. Standard output must be UTF-8. The environment has `TEX_FILE` (the file's full path), `TEX_EXTENSION_DIR`, and `TEX_VERSION`.
+
+A non-zero exit code fails the run. The reader shows the first line of standard error, or the exit code. A viewer failure is the error screen.
+
+Limits are 10 seconds and 16 MB of output. While a tool runs, the reader shows "Running…" with Cancel. Cancel, the time limit, or too much output stops the command and every process it started.
 
 Example: an "Uppercase" tool for every file, in PowerShell. `%APPDATA%\Tex\extensions\uppercase\extension.toml`:
 
@@ -220,7 +215,7 @@ output = "replace"
 shortcut = "Ctrl+Shift+U"
 ```
 
-`upper.ps1` in the same folder (Windows PowerShell 5.1 reads and writes redirected text in the OEM code page unless told otherwise):
+`upper.ps1` in the same folder. Windows PowerShell 5.1 reads and writes redirected text in the OEM code page unless told otherwise:
 
 ```powershell
 [Console]::InputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
@@ -228,16 +223,14 @@ $text = [Console]::In.ReadToEnd()
 [Console]::Out.Write($text.ToUpper())
 ```
 
----
-
 ## License
 
 Tex is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE.md).
 
-- **Free to use** for any noncommercial purpose: personal use, study, hobby projects, and use by charities, schools, and public institutions.
-- **Free to modify** and to share your changes, as long as the license and its `Required Notice:` line go along with every copy.
-- **Commercial use is not allowed** under this license. To use Tex commercially, contact the author for a separate license.
+- Free for any noncommercial purpose: personal use, study, hobby projects, and use by charities, schools, and public institutions.
+- Free to modify and to share your changes, as long as the license and its `Required Notice:` line go along with every copy.
+- Commercial use needs a separate license from the author.
 
-The UI is built with [Slint](https://slint.dev), used under the Slint Royalty-free Desktop, Mobile, and Web Applications License 2.0. As that license requires, Tex shows the `AboutSlint` widget on its About screen.
+The interface is built with [Slint](https://slint.dev), under the Slint Royalty-free Desktop, Mobile, and Web Applications License 2.0. As that license requires, Tex shows the `AboutSlint` widget on its About screen.
 
-The bundled fonts, [Nunito](https://github.com/googlefonts/nunito) and [IBM Plex Mono](https://github.com/IBM/plex), are under the SIL Open Font License 1.1 (`crates/tex-app/ui/fonts`). The icons come from [Phosphor](https://phosphoricons.com) under the MIT license (`crates/tex-app/ui/icons`).
+The bundled fonts, [Nunito](https://github.com/googlefonts/nunito) and [IBM Plex Mono](https://github.com/IBM/plex), are under the SIL Open Font License 1.1 (`crates/tex-app/ui/fonts`). The icons are from [Phosphor](https://phosphoricons.com), under the MIT license (`crates/tex-app/ui/icons`).

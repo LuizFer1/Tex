@@ -684,6 +684,18 @@ msgstr "Procurar atualizações automaticamente"
 msgid "Only asks Tex's page on GitHub for new versions. Nothing about you is sent."
 msgstr "Só consulta a página do Tex no GitHub. Nada sobre você é enviado."
 
+msgid "Reader"
+msgstr "Leitor"
+
+msgid "Load images from the internet"
+msgstr "Carregar imagens da internet"
+
+msgid "Images from the internet are off in Settings."
+msgstr "As imagens da internet estão desligadas nas configurações."
+
+msgid "Markdown files can show pictures hosted online. Loading one tells that site you opened the file. Off by default."
+msgstr "Arquivos Markdown podem mostrar imagens hospedadas na internet. Carregar uma avisa o site de que você abriu o arquivo. Desligado por padrão."
+
 msgid "Checking for updates…"
 msgstr "Procurando…"
 
@@ -719,6 +731,36 @@ msgstr "Não foi possível ler este arquivo"
 
 msgid "Image: {0}"
 msgstr "Imagem: {0}"
+
+msgid "Image: {0} ({1})"
+msgstr "Imagem: {0} ({1})"
+
+msgid "Loading image…"
+msgstr "Carregando imagem…"
+
+msgid "the file could not be read"
+msgstr "não foi possível ler o arquivo"
+
+msgid "it could not be downloaded"
+msgstr "não foi possível baixar"
+
+msgid "it is too large"
+msgstr "é grande demais"
+
+msgid "the file is damaged"
+msgstr "o arquivo está danificado"
+
+msgid "only https addresses are loaded"
+msgstr "só endereços https são carregados"
+
+msgid "images from the internet are off"
+msgstr "as imagens da internet estão desligadas"
+
+msgid "too many images are open"
+msgstr "há imagens demais abertas"
+
+msgid "format not supported"
+msgstr "formato não suportado"
 
 msgid "Loading…"
 msgstr "Carregando…"

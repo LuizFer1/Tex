@@ -5,6 +5,7 @@ mod clipboard_client;
 mod frame;
 mod history;
 mod icons;
+mod image_cache;
 mod onboarding;
 mod placement;
 mod reader;
@@ -13,6 +14,8 @@ mod results;
 mod search_client;
 mod settings;
 mod shortcut;
+mod store;
+mod store_client;
 mod theme;
 mod tools;
 mod update;
@@ -23,6 +26,7 @@ use std::collections::HashSet;
 use std::error::Error;
 use std::io;
 use std::rc::Rc;
+use std::sync::OnceLock;
 use std::time::Instant;
 
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
@@ -64,6 +68,7 @@ use crate::settings::{
     STORAGE_LIMITS_MB, Settings, Theme, settings_path,
 };
 use crate::shortcut::Shortcut;
+use crate::store_client::StoreClient;
 use crate::theme::{Art, Design};
 use crate::update_client::{UpdateClient, UpdateStatus, is_stale};
 
@@ -79,6 +84,12 @@ thread_local! {
     static HISTORY: RefCell<Option<HistoryState>> = const { RefCell::new(None) };
     static ONBOARDING: RefCell<Option<Onboarding>> = const { RefCell::new(None) };
     static UPDATES: RefCell<Option<Updates>> = const { RefCell::new(None) };
+}
+
+static STORE: OnceLock<StoreClient> = OnceLock::new();
+
+fn store() -> &'static StoreClient {
+    STORE.get_or_init(StoreClient::start)
 }
 
 /// Weak handles to every window, cheap to clone into callbacks and across threads.
@@ -221,6 +232,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let _ = popup.upgrade_in_event_loop(move |popup| icon_loaded(&popup, path, pixels));
         }
     });
+    store();
 
     let latest = Latest::default();
     let client = SearchClient::start(
@@ -1175,6 +1187,7 @@ fn fill_settings(window: &SettingsWindow, app: &AppState) {
     window.set_winkey_error(app.winkey_error.as_str().into());
     window.set_start_with_windows(general.start_with_windows);
     window.set_auto_update(general.auto_update);
+    window.set_remote_images(general.remote_images);
     window.set_popup_monitor(match general.popup_monitor {
         PopupMonitor::Cursor => 0,
         PopupMonitor::Primary => 1,
@@ -1275,6 +1288,7 @@ fn read_settings(window: &SettingsWindow, current: &Settings) -> Settings {
     general.windows_key = window.get_windows_key();
     general.start_with_windows = window.get_start_with_windows();
     general.auto_update = window.get_auto_update();
+    general.remote_images = window.get_remote_images();
     general.popup_monitor = match window.get_popup_monitor() {
         1 => PopupMonitor::Primary,
         _ => PopupMonitor::Cursor,
@@ -1656,6 +1670,7 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
     popup.set_status_ready_letters("".into());
     popup.set_service_unavailable(false);
     client.send(Command::Status);
+    store().refresh_if_stale();
     check_updates_if_stale(windows);
     let area = match monitor {
         PopupMonitor::Cursor => work_area_under_cursor(),
@@ -1763,18 +1778,21 @@ fn search(popup: &Popup, client: &SearchClient) {
         popup.set_selected(-1);
         return;
     }
-    let filter = match popup.get_filter() {
+    popup.set_searching(true);
+    client.search(
+        query.to_string(),
+        current_filter(popup),
+        with_app(|app| app::search_options(&app.settings.search)),
+    );
+}
+
+fn current_filter(popup: &Popup) -> Filter {
+    match popup.get_filter() {
         1 => Filter::Apps,
         2 => Filter::Files,
         3 => Filter::Folders,
         _ => Filter::All,
-    };
-    popup.set_searching(true);
-    client.search(
-        query.to_string(),
-        filter,
-        with_app(|app| app::search_options(&app.settings.search)),
-    );
+    }
 }
 
 fn move_selection(popup: &Popup, step: i32) {
@@ -1810,7 +1828,17 @@ fn show_event(windows: &Windows, event: Event, icons: &IconLoader, latest: &Late
             if popup.get_query().trim().is_empty() || !latest.is(results.id) {
                 return;
             }
-            let rows = build_rows(&results.hits);
+            let store_apps = store().apps();
+            let show_apps = with_app(|app| app.settings.search.show_apps);
+            let hits = store::merge(
+                results.hits,
+                &store_apps,
+                &popup.get_query(),
+                current_filter(&popup),
+                show_apps,
+                search_client::LIMIT as usize,
+            );
+            let rows = build_rows(&hits, &store_apps);
             let is_item: Vec<bool> = rows.iter().map(Row::is_item).collect();
             let selected = step_selection(&is_item, None, 1);
             let counts = header_counts(&rows);
@@ -1945,7 +1973,8 @@ fn activate(popup: &Popup, index: i32, alternate: bool) {
         return;
     }
     let reveal_by_default = with_app(|app| app.settings.search.enter_action == EnterAction::Reveal);
-    let opened = if alternate != reveal_by_default {
+    let reveal = alternate != reveal_by_default && !store::is_store_path(&row.path);
+    let opened = if reveal {
         reveal_in_folder(&row.path)
     } else {
         open_path(&row.path)

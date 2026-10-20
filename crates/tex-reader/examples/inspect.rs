@@ -112,7 +112,7 @@ fn print_block(block: &Block) {
                 println!("| {} |", row.join(" | "));
             }
         }
-        Block::Image { alt } => println!("[imagem: {alt}]"),
+        Block::Image { alt, .. } => println!("[imagem: {alt}]"),
     }
     println!();
 }

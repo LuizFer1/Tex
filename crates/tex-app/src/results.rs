@@ -1,4 +1,7 @@
 use tex_ipc::{Hit, VolumeState, VolumeStatus};
+use tex_platform::StoreApp;
+
+use crate::store::display_name;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Category {
@@ -37,7 +40,7 @@ impl Row {
 
 /// Groups hits under apps, folders and files, keeping the service's order inside each group.
 /// Apps always come first; of the other two, the group holding the better hit comes first.
-pub fn build_rows(hits: &[Hit]) -> Vec<Row> {
+pub fn build_rows(hits: &[Hit], store: &[StoreApp]) -> Vec<Row> {
     let (apps, others): (Vec<&Hit>, Vec<&Hit>) = hits.iter().partition(|hit| hit.is_app);
     let (folders, files): (Vec<&Hit>, Vec<&Hit>) =
         others.iter().copied().partition(|hit| hit.is_dir);
@@ -51,12 +54,21 @@ pub fn build_rows(hits: &[Hit]) -> Vec<Row> {
             continue;
         }
         rows.push(Row::Header(category));
-        rows.extend(group.into_iter().map(item));
+        rows.extend(group.into_iter().map(|hit| item(hit, store)));
     }
     rows
 }
 
-fn item(hit: &Hit) -> Row {
+fn item(hit: &Hit, store: &[StoreApp]) -> Row {
+    if let Some(name) = display_name(store, &hit.path) {
+        return Row::Item {
+            name: name.to_owned(),
+            folder: "Microsoft Store".to_owned(),
+            path: hit.path.clone(),
+            is_dir: false,
+            is_app: true,
+        };
+    }
     let (folder, name) = match hit.path.rsplit_once('\\') {
         Some((folder, name)) if folder.ends_with(':') => (format!("{folder}\\"), name),
         Some((folder, name)) => (folder.to_owned(), name),
@@ -76,7 +88,7 @@ fn item(hit: &Hit) -> Row {
     }
 }
 
-fn strip_app_extension(name: &str) -> &str {
+pub fn strip_app_extension(name: &str) -> &str {
     [".lnk", ".url", ".exe"]
         .iter()
         .find_map(|extension| {
@@ -353,12 +365,15 @@ mod tests {
             is_dir: false,
             is_app: true,
         };
-        let rows = build_rows(&[
-            hit(r"C:\Projetos\code", true),
-            app(r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Visual Studio Code.lnk"),
-            hit(r"C:\notes.code", false),
-            app(r"C:\Program Files\Code\Code.exe"),
-        ]);
+        let rows = build_rows(
+            &[
+                hit(r"C:\Projetos\code", true),
+                app(r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Visual Studio Code.lnk"),
+                hit(r"C:\notes.code", false),
+                app(r"C:\Program Files\Code\Code.exe"),
+            ],
+            &[],
+        );
         assert_eq!(
             rows,
             [
@@ -387,11 +402,14 @@ mod tests {
 
     #[test]
     fn files_come_first_when_the_best_hit_is_a_file() {
-        let rows = build_rows(&[
-            hit(r"C:\Docs\notes.txt", false),
-            hit(r"C:\notes", true),
-            hit(r"D:\notes.md", false),
-        ]);
+        let rows = build_rows(
+            &[
+                hit(r"C:\Docs\notes.txt", false),
+                hit(r"C:\notes", true),
+                hit(r"D:\notes.md", false),
+            ],
+            &[],
+        );
         assert_eq!(
             rows,
             [
@@ -406,14 +424,40 @@ mod tests {
 
     #[test]
     fn folders_come_first_when_the_best_hit_is_a_folder() {
-        let rows = build_rows(&[hit(r"C:\notes", true), hit(r"C:\notes.txt", false)]);
+        let rows = build_rows(&[hit(r"C:\notes", true), hit(r"C:\notes.txt", false)], &[]);
         assert_eq!(rows[0], Row::Header(Category::Folders));
         assert_eq!(rows[2], Row::Header(Category::Files));
     }
 
     #[test]
     fn no_hits_no_rows() {
-        assert!(build_rows(&[]).is_empty());
+        assert!(build_rows(&[], &[]).is_empty());
+    }
+
+    #[test]
+    fn store_apps_show_their_display_name_and_the_store_as_folder() {
+        let store = [StoreApp {
+            name: "Windows Terminal".into(),
+            path: r"shell:AppsFolder\Microsoft.WindowsTerminal_8wekyb3d8bbwe!App".into(),
+        }];
+        let rows = build_rows(
+            &[Hit {
+                path: store[0].path.clone(),
+                is_dir: false,
+                is_app: true,
+            }],
+            &store,
+        );
+        assert_eq!(
+            rows[1],
+            Row::Item {
+                name: "Windows Terminal".into(),
+                folder: "Microsoft Store".into(),
+                path: store[0].path.clone(),
+                is_dir: false,
+                is_app: true,
+            }
+        );
     }
 
     #[test]

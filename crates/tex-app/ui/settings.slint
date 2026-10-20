@@ -39,6 +39,7 @@ export component SettingsWindow inherits Window {
     in property <string> winkey-error;
     in-out property <bool> start-with-windows;
     in-out property <bool> auto-update;
+    in-out property <bool> remote-images;
     // 0 idle, 1 checking, 2 up to date, 3 downloading, 4 ready, 5 failed, 6 installing
     in property <int> update-state;
     in property <string> update-version;
@@ -454,6 +455,22 @@ export component SettingsWindow inherits Window {
                                                 clicked => {
                                                     root.check-updates();
                                                 }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Section {
+                                    title: @tr("Reader");
+                                    SettingRow {
+                                        label: @tr("Load images from the internet");
+                                        description: @tr("Markdown files can show pictures hosted online. Loading one tells that site you opened the file. Off by default.");
+                                        separator: false;
+                                        Toggle {
+                                            label: @tr("Load images from the internet");
+                                            checked <=> root.remote-images;
+                                            toggled => {
+                                                root.edited();
                                             }
                                         }
                                     }
