@@ -4,7 +4,7 @@
 
 Tex is a personal desktop assistant for Windows. It lives in the tray and comes up when you call it: one box to find files, folders, and apps, a history of what you copy, a calculator in that same box, and a reader for the text files you find.
 
-![Tex, a child in a green dinosaur hood](crates/tex-app/ui/assets/mascot-welcome.png)
+![Tex](crates/tex-app/ui/assets/app-icon.png)
 
 [Download the installer](https://github.com/LuizFer1/Tex/releases). **Alt+Space** opens search. **Alt+V** opens the clipboard history. Both shortcuts can be changed.
 
