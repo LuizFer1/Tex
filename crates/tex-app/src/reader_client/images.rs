@@ -34,6 +34,10 @@ impl ImageState {
     pub(super) fn cancel(&self) {
         self.cancel.store(true, Ordering::Relaxed);
     }
+
+    pub(super) fn allow_remote(&mut self) {
+        self.remote_once = true;
+    }
 }
 
 /// Forgets every image and stops the running download; used when the file is loaded again.

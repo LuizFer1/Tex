@@ -260,7 +260,8 @@ export component ReaderWindow inherits Window {
     in-out property <string> edit-original;
     // 0 none, 1 too large to edit, 2 changed outside, 3 deleted (Ctrl+S recreates it), 4 save failed,
     // 5 characters would be lost, 6 deleted (read-only file), 7 a tool is running (banner-detail: its
-    // title), 8 a tool failed (banner-title: its title, banner-reason and banner-detail: why)
+    // title), 8 a tool failed (banner-title: its title, banner-reason and banner-detail: why),
+    // 9 images from the internet are off
     in property <int> banner;
     in property <string> banner-title;
     in property <string> banner-detail;
@@ -288,7 +289,8 @@ export component ReaderWindow inherits Window {
     callback edit-requested();
     callback edit-finished();
     callback save-requested();
-    // 1 overwrite, 2 reload, 3 save anyway, 4 cancel the running tool
+    // 1 overwrite, 2 reload, 3 save anyway, 4 cancel the running tool, 5 load the images from the
+    // internet for this window
     callback banner-action(int);
     callback tools-requested();
     callback tool-chosen(int);
@@ -619,7 +621,7 @@ export component ReaderWindow inherits Window {
                         padding-left: 16px;
                         spacing: 8px;
                         Text {
-                            text: root.banner == 1 ? @tr("This file is too large to edit in Tex (more than {0} KB).", 128) : root.banner == 2 ? @tr("The file changed outside Tex.") : root.banner == 3 ? @tr("The file no longer exists. Ctrl+S saves it again.") : root.banner == 4 ? @tr("Could not save: {0}", root.banner-detail) : root.banner == 6 ? @tr("The file no longer exists.") : root.banner == 7 ? @tr("Running {0}…", root.banner-detail) : root.banner == 8 ? @tr("{0} failed: {1}", root.banner-title, root.run-reason(root.banner-reason, root.banner-detail, false)) : @tr("Some characters cannot be kept in {0}. They will be replaced.", root.encoding-name);
+                            text: root.banner == 1 ? @tr("This file is too large to edit in Tex (more than {0} KB).", 128) : root.banner == 2 ? @tr("The file changed outside Tex.") : root.banner == 3 ? @tr("The file no longer exists. Ctrl+S saves it again.") : root.banner == 4 ? @tr("Could not save: {0}", root.banner-detail) : root.banner == 6 ? @tr("The file no longer exists.") : root.banner == 7 ? @tr("Running {0}…", root.banner-detail) : root.banner == 8 ? @tr("{0} failed: {1}", root.banner-title, root.run-reason(root.banner-reason, root.banner-detail, false)) : root.banner == 9 ? @tr("Images from the internet are off in Settings.") : @tr("Some characters cannot be kept in {0}. They will be replaced.", root.encoding-name);
                             color: Tokens.banner-ink;
                             font-size: Tokens.size-label;
                             wrap: word-wrap;
@@ -663,6 +665,16 @@ export component ReaderWindow inherits Window {
                                 text: @tr("Save anyway");
                                 clicked => {
                                     root.banner-action(3);
+                                }
+                            }
+                        }
+                        if root.banner == 9: VerticalLayout {
+                            alignment: center;
+                            Button {
+                                on-banner: true;
+                                text: @tr("Load images from the internet");
+                                clicked => {
+                                    root.banner-action(5);
                                 }
                             }
                         }

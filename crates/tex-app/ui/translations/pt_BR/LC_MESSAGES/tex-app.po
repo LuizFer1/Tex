@@ -690,6 +690,9 @@ msgstr "Leitor"
 msgid "Load images from the internet"
 msgstr "Carregar imagens da internet"
 
+msgid "Images from the internet are off in Settings."
+msgstr "As imagens da internet estão desligadas nas configurações."
+
 msgid "Markdown files can show pictures hosted online. Loading one tells that site you opened the file. Off by default."
 msgstr "Arquivos Markdown podem mostrar imagens hospedadas na internet. Carregar uma avisa o site de que você abriu o arquivo. Desligado por padrão."
 

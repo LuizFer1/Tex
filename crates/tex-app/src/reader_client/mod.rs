@@ -317,6 +317,13 @@ fn wire(window: &ReaderWindow, windows: &Windows, id: u64, path: &Path) {
                 save(id, false, true);
             }
             4 => cancel_tool(id),
+            5 => {
+                with_reader(id, |reader| reader.images.allow_remote());
+                if let Some(window) = window.upgrade() {
+                    show_banner(&window, Banner::None);
+                }
+                refresh(id);
+            }
             _ => {}
         }
     });
