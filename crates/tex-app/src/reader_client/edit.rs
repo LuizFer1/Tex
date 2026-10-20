@@ -6,6 +6,7 @@ use slint::ModelRc;
 use tex_platform::replace_file;
 use tex_reader::{Body, Stamp};
 
+use super::images::{refresh, reset_images};
 use super::search::{clear_search_view, reset_search, search};
 use super::{Banner, Reader, build, show_banner, show_built, spawn, window_of, with_reader};
 use crate::ReaderWindow;
@@ -112,6 +113,7 @@ pub(super) fn apply_text(id: u64, window: &ReaderWindow, text: String) -> bool {
         }
         Some((Refresh::Rebuilt(built), dirty)) => {
             show_built(window, built);
+            refresh(id);
             clear_search_view(window);
             if window.get_searching() {
                 search(id, window.get_query().to_string());
@@ -241,6 +243,7 @@ pub(super) fn reload(id: u64) {
         reader.acknowledged = None;
         reader.search_rows = Arc::new(Vec::new());
         reset_search(reader);
+        reset_images(&mut reader.images);
         (
             reader.load,
             reader.path.clone(),

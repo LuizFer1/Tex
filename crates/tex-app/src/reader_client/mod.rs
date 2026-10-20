@@ -1,5 +1,6 @@
 mod edit;
 mod extensions;
+mod images;
 mod model;
 mod search;
 
@@ -39,6 +40,7 @@ use extensions::{
     ToolEntry, cancel_tool, open_extensions, output_closed, output_copy, run_tool, tool_key,
     tools_requested,
 };
+use images::{ImageState, refresh};
 use model::{LinesModel, StyledRow, reader_block, strings};
 use search::{search, search_closed, search_step};
 
@@ -93,6 +95,7 @@ struct Reader {
     run: u64,
     tool_cancel: Option<Cancel>,
     output: String,
+    images: ImageState,
 }
 
 impl Drop for Reader {
@@ -107,6 +110,7 @@ impl Drop for Reader {
         if let Some(cancel) = &self.search_cancel {
             cancel.store(true, Ordering::Relaxed);
         }
+        self.images.cancel();
     }
 }
 
@@ -228,6 +232,7 @@ fn create(windows: &Windows, path: &Path) -> Option<ReaderWindow> {
             run: 0,
             tool_cancel: None,
             output: String::new(),
+            images: ImageState::new(),
         })
     });
     Some(window)
@@ -605,6 +610,7 @@ fn deliver(id: u64, load: u64, event: Event) {
             let encoding = document.encoding;
             store_document(id, document, true, search_rows);
             show_built(&window, Built::Markdown { rows, count });
+            refresh(id);
             window.set_encoding(encoding_index(encoding));
             window.set_state(1);
         }
@@ -657,6 +663,7 @@ fn deliver(id: u64, load: u64, event: Event) {
                 reader.search_rows = Arc::new(search_rows);
             });
             show_built(&window, built);
+            refresh(id);
             window.set_encoding(encoding_index(encoding));
             window.set_state(1);
         }
@@ -694,6 +701,7 @@ enum Banner {
     Gone = 6,
     Running = 7,
     ToolFailed = 8,
+    ImagesOff = 9,
 }
 
 fn show_banner(window: &ReaderWindow, banner: Banner) {

@@ -1,6 +1,3 @@
-// Sai na Tarefa 8, quando a carga das imagens passa a usar este cache.
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 
 use tex_reader::Reason;
