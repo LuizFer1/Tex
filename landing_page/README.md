@@ -1,6 +1,6 @@
 # Landing page do Tex
 
-Página estática, em português (Brasil), pronta para publicar. Abre `index.html` no navegador. Não tem build, formulário, analytics, cookie nem chat. O navegador só guarda o tema (`localStorage`, chave `tex-theme`) e o idioma (`tex-lang`, `pt` ou `en`). O botão do cabeçalho mostra `PT` ou `EN` conforme o idioma atual; um clique alterna. O aviso de copyright do rodapé fica igual nas duas línguas.
+Página estática, em português (Brasil), pronta para publicar. Abre `index.html` no navegador. Não tem build, formulário, analytics, cookie nem chat. O navegador só guarda o tema (`localStorage`, chave `tex-theme`) e o idioma (`tex-lang`, `pt` ou `en`). Sem tema salvo, a página segue o tema do sistema. O botão do cabeçalho mostra `PT` ou `EN` conforme o idioma atual; um clique alterna. O aviso de copyright do rodapé fica igual nas duas línguas.
 
 ## Publicar na Vercel
 

@@ -9,6 +9,8 @@
 <link rel="icon" type="image/png" href="assets/app-icon.png">
 <link rel="stylesheet" href="fonts/fonts.css">
 <style>
+html{background:#0F0D0A;color-scheme:dark}
+html.light{background:#FFFAEC;color-scheme:light}
 body{margin:0}
 .tex{--bg:#0F0D0A;--card:#17140F;--card2:#201C15;--line:#2A251C;--line-hi:#3D3527;--ink:#F3EAD3;--ink2:#C9BC9A;--muted:#A8987A;--acc:#5FCF6E;--btn:#17602A;--btn-ink:#FFFFFF;--field:#0F0D0A;--sel:#2E9E3F;font-family:'Geist','Helvetica Neue',system-ui,sans-serif;color:var(--ink);background:var(--bg);min-height:100vh;-webkit-font-smoothing:antialiased}
 .tex.light{--bg:#FFFAEC;--card:#FFFDF5;--card2:#FBF1CF;--line:#EAD9A8;--line-hi:#D9C58D;--ink:#2A2117;--ink2:#5A4A2E;--muted:#7A6A48;--acc:#1F7D30;--btn:#17602A;--btn-ink:#FFFFFF;--field:#FFFAEC}
@@ -60,17 +62,39 @@ body{margin:0}
 @keyframes beam{0%{transform:translateX(280%) skewX(-20deg)}60%,100%{transform:translateX(-180%) skewX(-20deg)}}
 .tex .pulse{animation:beat 2.4s ease-out infinite}
 .tex .caret{display:inline-block;width:2px;height:1em;margin-left:2px;vertical-align:-.15em;background:#2E9E3F;animation:caret 1.1s steps(1) infinite}
-.tex .knob{left:2px;transition:left 120ms ease}
-.tex.light .knob{left:20px}
-.tex .lang{appearance:none;display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0 12px;box-sizing:border-box;border:1px solid var(--line-hi);background:var(--card2);border-radius:999px;color:var(--muted);cursor:pointer;font:500 13px 'Geist Mono',ui-monospace,monospace;letter-spacing:.06em}
-.tex .lang:hover{color:var(--ink)}
+.tex .theme{appearance:none;display:inline-flex;align-items:center;min-height:44px;padding:0 6px;box-sizing:border-box;border:1px solid var(--line-hi);background:var(--card2);border-radius:999px;color:var(--muted);cursor:pointer;font:500 13px 'Geist',sans-serif;transition:color .2s,border-color .2s,transform .15s}
+.tex .theme:hover,.tex .lang:hover{color:var(--ink);border-color:var(--muted)}
+.tex .theme:active,.tex .lang:active{transform:scale(.96)}
+.tex .track{position:relative;display:block;width:52px;height:30px;box-sizing:border-box;border-radius:999px;background:var(--bg);border:1px solid var(--line)}
+.tex .knob{position:absolute;top:3px;left:3px;display:grid;place-items:center;width:22px;height:22px;border-radius:999px;background:var(--acc);color:var(--bg);box-shadow:0 1px 3px rgba(0,0,0,.35);transition:transform .45s cubic-bezier(.34,1.56,.64,1)}
+.tex.light .knob{transform:translateX(22px)}
+.tex .knob svg{grid-area:1/1;transition:opacity .25s,transform .45s cubic-bezier(.34,1.56,.64,1)}
+.tex .knob .sun{opacity:0;transform:rotate(-90deg) scale(.4)}
+.tex.light .knob .sun{opacity:1;transform:none}
+.tex.light .knob .moon{opacity:0;transform:rotate(90deg) scale(.4)}
+.tex .lang{appearance:none;display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0 12px;box-sizing:border-box;border:1px solid var(--line-hi);background:var(--card2);border-radius:999px;color:var(--muted);cursor:pointer;font:500 13px 'Geist Mono',ui-monospace,monospace;letter-spacing:.06em;transition:color .2s,border-color .2s,transform .15s}
 .tex.settled .hl{animation:none;background-size:100% .12em}
+@property --r{syntax:'<length>';inherits:false;initial-value:0px}
+html.soft::view-transition-new(root){-webkit-mask-image:radial-gradient(circle at var(--vx) var(--vy),#000 calc(var(--r) - 160px),transparent var(--r));mask-image:radial-gradient(circle at var(--vx) var(--vy),#000 calc(var(--r) - 160px),transparent var(--r))}
+::view-transition-old(root),::view-transition-new(root){animation:none;mix-blend-mode:normal}
+.tex.theming,.tex.theming *,.tex.theming *::before{transition:background-color .35s ease,color .35s ease,border-color .35s ease,fill .35s ease,box-shadow .35s ease !important}
 @media (prefers-reduced-motion:reduce){.tex *,.tex *::before{animation:none !important;transition:none !important}.tex .hl{background-size:100% .12em}}
 </style>
 </head>
 <body>
 
 <div class="tex dark" id="tex">
+<script>
+(function () {
+  var t = null;
+  try { t = localStorage.getItem('tex-theme'); } catch (e) {}
+  var light = t ? t === 'light' : window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches;
+  var el = document.getElementById('tex');
+  el.classList.toggle('light', light);
+  el.classList.toggle('dark', !light);
+  document.documentElement.classList.toggle('light', light);
+})();
+</script>
 
 <!-- Topo -->
 <header style="max-width: 1600px; margin: 0 auto; padding: 20px clamp(16px, 3.5vw, 64px); display: flex; align-items: center; flex-wrap: wrap; gap: 12px; box-sizing: border-box">
@@ -80,11 +104,8 @@ body{margin:0}
 </a>
 <div style="flex: 1"></div>
 <button type="button" id="lang-toggle" class="lang" aria-label="Português" data-i18n-aria="lang-aria">PT</button>
-<button type="button" id="theme-toggle" aria-pressed="false" aria-label="Tema claro" data-i18n-aria="theme-aria" style="display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 8px; background: transparent; border: none; cursor: pointer; color: var(--muted); font: 500 13px 'Geist', sans-serif">
-<span class="hide-sm" data-i18n="theme-label">Claro</span>
-<span style="position: relative; display: block; width: 38px; height: 20px; box-sizing: border-box; border: 1px solid var(--line-hi); background: var(--card2); border-radius: 999px">
-<span class="knob" style="position: absolute; top: 2px; width: 14px; height: 14px; border-radius: 999px; background: var(--acc)"></span>
-</span>
+<button type="button" id="theme-toggle" class="theme" aria-pressed="false" aria-label="Tema claro" data-i18n-aria="theme-aria">
+<span class="track" aria-hidden="true"><span class="knob"><svg class="moon" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg><svg class="sun" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg></span></span>
 </button>
 <a class="pill pill-main beam" href="https://github.com/LuizFer1/Tex/releases" style="min-height: 44px; padding: 0 18px; font-size: 14px"><span class="shine" data-i18n="download">Baixar para Windows</span></a>
 </header>
@@ -355,7 +376,6 @@ body{margin:0}
       description: 'Ache qualquer arquivo em segundos e nunca mais perca o que você copiou. Assistente de mesa para Windows.',
       'lang-aria': 'Português',
       'theme-aria': 'Tema claro',
-      'theme-label': 'Claro',
       download: 'Baixar para Windows',
       'hero-aria': 'Apresentação',
       win: 'Para Windows',
@@ -450,7 +470,6 @@ body{margin:0}
       description: 'Find any file in seconds and never lose what you copied. A desktop assistant for Windows.',
       'lang-aria': 'English',
       'theme-aria': 'Light theme',
-      'theme-label': 'Light',
       download: 'Download for Windows',
       'hero-aria': 'Intro',
       win: 'For Windows',
@@ -584,26 +603,65 @@ body{margin:0}
   function applyTheme(light) {
     root.classList.toggle('light', light);
     root.classList.toggle('dark', !light);
+    document.documentElement.classList.toggle('light', light);
     themeBtn.setAttribute('aria-pressed', light ? 'true' : 'false');
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', light ? '#FFFAEC' : '#0F0D0A');
   }
 
-  var savedTheme = null;
+  function reveal(btn, change, soft) {
+    var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) { change(); return; }
+    if (!document.startViewTransition) {
+      root.classList.add('theming');
+      change();
+      setTimeout(function () { root.classList.remove('theming'); }, 400);
+      return;
+    }
+    var box = btn.getBoundingClientRect();
+    var x = box.left + box.width / 2;
+    var y = box.top + box.height / 2;
+    var r = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+    var at = ' at ' + x + 'px ' + y + 'px)';
+    var t;
+    if (soft) {
+      var html = document.documentElement;
+      html.style.setProperty('--vx', x + 'px');
+      html.style.setProperty('--vy', y + 'px');
+      html.classList.add('soft');
+      t = document.startViewTransition(change);
+      t.ready.then(function () {
+        var opts = { duration: 750, easing: 'cubic-bezier(.4,0,.2,1)' };
+        html.animate({ '--r': ['0px', (r + 160) + 'px'], filter: ['blur(4px)', 'blur(0)'] }, Object.assign({ pseudoElement: '::view-transition-new(root)' }, opts));
+        html.animate({ opacity: [1, 0], filter: ['blur(0)', 'blur(4px)'] }, Object.assign({ pseudoElement: '::view-transition-old(root)' }, opts));
+      }).catch(function () {});
+      t.finished.then(function () { html.classList.remove('soft'); }, function () { html.classList.remove('soft'); });
+      return;
+    }
+    t = document.startViewTransition(change);
+    t.ready.then(function () {
+      document.documentElement.animate(
+        { clipPath: ['circle(0px' + at, 'circle(' + r + 'px' + at] },
+        { duration: 600, easing: 'cubic-bezier(.65,0,.35,1)', pseudoElement: '::view-transition-new(root)' }
+      );
+    }).catch(function () {});
+  }
+
   var savedLang = null;
   try {
-    savedTheme = localStorage.getItem('tex-theme');
     savedLang = localStorage.getItem('tex-lang');
   } catch (e) {}
-  applyTheme(savedTheme === 'light');
+  applyTheme(root.classList.contains('light'));
   applyLang(savedLang === 'en' ? 'en' : 'pt', savedLang === 'en');
 
   themeBtn.addEventListener('click', function () {
     var light = !root.classList.contains('light');
-    applyTheme(light);
+    reveal(themeBtn, function () { applyTheme(light); });
     try { localStorage.setItem('tex-theme', light ? 'light' : 'dark'); } catch (e) {}
   });
   langBtn.addEventListener('click', function () {
     var lang = currentLang === 'en' ? 'pt' : 'en';
-    applyLang(lang, true);
+    reveal(langBtn, function () { applyLang(lang, true); }, true);
     try { localStorage.setItem('tex-lang', lang); } catch (e) {}
   });
 })();
