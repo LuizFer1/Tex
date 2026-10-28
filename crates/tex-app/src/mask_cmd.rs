@@ -1,5 +1,7 @@
 use tex_mask::Compiled;
 
+use crate::results::{Selection, step_with_answer};
+
 pub const MAX_SUGGESTIONS: usize = 5;
 pub const MAX_CLIPS: usize = 10;
 
@@ -168,7 +170,59 @@ pub fn preview(text: &str, max: usize) -> String {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    Copy,
+    Choose(usize),
+    Nothing,
+}
+
+/// What Enter does on `selection`: copy the result (the card, or a clip that has one), complete
+/// the query with a suggestion (its mask index), or nothing.
+pub fn action(selection: Option<Selection>, rows: &[Row], has_result: bool) -> Action {
+    match selection {
+        Some(Selection::Answer) if has_result => Action::Copy,
+        Some(Selection::Row(index)) => match rows.get(index) {
+            Some(Row::Suggestion(mask)) => Action::Choose(*mask),
+            Some(Row::Clip(_)) if has_result => Action::Copy,
+            _ => Action::Nothing,
+        },
+        _ => Action::Nothing,
+    }
+}
+
+/// The selection a fresh panel starts with: the card when there is one, else the first line that
+/// can be picked.
+pub fn initial_selection(has_card: bool, rows: &[Row]) -> Option<Selection> {
+    let is_item: Vec<bool> = rows
+        .iter()
+        .map(|row| !matches!(row, Row::Header(_)))
+        .collect();
+    step_with_answer(has_card, &is_item, None, 1)
+}
+
+/// The selection after the panel was rebuilt from `previous` to `rows`: the same line (matched by
+/// value, so an added clip does not move it), or the initial one when that line is gone.
+pub fn settle(
+    selection: Option<Selection>,
+    previous: &[Row],
+    rows: &[Row],
+    has_card: bool,
+) -> Option<Selection> {
+    let kept = match selection {
+        Some(Selection::Answer) if has_card => Some(Selection::Answer),
+        Some(Selection::Row(index)) => previous
+            .get(index)
+            .filter(|row| !matches!(row, Row::Header(_)))
+            .and_then(|row| rows.iter().position(|next| next == row))
+            .map(Selection::Row),
+        _ => None,
+    };
+    kept.or_else(|| initial_selection(has_card, rows))
+}
+
 /// The query the history shortcut opens the popup with.
+#[allow(dead_code)]
 pub fn history_query(masks: &[Compiled], text: &str, english: bool) -> String {
     let clean = tex_mask::unmask(masks, text).is_some();
     match (clean, english) {
@@ -324,6 +378,98 @@ mod tests {
         assert_eq!(preview("abcdefghij", 5), "abcde…");
         assert_eq!(preview("ação ação", 4), "ação…");
         assert_eq!(preview("", 5), "");
+    }
+
+    #[test]
+    fn enter_copies_the_card_or_a_clip_with_a_result_and_completes_a_suggestion() {
+        let rows = [
+            Row::Header(Section::Masks),
+            Row::Suggestion(2),
+            Row::Header(Section::History),
+            Row::Clip(0),
+            Row::Clip(1),
+        ];
+        assert_eq!(action(Some(Selection::Answer), &rows, true), Action::Copy);
+        assert_eq!(
+            action(Some(Selection::Answer), &rows, false),
+            Action::Nothing
+        );
+        assert_eq!(
+            action(Some(Selection::Row(1)), &rows, true),
+            Action::Choose(2)
+        );
+        assert_eq!(action(Some(Selection::Row(3)), &rows, true), Action::Copy);
+        assert_eq!(
+            action(Some(Selection::Row(4)), &rows, false),
+            Action::Nothing
+        );
+        assert_eq!(
+            action(Some(Selection::Row(0)), &rows, true),
+            Action::Nothing
+        );
+        assert_eq!(action(None, &rows, true), Action::Nothing);
+    }
+
+    #[test]
+    fn a_fresh_panel_starts_on_the_card_or_the_first_line_to_pick() {
+        let rows = [
+            Row::Header(Section::Masks),
+            Row::Suggestion(0),
+            Row::Header(Section::History),
+            Row::Clip(0),
+        ];
+        assert_eq!(initial_selection(true, &rows), Some(Selection::Answer));
+        assert_eq!(initial_selection(false, &rows), Some(Selection::Row(1)));
+        assert_eq!(
+            initial_selection(false, &[Row::Header(Section::History), Row::Clip(0)]),
+            Some(Selection::Row(1))
+        );
+        assert_eq!(
+            initial_selection(false, &[Row::Header(Section::Masks)]),
+            None
+        );
+    }
+
+    #[test]
+    fn a_rebuilt_panel_keeps_the_same_line_by_value() {
+        let before = [Row::Header(Section::History), Row::Clip(0), Row::Clip(1)];
+        let after = [
+            Row::Header(Section::Masks),
+            Row::Suggestion(0),
+            Row::Header(Section::History),
+            Row::Clip(0),
+            Row::Clip(1),
+        ];
+        assert_eq!(
+            settle(Some(Selection::Row(2)), &before, &after, false),
+            Some(Selection::Row(4))
+        );
+        assert_eq!(
+            settle(Some(Selection::Row(1)), &before, &after, false),
+            Some(Selection::Row(3))
+        );
+        assert_eq!(
+            settle(Some(Selection::Row(0)), &before, &after, false),
+            Some(Selection::Row(1))
+        );
+        assert_eq!(
+            settle(Some(Selection::Answer), &before, &after, false),
+            Some(Selection::Row(1))
+        );
+        assert_eq!(
+            settle(Some(Selection::Answer), &before, &after, true),
+            Some(Selection::Answer)
+        );
+        assert_eq!(
+            settle(
+                Some(Selection::Row(2)),
+                &before,
+                &[Row::Header(Section::History)],
+                false
+            ),
+            None
+        );
+        assert_eq!(settle(None, &[], &after, true), Some(Selection::Answer));
     }
 
     #[test]

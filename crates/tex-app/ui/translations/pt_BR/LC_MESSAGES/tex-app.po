@@ -935,3 +935,18 @@ msgstr "sábado"
 
 msgid "Sunday"
 msgstr "domingo"
+
+msgid "Masks"
+msgstr "Máscaras"
+
+msgid "occurrences"
+msgstr "ocorrências"
+
+msgid "nothing to work on"
+msgstr "nada para trabalhar"
+
+msgid "enter choose mask · esc close"
+msgstr "enter escolher máscara · esc fechar"
+
+msgid "esc close"
+msgstr "esc fechar"

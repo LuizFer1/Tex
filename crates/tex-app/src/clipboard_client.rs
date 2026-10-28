@@ -50,7 +50,6 @@ pub enum Command {
     Delete(i64),
     Clear,
     Usage,
-    #[allow(dead_code)]
     RecentText {
         limit: usize,
     },

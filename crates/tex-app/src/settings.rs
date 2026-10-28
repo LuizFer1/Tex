@@ -312,7 +312,6 @@ impl Settings {
         self.masks = None;
     }
 
-    #[allow(dead_code)]
     pub fn compiled_masks(&self) -> Vec<tex_mask::Compiled> {
         let masks: Vec<tex_mask::Mask> = self
             .mask_entries()
