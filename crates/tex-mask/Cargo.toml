@@ -1,0 +1,11 @@
+[package]
+name = "tex-mask"
+description = "Masks for the Tex popup: take them off and put them on"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+tex-index.workspace = true
+regex-syntax.workspace = true

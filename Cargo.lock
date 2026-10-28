@@ -4768,6 +4768,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tex-mask"
+version = "0.4.5"
+dependencies = [
+ "regex-syntax",
+ "tex-index",
+]
+
+[[package]]
 name = "tex-platform"
 version = "0.4.5"
 dependencies = [
