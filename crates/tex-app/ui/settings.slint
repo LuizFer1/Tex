@@ -95,8 +95,9 @@ export component SettingsWindow inherits Window {
     in-out property <string> edit-pattern;
     in-out property <string> new-name;
     in-out property <string> new-pattern;
-    property <int> edit-error: root.check-mask(root.editing-mask, root.edit-name, root.edit-pattern);
-    property <int> new-error: root.check-mask(-1, root.new-name, root.new-pattern);
+    // Reading `masks` makes the checks run again when the list changes, not only when typing.
+    property <int> edit-error: root.masks.length >= 0 ? root.check-mask(root.editing-mask, root.edit-name, root.edit-pattern) : 0;
+    property <int> new-error: root.masks.length >= 0 ? root.check-mask(-1, root.new-name, root.new-pattern) : 0;
 
     in property <string> save-error;
     out property <string> folder-picker-title: @tr("Choose a folder to ignore in search");
@@ -947,7 +948,6 @@ export component SettingsWindow inherits Window {
                                         Button {
                                             text: @tr("Restore defaults");
                                             clicked => {
-                                                root.editing-mask = -1;
                                                 root.masks-restore();
                                             }
                                         }
@@ -1014,7 +1014,6 @@ export component SettingsWindow inherits Window {
                                                             TextLink {
                                                                 text: @tr("Delete");
                                                                 clicked => {
-                                                                    root.editing-mask = -1;
                                                                     root.mask-delete(index);
                                                                 }
                                                             }

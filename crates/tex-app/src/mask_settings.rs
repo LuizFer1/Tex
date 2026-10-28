@@ -32,6 +32,19 @@ pub fn errors(entries: &[MaskEntry]) -> Vec<i32> {
         .collect()
 }
 
+/// The row being edited (`-1` for none) once the row `deleted` is gone: it follows its mask, and
+/// stops when that mask is the deleted one.
+pub fn editing_after_delete(editing: i32, deleted: usize) -> i32 {
+    let deleted = i32::try_from(deleted).unwrap_or(i32::MAX);
+    if editing < 0 || editing < deleted {
+        editing
+    } else if editing == deleted {
+        -1
+    } else {
+        editing - 1
+    }
+}
+
 fn problem(name: &str, pattern: &str, others: &[&str]) -> i32 {
     if let Err(error) = validate_name(name, others) {
         return error.code();
@@ -100,6 +113,15 @@ mod tests {
     #[test]
     fn an_empty_pattern_has_no_group() {
         assert_eq!(check(&[], None, "x", ""), 13);
+    }
+
+    #[test]
+    fn the_row_being_edited_follows_its_mask_when_another_is_deleted() {
+        assert_eq!(editing_after_delete(2, 0), 1);
+        assert_eq!(editing_after_delete(2, 1), 1);
+        assert_eq!(editing_after_delete(2, 2), -1);
+        assert_eq!(editing_after_delete(0, 2), 0);
+        assert_eq!(editing_after_delete(-1, 0), -1);
     }
 
     #[test]

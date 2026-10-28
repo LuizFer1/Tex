@@ -860,13 +860,17 @@ fn wire_masks_tab(window: &SettingsWindow, windows: &Windows) {
             let Ok(index) = usize::try_from(index) else {
                 return;
             };
-            change_masks(&windows, |entries| {
+            let accepted = change_masks(&windows, |entries| {
                 if index >= entries.len() {
                     return false;
                 }
                 entries.remove(index);
                 true
             });
+            if accepted && let Some(window) = windows.settings.upgrade() {
+                let editing = mask_settings::editing_after_delete(window.get_editing_mask(), index);
+                window.set_editing_mask(editing);
+            }
         }
     });
     window.on_masks_restore({
@@ -876,6 +880,7 @@ fn wire_masks_tab(window: &SettingsWindow, windows: &Windows) {
                 return;
             };
             with_app(|app| app.settings.restore_masks());
+            window.set_editing_mask(-1);
             masks_changed(&window);
         }
     });
