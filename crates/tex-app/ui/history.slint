@@ -153,6 +153,7 @@ export component HistoryWindow inherits Window {
     callback dismissed();
     callback open-settings();
     callback toggle-pause();
+    callback mask(int);
 
     changed renaming => {
         if !self.renaming {
@@ -239,6 +240,12 @@ export component HistoryWindow inherits Window {
             root.renaming = false;
             root.action-error = 0;
             root.editing = true;
+        }
+    }
+
+    function start-mask() {
+        if root.usable && root.content-kind == 0 {
+            root.mask(root.selected);
         }
     }
 
@@ -330,6 +337,10 @@ export component HistoryWindow inherits Window {
             }
             if event.modifiers.control && (event.text == "e" || event.text == "E") {
                 root.start-edit();
+                return accept;
+            }
+            if event.modifiers.control && (event.text == "m" || event.text == "M") {
+                root.start-mask();
                 return accept;
             }
             if event.modifiers.control && event.text == "," {
@@ -698,6 +709,16 @@ export component HistoryWindow inherits Window {
                                                         text: root.other-action;
                                                         enabled: root.usable && root.content-kind != 2;
                                                         clicked => { root.pick(root.selected, true); }
+                                                    }
+                                                    Button {
+                                                        row: 0;
+                                                        col: 2;
+                                                        horizontal-stretch: 0;
+                                                        visible: root.content-kind == 0;
+                                                        key: "ctrl M";
+                                                        text: @tr("Mask");
+                                                        enabled: root.usable && root.content-kind == 0;
+                                                        clicked => { root.start-mask(); }
                                                     }
                                                     Button {
                                                         row: 1;

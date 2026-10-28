@@ -1664,6 +1664,7 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
     let Some(popup) = windows.popup.upgrade() else {
         return;
     };
+    let seed = with_app(|app| app.mask_seed.take());
     apply_theme(windows);
     let (keep, monitor) = with_app(|app| {
         let keep = app.closed_at.is_some_and(|closed_at| {
@@ -1674,7 +1675,7 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
         });
         (keep, app.settings.general.popup_monitor)
     });
-    let keep = keep && !popup.get_query().trim().is_empty();
+    let keep = keep && seed.is_none() && !popup.get_query().trim().is_empty();
     if !keep {
         popup.invoke_reset();
         popup.set_rows(ModelRc::default());
@@ -1698,7 +1699,11 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
         let (x, y) = placement::popup_origin(&area, placement::POPUP_WIDTH);
         popup.window().set_position(PhysicalPosition::new(x, y));
     }
-    let previous = foreground_window();
+    let previous = if seed.is_some() {
+        with_app(|app| app.paste_target)
+    } else {
+        foreground_window()
+    };
     with_app(|app| app.previous_foreground = previous);
     if popup.show().is_err() {
         return;
@@ -1731,10 +1736,33 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
         });
     }
     lock_foreground(true);
-    if keep {
+    if let Some(text) = seed {
+        open_mask_seed(&popup, client, text);
+    } else if keep {
         popup.invoke_restore();
         search(&popup, client);
     }
+}
+
+/// Opens the command panel on the history item the Ctrl+M shortcut picked: the query that fits it,
+/// with the item as the first clip. The clipboard's recent texts follow when the worker answers.
+fn open_mask_seed(popup: &Popup, client: &SearchClient, text: String) {
+    let query = with_app(|app| {
+        let english = matches!(
+            app::calc_locale(app.settings.general.language),
+            tex_calc::Locale::En
+        );
+        mask_cmd::history_query(&app.settings.compiled_masks(), &text, english)
+    });
+    with_app(|app| {
+        app.mask_clips = vec![text.clone()];
+        app.mask_chosen = 0;
+        app.mask_seed_text = Some(text);
+    });
+    let end = query.len();
+    popup.set_query(query.into());
+    search(popup, client);
+    popup.invoke_cursor_to(end as i32);
 }
 
 /// Shows the calculator's card for the current query, selecting it, or hides it and gives the
@@ -2074,7 +2102,11 @@ fn activate_mask(popup: &Popup, index: i32, client: &SearchClient) {
 fn recent_texts(windows: &Windows, texts: Vec<(i64, String)>) {
     let waiting = with_app(|app| {
         if app.mask_mode {
-            app.mask_clips = texts.into_iter().map(|(_, text)| text).collect();
+            let recent: Vec<String> = texts.into_iter().map(|(_, text)| text).collect();
+            app.mask_clips = match &app.mask_seed_text {
+                Some(seed) => mask_cmd::with_seed(seed, recent),
+                None => recent,
+            };
         }
         app.mask_mode
     });
@@ -2446,6 +2478,23 @@ fn wire_history(window: &HistoryWindow, windows: &Windows, client: &SearchClient
                 hide_history(&window);
             }
             show_settings(&windows, &client, Some(CLIPBOARD_TAB));
+        }
+    });
+    window.on_mask({
+        let window = window.as_weak();
+        let windows = windows.clone();
+        let client = client.clone();
+        move |index| {
+            let Some(window) = window.upgrade() else {
+                return;
+            };
+            if window.get_content_kind() != 0 || index != window.get_selected() {
+                return;
+            }
+            let text = window.get_content_text().to_string();
+            hide_history(&window);
+            with_app(|app| app.mask_seed = Some(text));
+            show_popup(&windows, &client);
         }
     });
 }

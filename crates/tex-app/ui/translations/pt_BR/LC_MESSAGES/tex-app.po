@@ -123,6 +123,9 @@ msgstr "Excluir"
 msgid "Edit"
 msgstr "Editar"
 
+msgid "Mask"
+msgstr "Máscara"
+
 msgid "Enter key"
 msgstr "Ação do Enter"
 

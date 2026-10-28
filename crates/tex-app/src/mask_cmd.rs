@@ -224,7 +224,6 @@ pub fn settle(
 }
 
 /// The query the history shortcut opens the popup with.
-#[allow(dead_code)]
 pub fn history_query(masks: &[Compiled], text: &str, english: bool) -> String {
     let clean = tex_mask::unmask(masks, text).is_some();
     match (clean, english) {
@@ -234,6 +233,15 @@ pub fn history_query(masks: &[Compiled], text: &str, english: bool) -> String {
         (false, true) => "maskup ",
     }
     .to_owned()
+}
+
+/// The clips a command opened from the history shortcut works on: the item it came from first,
+/// then the recent texts without another copy of it, at most `MAX_CLIPS` in all.
+pub fn with_seed(seed: &str, recent: Vec<String>) -> Vec<String> {
+    std::iter::once(seed.to_owned())
+        .chain(recent.into_iter().filter(|text| text != seed))
+        .take(MAX_CLIPS)
+        .collect()
 }
 
 #[cfg(test)]
@@ -511,5 +519,26 @@ mod tests {
         assert_eq!(history_query(&masks, "12345678000195", false), "formatar ");
         assert_eq!(history_query(&masks, "12.345.678/0001-95", true), "clean ");
         assert_eq!(history_query(&masks, "12345678000195", true), "maskup ");
+    }
+
+    #[test]
+    fn the_seed_comes_first_without_another_copy_of_it() {
+        let texts = |items: &[&str]| {
+            items
+                .iter()
+                .map(|text| text.to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(with_seed("a", Vec::new()), vec!["a"]);
+        assert_eq!(
+            with_seed("a", texts(&["b", "a", "c", "a"])),
+            vec!["a", "b", "c"]
+        );
+        assert_eq!(with_seed("a", texts(&["a", "a"])), vec!["a"]);
+        assert_eq!(with_seed("a", texts(&["b", "b"])), vec!["a", "b", "b"]);
+        let many: Vec<String> = (0..MAX_CLIPS + 5).map(|i| format!("t{i}")).collect();
+        let clips = with_seed("seed", many);
+        assert_eq!(clips.len(), MAX_CLIPS);
+        assert_eq!(clips[0], "seed");
     }
 }
