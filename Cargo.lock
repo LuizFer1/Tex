@@ -4704,7 +4704,7 @@ dependencies = [
 
 [[package]]
 name = "tex-app"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "ed25519-dalek",
  "embed-resource",
@@ -4727,7 +4727,7 @@ dependencies = [
 
 [[package]]
 name = "tex-calc"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "jiff",
  "tex-index",
@@ -4735,7 +4735,7 @@ dependencies = [
 
 [[package]]
 name = "tex-clipboard"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "chacha20poly1305",
  "png",
@@ -4745,14 +4745,14 @@ dependencies = [
 
 [[package]]
 name = "tex-index"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "unicode-normalization",
 ]
 
 [[package]]
 name = "tex-indexer"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "tex-index",
  "tex-ipc",
@@ -4762,7 +4762,7 @@ dependencies = [
 
 [[package]]
 name = "tex-ipc"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "postcard",
  "serde",
@@ -4770,7 +4770,7 @@ dependencies = [
 
 [[package]]
 name = "tex-mask"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "regex-syntax",
  "tex-index",
@@ -4778,7 +4778,7 @@ dependencies = [
 
 [[package]]
 name = "tex-platform"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "windows",
  "windows-sys 0.59.0",
@@ -4786,7 +4786,7 @@ dependencies = [
 
 [[package]]
 name = "tex-reader"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "image",
  "libc",
