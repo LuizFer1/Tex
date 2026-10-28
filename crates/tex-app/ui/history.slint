@@ -714,7 +714,7 @@ export component HistoryWindow inherits Window {
                                                         row: 0;
                                                         col: 2;
                                                         horizontal-stretch: 0;
-                                                        visible: root.content-kind == 0;
+                                                        visible: root.current.kind == 0;
                                                         key: "ctrl M";
                                                         text: @tr("Mask");
                                                         enabled: root.usable && root.content-kind == 0;
