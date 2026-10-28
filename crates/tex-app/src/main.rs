@@ -2384,6 +2384,7 @@ fn clipboard_event(windows: &Windows, event: ClipboardEvent) {
             }
         }
         ClipboardEvent::Usage(_) => {}
+        ClipboardEvent::RecentText(_) => {}
     }
 }
 
