@@ -678,52 +678,68 @@ export component HistoryWindow inherits Window {
                                                     }
                                                     Button { key: "esc"; text: @tr("No"); clicked => { root.confirm-delete = false; } }
                                                 }
-                                                if !root.renaming && !root.editing && !root.confirm-delete: VerticalLayout {
+                                                if !root.renaming && !root.editing && !root.confirm-delete: GridLayout {
                                                     spacing: 6px;
-                                                    HorizontalLayout {
-                                                        spacing: 6px;
-                                                        alignment: start;
-                                                        Button {
-                                                            kind: ButtonKind.primary;
-                                                            key: "enter";
-                                                            text: root.primary-action;
-                                                            enabled: root.usable && root.content-kind != 2;
-                                                            clicked => { root.pick(root.selected, false); }
-                                                        }
-                                                        Button {
-                                                            key: "ctrl enter";
-                                                            text: root.other-action;
-                                                            enabled: root.usable && root.content-kind != 2;
-                                                            clicked => { root.pick(root.selected, true); }
-                                                        }
-                                                        Button {
-                                                            key: "ctrl D";
-                                                            text: root.current.favorite ? @tr("Unfavorite") : @tr("Favorite");
-                                                            enabled: root.usable;
-                                                            clicked => { root.toggle-favorite-selected(); }
-                                                        }
+                                                    Button {
+                                                        row: 0;
+                                                        col: 0;
+                                                        horizontal-stretch: 0;
+                                                        kind: ButtonKind.primary;
+                                                        key: "enter";
+                                                        text: root.primary-action;
+                                                        enabled: root.usable && root.content-kind != 2;
+                                                        clicked => { root.pick(root.selected, false); }
                                                     }
-                                                    HorizontalLayout {
-                                                        spacing: 6px;
-                                                        alignment: start;
-                                                        Button {
-                                                            key: "F2";
-                                                            text: @tr("Rename");
-                                                            enabled: root.usable;
-                                                            clicked => { root.start-rename(); }
-                                                        }
-                                                        if root.current.kind == 0: Button {
-                                                            key: "ctrl E";
-                                                            text: @tr("Edit");
-                                                            enabled: root.usable && root.content-kind == 0;
-                                                            clicked => { root.start-edit(); }
-                                                        }
-                                                        Button {
-                                                            kind: ButtonKind.danger;
-                                                            key: "del";
-                                                            text: @tr("Delete");
-                                                            clicked => { root.request-delete(); }
-                                                        }
+                                                    Button {
+                                                        row: 0;
+                                                        col: 1;
+                                                        horizontal-stretch: 0;
+                                                        key: "ctrl enter";
+                                                        text: root.other-action;
+                                                        enabled: root.usable && root.content-kind != 2;
+                                                        clicked => { root.pick(root.selected, true); }
+                                                    }
+                                                    Button {
+                                                        row: 1;
+                                                        col: 0;
+                                                        horizontal-stretch: 0;
+                                                        key: "ctrl D";
+                                                        text: root.current.favorite ? @tr("Unfavorite") : @tr("Favorite");
+                                                        enabled: root.usable;
+                                                        clicked => { root.toggle-favorite-selected(); }
+                                                    }
+                                                    Button {
+                                                        row: 1;
+                                                        col: 1;
+                                                        horizontal-stretch: 0;
+                                                        key: "F2";
+                                                        text: @tr("Rename");
+                                                        enabled: root.usable;
+                                                        clicked => { root.start-rename(); }
+                                                    }
+                                                    Button {
+                                                        row: 1;
+                                                        col: 2;
+                                                        horizontal-stretch: 0;
+                                                        visible: root.current.kind == 0;
+                                                        key: "ctrl E";
+                                                        text: @tr("Edit");
+                                                        enabled: root.usable && root.content-kind == 0;
+                                                        clicked => { root.start-edit(); }
+                                                    }
+                                                    Rectangle {
+                                                        row: 1;
+                                                        col: 3;
+                                                        horizontal-stretch: 1;
+                                                    }
+                                                    Button {
+                                                        row: 1;
+                                                        col: 4;
+                                                        horizontal-stretch: 0;
+                                                        kind: ButtonKind.danger;
+                                                        key: "del";
+                                                        text: @tr("Delete");
+                                                        clicked => { root.request-delete(); }
                                                     }
                                                 }
                                             }
