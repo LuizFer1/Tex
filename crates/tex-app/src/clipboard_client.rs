@@ -16,8 +16,8 @@ use tex_clipboard::{
 };
 use tex_platform::{Clip, ClipFormats, Payload, protect, unprotect};
 
-pub const PAGE_SIZE: usize = 200;
-pub const SEARCH_LIMIT: usize = 500;
+pub const PAGE_SIZE: usize = 40;
+pub const SEARCH_LIMIT: usize = 100;
 const THUMBNAIL_SIZE: u32 = 96;
 const DATABASE: &str = "clipboard.db";
 const KEY: &str = "clipboard.key";
