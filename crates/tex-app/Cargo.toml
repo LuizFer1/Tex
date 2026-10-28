@@ -16,6 +16,7 @@ tex-ipc.workspace = true
 tex-clipboard.workspace = true
 tex-reader.workspace = true
 tex-calc.workspace = true
+tex-mask.workspace = true
 tex-index.workspace = true
 global-hotkey.workspace = true
 slint.workspace = true

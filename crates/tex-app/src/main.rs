@@ -6,6 +6,8 @@ mod frame;
 mod history;
 mod icons;
 mod image_cache;
+mod mask_cmd;
+mod mask_settings;
 mod onboarding;
 mod placement;
 mod reader;
@@ -521,38 +523,53 @@ fn wire_popup(popup: &Popup, windows: &Windows, client: &SearchClient) {
         let popup = popup.as_weak();
         move |index| {
             if let Some(popup) = popup.upgrade() {
-                popup.set_selected(index);
-                popup.set_answer_selected(false);
+                if popup.get_mask_mode() {
+                    select_mask(&popup, usize::try_from(index).ok().map(Selection::Row));
+                } else {
+                    popup.set_selected(index);
+                    popup.set_answer_selected(false);
+                }
             }
         }
     });
     popup.on_select_answer({
         let popup = popup.as_weak();
         move || {
-            if let Some(popup) = popup.upgrade()
-                && popup.get_has_answer()
-            {
-                popup.set_answer_selected(true);
-                popup.set_selected(-1);
+            if let Some(popup) = popup.upgrade() {
+                if popup.get_mask_mode() {
+                    if popup.get_has_mask_card() {
+                        select_mask(&popup, Some(Selection::Answer));
+                    }
+                } else if popup.get_has_answer() {
+                    popup.set_answer_selected(true);
+                    popup.set_selected(-1);
+                }
             }
         }
     });
     popup.on_copy_answer({
         let popup = popup.as_weak();
         move || {
-            if let Some(popup) = popup.upgrade()
-                && popup.get_has_answer()
-            {
-                let _ = write_text(&popup.get_answer().copy);
-                close_popup(&popup);
+            if let Some(popup) = popup.upgrade() {
+                if popup.get_mask_mode() {
+                    copy_mask(&popup);
+                } else if popup.get_has_answer() {
+                    let _ = write_text(&popup.get_answer().copy);
+                    close_popup(&popup);
+                }
             }
         }
     });
     popup.on_activate({
         let popup = popup.as_weak();
+        let client = client.clone();
         move |index, alternate| {
             if let Some(popup) = popup.upgrade() {
-                activate(&popup, index, alternate);
+                if popup.get_mask_mode() {
+                    activate_mask(&popup, index, &client);
+                } else {
+                    activate(&popup, index, alternate);
+                }
             }
         }
     });
@@ -688,6 +705,7 @@ fn wire_settings(window: &SettingsWindow, windows: &Windows, client: &SearchClie
         move || client.send(Command::Status)
     });
     wire_clipboard_tab(window, windows);
+    wire_masks_tab(window, windows);
     window.window().on_close_requested({
         let window = window.as_weak();
         move || {
@@ -785,6 +803,87 @@ fn wire_clipboard_tab(window: &SettingsWindow, windows: &Windows) {
         }
     });
     window.on_clear_history(|| send_history(ClipboardCommand::Clear));
+}
+
+fn wire_masks_tab(window: &SettingsWindow, windows: &Windows) {
+    window.on_check_mask(|index, name, pattern| {
+        let index = usize::try_from(index).ok();
+        let entries = with_app(|app| app.settings.mask_entries());
+        mask_settings::check(&entries, index, name.as_str(), pattern.as_str())
+    });
+    window.on_mask_add({
+        let windows = windows.clone();
+        move |name, pattern| {
+            let accepted = change_masks(&windows, |entries| {
+                if mask_settings::check(entries, None, name.as_str(), pattern.as_str()) != 0 {
+                    return false;
+                }
+                entries.push(settings::MaskEntry {
+                    name: name.to_string(),
+                    pattern: pattern.to_string(),
+                });
+                true
+            });
+            if accepted && let Some(window) = windows.settings.upgrade() {
+                window.set_new_name("".into());
+                window.set_new_pattern("".into());
+            }
+        }
+    });
+    window.on_mask_edit({
+        let windows = windows.clone();
+        move |index, name, pattern| {
+            let Ok(index) = usize::try_from(index) else {
+                return;
+            };
+            let accepted = change_masks(&windows, |entries| {
+                if index >= entries.len()
+                    || mask_settings::check(entries, Some(index), name.as_str(), pattern.as_str())
+                        != 0
+                {
+                    return false;
+                }
+                entries[index] = settings::MaskEntry {
+                    name: name.to_string(),
+                    pattern: pattern.to_string(),
+                };
+                true
+            });
+            if accepted && let Some(window) = windows.settings.upgrade() {
+                window.set_editing_mask(-1);
+            }
+        }
+    });
+    window.on_mask_delete({
+        let windows = windows.clone();
+        move |index| {
+            let Ok(index) = usize::try_from(index) else {
+                return;
+            };
+            let accepted = change_masks(&windows, |entries| {
+                if index >= entries.len() {
+                    return false;
+                }
+                entries.remove(index);
+                true
+            });
+            if accepted && let Some(window) = windows.settings.upgrade() {
+                let editing = mask_settings::editing_after_delete(window.get_editing_mask(), index);
+                window.set_editing_mask(editing);
+            }
+        }
+    });
+    window.on_masks_restore({
+        let windows = windows.clone();
+        move || {
+            let Some(window) = windows.settings.upgrade() else {
+                return;
+            };
+            with_app(|app| app.settings.restore_masks());
+            window.set_editing_mask(-1);
+            masks_changed(&window);
+        }
+    });
 }
 
 /// While a shortcut is recorded neither one is registered, so pressing the other one is
@@ -892,6 +991,47 @@ fn folders_changed(windows: &Windows) {
     window.set_selected_excluded(-1);
     with_app(|app| fill_folders(&window, &app.settings));
     save_settings(&window);
+}
+
+/// Applies `change` to the mask list when it accepts, then shows and saves the list.
+fn change_masks(
+    windows: &Windows,
+    change: impl FnOnce(&mut Vec<settings::MaskEntry>) -> bool,
+) -> bool {
+    let Some(window) = windows.settings.upgrade() else {
+        return false;
+    };
+    let accepted = with_app(|app| {
+        let mut entries = app.settings.mask_entries();
+        let accepted = change(&mut entries);
+        if accepted {
+            app.settings.set_masks(entries);
+        }
+        accepted
+    });
+    if accepted {
+        masks_changed(&window);
+    }
+    accepted
+}
+
+fn masks_changed(window: &SettingsWindow) {
+    with_app(|app| fill_masks(window, &app.settings));
+    save_settings(window);
+}
+
+fn fill_masks(window: &SettingsWindow, settings: &Settings) {
+    let entries = settings.mask_entries();
+    let rows: Vec<MaskEntryRow> = entries
+        .iter()
+        .zip(mask_settings::errors(&entries))
+        .map(|(entry, error)| MaskEntryRow {
+            name: entry.name.as_str().into(),
+            pattern: entry.pattern.as_str().into(),
+            error,
+        })
+        .collect();
+    window.set_masks(ModelRc::new(VecModel::from(rows)));
 }
 
 fn save_settings(window: &SettingsWindow) {
@@ -1235,6 +1375,10 @@ fn fill_settings(window: &SettingsWindow, app: &AppState) {
     fill_ignored_apps(window, &app.settings);
     window.set_confirm_clear(false);
     window.set_capture_error(app.capture_error.as_str().into());
+    window.set_editing_mask(-1);
+    window.set_new_name("".into());
+    window.set_new_pattern("".into());
+    fill_masks(window, &app.settings);
 }
 
 fn preset_index(presets: &[u32], value: u32) -> i32 {
@@ -1624,6 +1768,7 @@ fn hide_popup(popup: &Popup) {
     if popup.window().is_visible() {
         with_app(|app| app.closed_at = Some(Instant::now()));
     }
+    leave_mask(popup);
     lock_foreground(false);
     let _ = popup.hide();
 }
@@ -1647,6 +1792,7 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
     let Some(popup) = windows.popup.upgrade() else {
         return;
     };
+    let seed = with_app(|app| app.mask_seed.take());
     apply_theme(windows);
     let (keep, monitor) = with_app(|app| {
         let keep = app.closed_at.is_some_and(|closed_at| {
@@ -1657,13 +1803,14 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
         });
         (keep, app.settings.general.popup_monitor)
     });
-    let keep = keep && !popup.get_query().trim().is_empty();
+    let keep = keep && seed.is_none() && !popup.get_query().trim().is_empty();
     if !keep {
         popup.invoke_reset();
         popup.set_rows(ModelRc::default());
         popup.set_selected(-1);
         popup.set_has_answer(false);
         popup.set_answer_selected(false);
+        leave_mask(&popup);
     }
     popup.set_status_indexing("".into());
     popup.set_status_failed("".into());
@@ -1680,7 +1827,11 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
         let (x, y) = placement::popup_origin(&area, placement::POPUP_WIDTH);
         popup.window().set_position(PhysicalPosition::new(x, y));
     }
-    let previous = foreground_window();
+    let previous = if seed.is_some() {
+        with_app(|app| app.paste_target)
+    } else {
+        foreground_window()
+    };
     with_app(|app| app.previous_foreground = previous);
     if popup.show().is_err() {
         return;
@@ -1713,10 +1864,33 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
         });
     }
     lock_foreground(true);
-    if keep {
+    if let Some(text) = seed {
+        open_mask_seed(&popup, client, text);
+    } else if keep {
         popup.invoke_restore();
         search(&popup, client);
     }
+}
+
+/// Opens the command panel on the history item the Ctrl+M shortcut picked: the query that fits it,
+/// with the item as the first clip. The clipboard's recent texts follow when the worker answers.
+fn open_mask_seed(popup: &Popup, client: &SearchClient, text: String) {
+    let query = with_app(|app| {
+        let english = matches!(
+            app::calc_locale(app.settings.general.language),
+            tex_calc::Locale::En
+        );
+        mask_cmd::history_query(&app.settings.compiled_masks(), &text, english)
+    });
+    with_app(|app| {
+        app.mask_clips = vec![text.clone()];
+        app.mask_chosen = 0;
+        app.mask_seed_text = Some(text);
+    });
+    let end = query.len();
+    popup.set_query(query.into());
+    search(popup, client);
+    popup.invoke_cursor_to(end as i32);
 }
 
 /// Shows the calculator's card for the current query, selecting it, or hides it and gives the
@@ -1772,6 +1946,11 @@ fn calculate(popup: &Popup) {
 fn search(popup: &Popup, client: &SearchClient) {
     let query = popup.get_query();
     popup.set_expanded(!query.trim().is_empty());
+    if let Some(command) = mask_cmd::parse(&query).filter(|_| popup.get_filter() == 0) {
+        mask_panel(popup, &command);
+        return;
+    }
+    leave_mask(popup);
     calculate(popup);
     if query.trim().is_empty() {
         popup.set_rows(ModelRc::default());
@@ -1796,6 +1975,9 @@ fn current_filter(popup: &Popup) -> Filter {
 }
 
 fn move_selection(popup: &Popup, step: i32) {
+    if popup.get_mask_mode() {
+        return move_mask_selection(popup, step);
+    }
     let is_item: Vec<bool> = popup.get_rows().iter().map(|row| !row.header).collect();
     let current = if popup.get_answer_selected() {
         Some(Selection::Answer)
@@ -1817,6 +1999,269 @@ fn move_selection(popup: &Popup, step: i32) {
     }
 }
 
+/// Enters the command panel for `command` and draws it. Entering asks the clipboard for its recent
+/// texts once; the query edits that follow only redraw.
+fn mask_panel(popup: &Popup, command: &mask_cmd::Command) {
+    let entering = with_app(|app| !std::mem::replace(&mut app.mask_mode, true));
+    if entering {
+        popup.set_rows(ModelRc::default());
+        popup.set_searching(false);
+        with_history(|history| {
+            history.client.send(ClipboardCommand::RecentText {
+                limit: mask_cmd::MAX_CLIPS,
+            });
+        });
+    }
+    popup.set_answer_selected(false);
+    popup.set_selected(-1);
+    with_app(|app| app.mask_chosen = 0);
+    show_mask(popup, command);
+}
+
+/// Draws the command panel from the clips and the chosen one. The rows are replaced only when they
+/// change, so moving through the clips does not scroll the list back to the top.
+fn show_mask(popup: &Popup, command: &mask_cmd::Command) {
+    let (card, copy, rows, previous, lines) = with_app(|app| {
+        let masks = app.settings.compiled_masks();
+        let entries = app.settings.mask_entries();
+        let view = mask_cmd::view(command, &masks, &app.mask_clips, app.mask_chosen);
+        let rows = mask_cmd::rows(&view, &app.mask_clips);
+        let lines: Vec<MaskRow> = rows
+            .iter()
+            .map(|row| mask_line(row, &masks, &entries, &app.mask_clips))
+            .collect();
+        let input = mask_cmd::preview(&view.input, 60);
+        let copy = view.outcome.as_ref().map(|outcome| outcome.output.clone());
+        let card = view.outcome.map(|outcome| MaskCard {
+            input: input.into(),
+            output: mask_cmd::preview(&outcome.output, 60).into(),
+            mask: outcome.mask.into(),
+            count: if command.kind == mask_cmd::Kind::Clean {
+                outcome.count as i32
+            } else {
+                0
+            },
+        });
+        let previous = std::mem::replace(&mut app.mask_rows, rows.clone());
+        app.mask_copy = copy.clone();
+        let lines = (previous != rows).then_some(lines);
+        (card, copy, rows, previous, lines)
+    });
+    let has_card = card.is_some();
+    popup.set_has_answer(false);
+    popup.set_mask_mode(true);
+    popup.set_has_mask_card(has_card);
+    popup.set_mask_card(card.unwrap_or_default());
+    if let Some(lines) = lines {
+        popup.set_mask_rows(ModelRc::new(VecModel::from(lines)));
+    }
+    let selection = mask_cmd::settle(current_selection(popup), &previous, &rows, has_card);
+    apply_selection(popup, selection);
+    let action = mask_cmd::action(selection, &rows, copy.is_some());
+    popup.set_mask_action(mask_hint(action));
+}
+
+/// One line of the command panel. `kind` tells the Slint side what the line is: 0 and 1 are the
+/// section headers, 2 a suggested mask (`index` is its position in the masks) and 3 a clip.
+fn mask_line(
+    row: &mask_cmd::Row,
+    masks: &[tex_mask::Compiled],
+    entries: &[settings::MaskEntry],
+    clips: &[String],
+) -> MaskRow {
+    let (header, kind, index, label, detail) = match *row {
+        mask_cmd::Row::Header(mask_cmd::Section::Masks) => {
+            (true, 0, 0, String::new(), String::new())
+        }
+        mask_cmd::Row::Header(mask_cmd::Section::History) => {
+            (true, 1, 0, String::new(), String::new())
+        }
+        mask_cmd::Row::Suggestion(index) => {
+            let name = masks
+                .get(index)
+                .map_or_else(String::new, |mask| mask.name.clone());
+            let pattern = entries
+                .iter()
+                .find(|entry| entry.name == name)
+                .map_or_else(String::new, |entry| mask_cmd::preview(&entry.pattern, 80));
+            (false, 2, index, name, pattern)
+        }
+        mask_cmd::Row::Clip(index) => {
+            let text = clips
+                .get(index)
+                .map_or_else(String::new, |clip| mask_cmd::preview(clip, 80));
+            (false, 3, index, text, String::new())
+        }
+    };
+    MaskRow {
+        header,
+        kind,
+        index: index as i32,
+        label: label.into(),
+        detail: detail.into(),
+    }
+}
+
+fn current_selection(popup: &Popup) -> Option<Selection> {
+    if popup.get_answer_selected() {
+        Some(Selection::Answer)
+    } else {
+        usize::try_from(popup.get_selected())
+            .ok()
+            .map(Selection::Row)
+    }
+}
+
+fn apply_selection(popup: &Popup, selection: Option<Selection>) {
+    match selection {
+        Some(Selection::Answer) => {
+            popup.set_answer_selected(true);
+            popup.set_selected(-1);
+        }
+        Some(Selection::Row(index)) => {
+            popup.set_answer_selected(false);
+            popup.set_selected(index as i32);
+        }
+        None => {
+            popup.set_answer_selected(false);
+            popup.set_selected(-1);
+        }
+    }
+}
+
+fn move_mask_selection(popup: &Popup, step: i32) {
+    let is_item = with_app(|app| {
+        app.mask_rows
+            .iter()
+            .map(|row| !matches!(row, mask_cmd::Row::Header(_)))
+            .collect::<Vec<bool>>()
+    });
+    if let Some(next) = step_with_answer(
+        popup.get_has_mask_card(),
+        &is_item,
+        current_selection(popup),
+        step as isize,
+    ) {
+        select_mask(popup, Some(next));
+    }
+}
+
+/// Moves the panel's selection. Landing on a clip makes it the one the card works on.
+fn select_mask(popup: &Popup, selection: Option<Selection>) {
+    apply_selection(popup, selection);
+    match selection.and_then(|selection| clip_at(popup, selection)) {
+        Some(clip) => {
+            with_app(|app| app.mask_chosen = clip);
+            if let Some(command) = mask_cmd::parse(&popup.get_query()) {
+                show_mask(popup, &command);
+            }
+        }
+        None => refresh_mask_action(popup),
+    }
+}
+
+fn clip_at(popup: &Popup, selection: Selection) -> Option<usize> {
+    let Selection::Row(index) = selection else {
+        return None;
+    };
+    let row = popup.get_mask_rows().row_data(index)?;
+    if row.header || row.kind != 3 {
+        return None;
+    }
+    usize::try_from(row.index).ok()
+}
+
+fn refresh_mask_action(popup: &Popup) {
+    let selection = current_selection(popup);
+    let action =
+        with_app(|app| mask_cmd::action(selection, &app.mask_rows, app.mask_copy.is_some()));
+    popup.set_mask_action(mask_hint(action));
+}
+
+fn mask_hint(action: mask_cmd::Action) -> i32 {
+    match action {
+        mask_cmd::Action::Copy => 1,
+        mask_cmd::Action::Choose(_) => 2,
+        mask_cmd::Action::Nothing => 0,
+    }
+}
+
+/// Copies the whole result of the card or the chosen clip, then closes the popup.
+fn copy_mask(popup: &Popup) {
+    let copy = with_app(|app| app.mask_copy.clone());
+    if let Some(text) = copy {
+        let _ = write_text(&text);
+        close_popup(popup);
+    }
+}
+
+/// Enter on a line of the command panel: copies the result, or completes the query with the
+/// suggested mask and puts the cursor at its end.
+fn activate_mask(popup: &Popup, index: i32, client: &SearchClient) {
+    let Some(command) = mask_cmd::parse(&popup.get_query()) else {
+        return;
+    };
+    let selection = usize::try_from(index).ok().map(Selection::Row);
+    let action =
+        with_app(|app| mask_cmd::action(selection, &app.mask_rows, app.mask_copy.is_some()));
+    match action {
+        mask_cmd::Action::Copy => copy_mask(popup),
+        mask_cmd::Action::Choose(mask) => {
+            let (name, view) = with_app(|app| {
+                let masks = app.settings.compiled_masks();
+                let name = masks
+                    .get(mask)
+                    .map_or_else(String::new, |mask| mask.name.clone());
+                let view = mask_cmd::view(&command, &masks, &app.mask_clips, app.mask_chosen);
+                (name, view)
+            });
+            let query = mask_cmd::complete(&command, &view, &name);
+            let end = query.len();
+            popup.set_query(query.into());
+            search(popup, client);
+            popup.invoke_cursor_to(end as i32);
+        }
+        mask_cmd::Action::Nothing => {}
+    }
+}
+
+/// The clipboard's recent texts for the command panel. They are kept only while the panel waits
+/// for them, so they never outlive it.
+fn recent_texts(windows: &Windows, texts: Vec<(i64, String)>) {
+    let waiting = with_app(|app| {
+        if app.mask_mode {
+            let recent: Vec<String> = texts.into_iter().map(|(_, text)| text).collect();
+            app.mask_clips = match &app.mask_seed_text {
+                Some(seed) => mask_cmd::with_seed(seed, recent),
+                None => recent,
+            };
+        }
+        app.mask_mode
+    });
+    let Some(popup) = windows.popup.upgrade() else {
+        return;
+    };
+    if waiting
+        && popup.window().is_visible()
+        && let Some(command) = mask_cmd::parse(&popup.get_query())
+    {
+        show_mask(&popup, &command);
+    }
+}
+
+/// Leaves the command panel, if it is showing, and forgets its clips and selection.
+fn leave_mask(popup: &Popup) {
+    with_app(|app| app.clear_mask());
+    if popup.get_mask_mode() {
+        popup.set_mask_mode(false);
+        popup.set_has_mask_card(false);
+        popup.set_mask_rows(ModelRc::default());
+        popup.set_mask_action(0);
+        popup.set_answer_selected(false);
+        popup.set_selected(-1);
+    }
+}
+
 fn show_event(windows: &Windows, event: Event, icons: &IconLoader, latest: &Latest) {
     let popup = windows.popup.upgrade();
     let settings = windows.settings.upgrade();
@@ -1825,7 +2270,10 @@ fn show_event(windows: &Windows, event: Event, icons: &IconLoader, latest: &Late
             let Some(popup) = popup else {
                 return;
             };
-            if popup.get_query().trim().is_empty() || !latest.is(results.id) {
+            if popup.get_query().trim().is_empty()
+                || popup.get_mask_mode()
+                || !latest.is(results.id)
+            {
                 return;
             }
             let store_apps = store().apps();
@@ -1879,8 +2327,10 @@ fn show_event(windows: &Windows, event: Event, icons: &IconLoader, latest: &Late
         }
         Event::Unavailable => {
             if let Some(popup) = popup {
-                popup.set_rows(ModelRc::default());
-                popup.set_selected(-1);
+                if !popup.get_mask_mode() {
+                    popup.set_rows(ModelRc::default());
+                    popup.set_selected(-1);
+                }
                 popup.set_service_unavailable(true);
                 popup.set_searching(false);
             }
@@ -2158,6 +2608,23 @@ fn wire_history(window: &HistoryWindow, windows: &Windows, client: &SearchClient
             show_settings(&windows, &client, Some(CLIPBOARD_TAB));
         }
     });
+    window.on_mask({
+        let window = window.as_weak();
+        let windows = windows.clone();
+        let client = client.clone();
+        move |index| {
+            let Some(window) = window.upgrade() else {
+                return;
+            };
+            if window.get_content_kind() != 0 || index != window.get_selected() {
+                return;
+            }
+            let text = window.get_content_text().to_string();
+            hide_history(&window);
+            with_app(|app| app.mask_seed = Some(text));
+            show_popup(&windows, &client);
+        }
+    });
 }
 
 fn send_history(command: ClipboardCommand) {
@@ -2305,6 +2772,9 @@ fn load_more(window: &HistoryWindow) {
 }
 
 fn clipboard_event(windows: &Windows, event: ClipboardEvent) {
+    if let ClipboardEvent::RecentText(texts) = event {
+        return recent_texts(windows, texts);
+    }
     if let Some(settings) = windows.settings.upgrade() {
         match &event {
             ClipboardEvent::Usage(bytes) => {
@@ -2384,6 +2854,7 @@ fn clipboard_event(windows: &Windows, event: ClipboardEvent) {
             }
         }
         ClipboardEvent::Usage(_) => {}
+        ClipboardEvent::RecentText(_) => {}
     }
 }
 

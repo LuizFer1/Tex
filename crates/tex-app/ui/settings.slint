@@ -1,6 +1,6 @@
 import { Palette } from "std-widgets.slint";
 import { Tokens } from "theme.slint";
-import { Icon, Icons, ScrollBar, TabItem, Toggle, Segmented, Select, Section, SettingRow, ShortcutField, Button, ButtonKind, CheckBox, PathList, TitleButton, ResizeEdge } from "kit/kit.slint";
+import { Icon, Icons, ScrollBar, TabItem, Toggle, Segmented, Select, Section, SettingRow, ShortcutField, Button, ButtonKind, CheckBox, PathList, TextLink, TextField, TitleButton, ResizeEdge } from "kit/kit.slint";
 import { HistoryText } from "history.slint";
 
 export struct DriveRow {
@@ -10,6 +10,13 @@ export struct DriveRow {
     percent: int,
     entries: string,
     reason: string,
+}
+
+// 0 when the mask works, else the code `mask-message` explains.
+export struct MaskEntryRow {
+    name: string,
+    pattern: string,
+    error: int,
 }
 
 export component SettingsWindow inherits Window {
@@ -81,6 +88,16 @@ export component SettingsWindow inherits Window {
     in property <string> capture-error;
     in property <string> history-unavailable;
 
+    in property <[MaskEntryRow]> masks;
+    // -1 when no row is being edited
+    in-out property <int> editing-mask: -1;
+    in-out property <string> edit-name;
+    in-out property <string> edit-pattern;
+    in-out property <string> new-name;
+    in-out property <string> new-pattern;
+    property <int> edit-error: root.masks.length >= 0 ? root.check-mask(root.editing-mask, root.edit-name, root.edit-pattern) : 0;
+    property <int> new-error: root.masks.length >= 0 ? root.check-mask(-1, root.new-name, root.new-pattern) : 0;
+
     in property <string> save-error;
     out property <string> folder-picker-title: @tr("Choose a folder to ignore in search");
     out property <string> app-picker-title: @tr("Choose an app to ignore");
@@ -105,6 +122,40 @@ export component SettingsWindow inherits Window {
     callback check-updates();
     callback install-update();
     callback redo-onboarding();
+    // Index of the row being edited, or -1 for a new mask. 0 when it can be saved.
+    pure callback check-mask(int, string, string) -> int;
+    callback mask-add(string, string);
+    callback mask-edit(int, string, string);
+    callback mask-delete(int);
+    callback masks-restore();
+
+    pure function mask-message(code: int) -> string {
+        if code == 1 {
+            return @tr("Name is empty");
+        }
+        if code == 2 {
+            return @tr("Name must be one word");
+        }
+        if code == 3 {
+            return @tr("Another mask has this name");
+        }
+        if code == 11 {
+            return @tr("Invalid regular expression");
+        }
+        if code == 12 {
+            return @tr("Use groups of a fixed size, like {0}", "(\\d{3})");
+        }
+        if code == 13 {
+            return @tr("Put a group in parentheses");
+        }
+        if code == 14 {
+            return @tr("Put a separator between the groups");
+        }
+        if code == 15 {
+            return @tr("Group too long");
+        }
+        return "";
+    }
 
     callback drag();
     callback resize(int);
@@ -250,6 +301,15 @@ export component SettingsWindow inherits Window {
                             active: root.current-tab == 2;
                             clicked => {
                                 root.current-tab = 2;
+                            }
+                        }
+                        TabItem {
+                            number: "04";
+                            text: @tr("Masks");
+                            font-size: Tokens.size-tab;
+                            active: root.current-tab == 3;
+                            clicked => {
+                                root.current-tab = 3;
                             }
                         }
                     }
@@ -873,6 +933,177 @@ export component SettingsWindow inherits Window {
                                     font-size: Tokens.size-desc;
                                     color: Tokens.danger;
                                     wrap: word-wrap;
+                                }
+                            }
+
+                            if root.current-tab == 3: VerticalLayout {
+                                Section {
+                                    title: @tr("Masks");
+                                    first: true;
+                                    SettingRow {
+                                        label: @tr("Current masks");
+                                        description: @tr("Each mask is a name and a regular expression with groups of fixed size, like {0}.", "(\\d{3})");
+                                        separator: false;
+                                        Button {
+                                            text: @tr("Restore defaults");
+                                            clicked => {
+                                                root.masks-restore();
+                                            }
+                                        }
+                                    }
+                                    Rectangle {
+                                        background: Tokens.field;
+                                        border-width: Tokens.border-control;
+                                        border-color: Tokens.border;
+                                        border-radius: Tokens.radius-control;
+                                        VerticalLayout {
+                                            if root.masks.length == 0: HorizontalLayout {
+                                                padding-left: 12px;
+                                                height: 36px;
+                                                Text {
+                                                    text: @tr("no masks");
+                                                    font-family: Tokens.mono-font;
+                                                    font-size: Tokens.size-path;
+                                                    color: Tokens.muted;
+                                                    vertical-alignment: center;
+                                                }
+                                            }
+                                            for entry[index] in root.masks: VerticalLayout {
+                                                if index > 0: Rectangle {
+                                                    height: 1px;
+                                                    background: Tokens.border-2;
+                                                }
+                                                VerticalLayout {
+                                                    padding-top: 8px;
+                                                    padding-bottom: 8px;
+                                                    padding-left: 12px;
+                                                    padding-right: 8px;
+                                                    spacing: 6px;
+                                                    if root.editing-mask != index: HorizontalLayout {
+                                                        spacing: 10px;
+                                                        Text {
+                                                            width: 110px;
+                                                            text: entry.name;
+                                                            font-family: Tokens.mono-font;
+                                                            font-size: Tokens.size-button;
+                                                            font-weight: 600;
+                                                            color: Tokens.ink;
+                                                            vertical-alignment: center;
+                                                            overflow: elide;
+                                                        }
+                                                        Text {
+                                                            horizontal-stretch: 1;
+                                                            text: entry.pattern;
+                                                            font-family: Tokens.mono-font;
+                                                            font-size: Tokens.size-path;
+                                                            color: Tokens.muted;
+                                                            vertical-alignment: center;
+                                                            overflow: elide;
+                                                        }
+                                                        Button {
+                                                            text: @tr("Edit");
+                                                            clicked => {
+                                                                root.edit-name = entry.name;
+                                                                root.edit-pattern = entry.pattern;
+                                                                root.editing-mask = index;
+                                                            }
+                                                        }
+                                                        VerticalLayout {
+                                                            alignment: center;
+                                                            TextLink {
+                                                                text: @tr("Delete");
+                                                                clicked => {
+                                                                    root.mask-delete(index);
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    if root.editing-mask == index: HorizontalLayout {
+                                                        spacing: 8px;
+                                                        TextField {
+                                                            width: 120px;
+                                                            height: 30px;
+                                                            boxed: true;
+                                                            mono: true;
+                                                            placeholder: @tr("Name");
+                                                            text <=> root.edit-name;
+                                                        }
+                                                        TextField {
+                                                            horizontal-stretch: 1;
+                                                            height: 30px;
+                                                            boxed: true;
+                                                            mono: true;
+                                                            placeholder: @tr("Regular expression");
+                                                            text <=> root.edit-pattern;
+                                                        }
+                                                        Button {
+                                                            kind: ButtonKind.primary;
+                                                            text: @tr("Save");
+                                                            enabled: root.edit-error == 0;
+                                                            clicked => {
+                                                                root.mask-edit(index, root.edit-name, root.edit-pattern);
+                                                            }
+                                                        }
+                                                        Button {
+                                                            text: @tr("Cancel");
+                                                            clicked => {
+                                                                root.editing-mask = -1;
+                                                            }
+                                                        }
+                                                    }
+                                                    if root.editing-mask == index && root.edit-error != 0: Text {
+                                                        text: root.mask-message(root.edit-error);
+                                                        font-size: Tokens.size-desc;
+                                                        color: Tokens.danger;
+                                                    }
+                                                    if root.editing-mask != index && entry.error != 0: Text {
+                                                        text: root.mask-message(entry.error);
+                                                        font-size: Tokens.size-desc;
+                                                        color: Tokens.danger;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Section {
+                                    title: @tr("New mask");
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        TextField {
+                                            width: 120px;
+                                            height: 30px;
+                                            boxed: true;
+                                            mono: true;
+                                            placeholder: @tr("Name");
+                                            text <=> root.new-name;
+                                        }
+                                        TextField {
+                                            horizontal-stretch: 1;
+                                            height: 30px;
+                                            boxed: true;
+                                            mono: true;
+                                            placeholder: @tr("Regular expression");
+                                            text <=> root.new-pattern;
+                                        }
+                                        Button {
+                                            kind: ButtonKind.primary;
+                                            text: @tr("Add mask");
+                                            enabled: root.new-error == 0;
+                                            clicked => {
+                                                root.mask-add(root.new-name, root.new-pattern);
+                                            }
+                                        }
+                                    }
+                                    Rectangle {
+                                        height: 6px;
+                                    }
+                                    if (root.new-name != "" || root.new-pattern != "") && root.new-error != 0: Text {
+                                        text: root.mask-message(root.new-error);
+                                        font-size: Tokens.size-desc;
+                                        color: Tokens.danger;
+                                    }
                                 }
                             }
 

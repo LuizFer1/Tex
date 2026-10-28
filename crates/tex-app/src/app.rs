@@ -24,6 +24,13 @@ pub struct AppState {
     pub paste_target: isize,
     pub previous_foreground: isize,
     pub theme_preview: Option<Theme>,
+    pub mask_mode: bool,
+    pub mask_clips: Vec<String>,
+    pub mask_chosen: usize,
+    pub mask_rows: Vec<crate::mask_cmd::Row>,
+    pub mask_copy: Option<String>,
+    pub mask_seed: Option<String>,
+    pub mask_seed_text: Option<String>,
     hotkeys: GlobalHotKeyManager,
     hotkey: Option<HotKey>,
     history_hotkey: Option<HotKey>,
@@ -70,11 +77,28 @@ impl AppState {
             paste_target: 0,
             previous_foreground: 0,
             theme_preview: None,
+            mask_mode: false,
+            mask_clips: Vec::new(),
+            mask_chosen: 0,
+            mask_rows: Vec::new(),
+            mask_copy: None,
+            mask_seed: None,
+            mask_seed_text: None,
             hotkeys,
             hotkey: None,
             history_hotkey: None,
             winkey: None,
         }
+    }
+
+    /// Forgets the command panel's texts and selection, when the popup closes or stops being a command.
+    pub fn clear_mask(&mut self) {
+        self.mask_mode = false;
+        self.mask_clips = Vec::new();
+        self.mask_chosen = 0;
+        self.mask_rows = Vec::new();
+        self.mask_copy = None;
+        self.mask_seed_text = None;
     }
 
     pub fn shortcut(&self) -> Shortcut {

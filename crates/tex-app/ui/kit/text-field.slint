@@ -16,6 +16,10 @@ export component TextField inherits Rectangle {
         input.select-all();
     }
 
+    public function cursor-to(offset: int) {
+        input.set-selection-offsets(offset, offset);
+    }
+
     property <length> pad: root.boxed ? 8px : 0px;
     property <length> inner: root.width - 2 * root.pad;
 

@@ -27,6 +27,21 @@ export struct CalcAnswer {
     offset-minutes: int,
 }
 
+export struct MaskCard {
+    input: string,
+    output: string,
+    mask: string,
+    count: int,
+}
+
+export struct MaskRow {
+    header: bool,
+    kind: int,
+    index: int,
+    label: string,
+    detail: string,
+}
+
 component AnswerCard inherits Rectangle {
     in property <CalcAnswer> answer;
     in property <bool> selected;
@@ -90,6 +105,157 @@ component AnswerCard inherits Rectangle {
     }
 
     TouchArea {
+        clicked => {
+            root.clicked();
+        }
+        double-clicked => {
+            root.double-clicked();
+        }
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.move {
+                root.hovered();
+            }
+        }
+    }
+}
+
+component MaskCardView inherits Rectangle {
+    in property <MaskCard> card;
+    in property <bool> selected;
+    callback clicked();
+    callback double-clicked();
+    callback hovered();
+    property <string> caption: root.card.count > 1 ? root.card.mask + " · " + root.card.count + " " + @tr("occurrences") : root.card.mask;
+
+    Rectangle {
+        x: 8px;
+        y: 6px;
+        width: parent.width - 16px;
+        height: parent.height - 12px;
+        border-radius: Tokens.radius-card;
+        background: root.selected ? Tokens.action : Tokens.paper-2;
+        HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 16px;
+            spacing: 14px;
+            Text {
+                horizontal-stretch: 1;
+                text: root.card.input;
+                font-family: Tokens.mono-font;
+                font-size: Tokens.size-result;
+                color: root.selected ? Tokens.on-action-muted : Tokens.muted;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            Text {
+                text: "→";
+                font-family: Tokens.mono-font;
+                font-size: Tokens.size-result;
+                color: root.selected ? Tokens.on-action-muted : Tokens.muted;
+                vertical-alignment: center;
+            }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                Text {
+                    text: root.card.output;
+                    font-family: Tokens.mono-font;
+                    font-size: Tokens.size-search;
+                    font-weight: 500;
+                    color: root.selected ? Tokens.on-action : Tokens.ink;
+                    horizontal-alignment: right;
+                    overflow: elide;
+                }
+                if root.caption != "": Text {
+                    text: root.caption;
+                    font-family: Tokens.mono-font;
+                    font-size: Tokens.size-meta;
+                    color: root.selected ? Tokens.on-action-muted : Tokens.muted;
+                    horizontal-alignment: right;
+                    overflow: elide;
+                }
+            }
+        }
+    }
+
+    TouchArea {
+        clicked => {
+            root.clicked();
+        }
+        double-clicked => {
+            root.double-clicked();
+        }
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.move {
+                root.hovered();
+            }
+        }
+    }
+}
+
+component MaskItem inherits Rectangle {
+    in property <MaskRow> item;
+    in property <bool> selected;
+    callback clicked();
+    callback double-clicked();
+    callback hovered();
+
+    if root.item.header: HorizontalLayout {
+        padding-left: 20px;
+        padding-right: 20px;
+        padding-top: 10px;
+        spacing: 10px;
+        Text {
+            text: (root.item.kind == 0 ? @tr("Masks") : @tr("Clipboard history")).to-uppercase();
+            font-family: Tokens.mono-font;
+            font-size: Tokens.size-kicker;
+            font-weight: 500;
+            letter-spacing: Tokens.size-kicker * 0.06;
+            color: Tokens.muted;
+            vertical-alignment: center;
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            Rectangle {
+                height: 1px;
+                background: Tokens.border-2;
+            }
+        }
+    }
+
+    if !root.item.header: Rectangle {
+        x: 8px;
+        width: parent.width - 16px;
+        border-radius: 4px;
+        background: root.selected ? Tokens.action : transparent;
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 12px;
+            spacing: 12px;
+            Text {
+                text: root.item.label;
+                horizontal-stretch: 1;
+                font-size: Tokens.size-result;
+                color: root.selected ? Tokens.on-action : Tokens.ink;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            Text {
+                width: 42%;
+                text: root.item.detail;
+                font-family: Tokens.mono-font;
+                font-size: Tokens.size-meta;
+                color: root.selected ? Tokens.on-action-muted : Tokens.muted;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+
+    TouchArea {
+        enabled: !root.item.header;
         clicked => {
             root.clicked();
         }
@@ -227,7 +393,13 @@ export component Popup inherits Window {
     in property <bool> has-answer;
     in property <CalcAnswer> answer;
     in property <bool> answer-selected;
-    property <length> answer-height: root.has-answer ? 64px : 0px;
+    in property <bool> mask-mode;
+    in property <bool> has-mask-card;
+    in property <MaskCard> mask-card;
+    in property <[MaskRow]> mask-rows;
+    in property <int> mask-action;
+    property <string> mask-hints: root.mask-action == 1 ? @tr("enter copy result · esc close") : root.mask-action == 2 ? @tr("enter choose mask · esc close") : @tr("esc close");
+    property <length> answer-height: (root.has-answer || root.has-mask-card) ? 64px : 0px;
     property <bool> selected-readable: root.selected >= 0 && root.selected < root.rows.length && root.rows[root.selected].readable;
     property <string> base-hints: @tr("↑↓ navigate · enter {0} · ctrl enter {1} · esc close", root.enter-reveals ? root.reveal-text : root.open-text, root.enter-reveals ? root.open-text : root.reveal-text);
     in-out property <int> filter: 0;
@@ -266,6 +438,10 @@ export component Popup inherits Window {
     public function restore() {
         input.focus();
         input.select-all();
+    }
+
+    public function cursor-to(offset: int) {
+        input.cursor-to(offset);
     }
 
     function set-filter(value: int) {
@@ -425,7 +601,26 @@ export component Popup inherits Window {
                     }
                 }
 
-                if root.rows.length > 0: Rectangle {
+                if root.has-mask-card: MaskCardView {
+                    y: 0px;
+                    width: parent.width;
+                    height: root.answer-height;
+                    card: root.mask-card;
+                    selected: root.answer-selected;
+                    clicked => {
+                        root.select-answer();
+                    }
+                    double-clicked => {
+                        root.copy-answer();
+                    }
+                    hovered => {
+                        if !root.answer-selected {
+                            root.select-answer();
+                        }
+                    }
+                }
+
+                if root.rows.length > 0 || root.mask-rows.length > 0: Rectangle {
                     y: root.answer-height;
                     width: parent.width;
                     height: parent.height - root.answer-height;
@@ -436,8 +631,13 @@ export component Popup inherits Window {
                         height: parent.height;
                         content-height: rows-layout.preferred-height;
                         property <[ResultRow]> model: root.rows;
+                        property <[MaskRow]> mask-model: root.mask-rows;
 
                         changed model => {
+                            self.content-y = 0;
+                        }
+
+                        changed mask-model => {
                             self.content-y = 0;
                         }
 
@@ -471,6 +671,22 @@ export component Popup inherits Window {
                                     }
                                 }
                             }
+                            for row[index] in root.mask-rows: MaskItem {
+                                height: root.row-height;
+                                item: row;
+                                selected: index == root.selected;
+                                clicked => {
+                                    root.select(index);
+                                }
+                                double-clicked => {
+                                    root.activate(index, false);
+                                }
+                                hovered => {
+                                    if index != root.selected && row.kind != 3 {
+                                        root.select(index);
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -483,15 +699,24 @@ export component Popup inherits Window {
                     }
                 }
 
-                if root.rows.length == 0 && !root.searching && !root.has-answer: EmptyState {
+                if root.rows.length == 0 && !root.searching && !root.has-answer && !root.mask-mode: EmptyState {
                     art: Tokens.art-search;
                     title: @tr("nothing for “{0}”", root.query);
                     hint: @tr("Check the categories and ignored folders in Settings › Search.");
                 }
+
+                if root.mask-mode && root.mask-rows.length == 0 && !root.has-mask-card: Text {
+                    y: 24px;
+                    width: parent.width;
+                    text: @tr("nothing to work on");
+                    font-size: Tokens.size-body;
+                    color: Tokens.muted;
+                    horizontal-alignment: center;
+                }
             }
 
             Footer {
-                hints: root.answer-selected ? @tr("enter copy result · esc close") : root.selected-readable ? @tr("{0} · shift enter read", root.base-hints) : root.base-hints;
+                hints: root.mask-mode ? root.mask-hints : root.answer-selected ? @tr("enter copy result · esc close") : root.selected-readable ? @tr("{0} · shift enter read", root.base-hints) : root.base-hints;
                 status: root.status-text;
                 status-color: root.service-unavailable || root.status-failed != "" ? Tokens.warn-text : Tokens.muted;
             }

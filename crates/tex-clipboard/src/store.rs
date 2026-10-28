@@ -371,6 +371,30 @@ impl Store {
         Ok(Some(found))
     }
 
+    /// The newest texts of at most `max_bytes`, newest first, skipping any that do not decrypt.
+    pub fn recent_texts(
+        &self,
+        limit: usize,
+        max_bytes: u64,
+    ) -> rusqlite::Result<Vec<(i64, String)>> {
+        let mut statement = self.conn.prepare(
+            "SELECT id, content FROM entries WHERE kind = 0 AND size <= ?1 ORDER BY id DESC",
+        )?;
+        let mut rows = statement.query([i64::try_from(max_bytes).unwrap_or(i64::MAX)])?;
+        let mut texts = Vec::new();
+        while texts.len() < limit {
+            let Some(row) = rows.next()? else {
+                break;
+            };
+            let id: i64 = row.get(0)?;
+            let sealed: Vec<u8> = row.get(1)?;
+            if let Some(text) = self.open_text(&sealed) {
+                texts.push((id, text));
+            }
+        }
+        Ok(texts)
+    }
+
     pub fn matches(&self, id: i64, query: &str) -> rusqlite::Result<bool> {
         let query = tex_index::fold(query.trim());
         let row = self
@@ -1006,5 +1030,35 @@ mod tests {
         assert_eq!(search_ids(&store, "bom", HistoryFilter::All), [good.id]);
         store.delete(bad).unwrap();
         assert_eq!(page_ids(&store, HistoryFilter::All), [good.id]);
+    }
+
+    #[test]
+    fn recent_texts_skip_images_unreadable_and_oversized() {
+        let mut store = store();
+        let first = store.insert(&text("primeiro"), NOW).unwrap().id;
+        store.insert(&image(), NOW).unwrap();
+        let second = store.insert(&text("segundo"), NOW).unwrap().id;
+        store.insert(&text("grande demais"), NOW).unwrap();
+        let tampered = store.insert(&text("ruim"), NOW).unwrap().id;
+        store
+            .conn
+            .execute(
+                "UPDATE entries SET content = x'00' WHERE id = ?1",
+                [tampered],
+            )
+            .unwrap();
+        let third = store.insert(&text("ok"), NOW).unwrap().id;
+        assert_eq!(
+            store.recent_texts(2, 8).unwrap(),
+            [(third, "ok".to_string()), (second, "segundo".to_string())]
+        );
+        assert_eq!(
+            store.recent_texts(10, 8).unwrap(),
+            [
+                (third, "ok".to_string()),
+                (second, "segundo".to_string()),
+                (first, "primeiro".to_string())
+            ]
+        );
     }
 }

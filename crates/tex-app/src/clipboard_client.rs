@@ -16,8 +16,8 @@ use tex_clipboard::{
 };
 use tex_platform::{Clip, ClipFormats, Payload, protect, unprotect};
 
-pub const PAGE_SIZE: usize = 200;
-pub const SEARCH_LIMIT: usize = 500;
+pub const PAGE_SIZE: usize = 40;
+pub const SEARCH_LIMIT: usize = 100;
 const THUMBNAIL_SIZE: u32 = 96;
 const DATABASE: &str = "clipboard.db";
 const KEY: &str = "clipboard.key";
@@ -50,6 +50,9 @@ pub enum Command {
     Delete(i64),
     Clear,
     Usage,
+    RecentText {
+        limit: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -71,6 +74,7 @@ pub enum Event {
     Content(i64, Option<Content>),
     EditRefused(i64, EditError),
     Usage(u64),
+    RecentText(Vec<(i64, String)>),
 }
 
 #[derive(Clone)]
@@ -511,6 +515,16 @@ fn apply(
             emit(Event::Usage(worker.store.usage()?));
         }
         Command::Usage => emit(Event::Usage(worker.store.usage()?)),
+        Command::RecentText { limit } => {
+            let texts = worker
+                .store
+                .recent_texts(limit, tex_mask::MAX_INPUT as u64)
+                .unwrap_or_else(|error| {
+                    report(Err(error.into()));
+                    Vec::new()
+                });
+            emit(Event::RecentText(texts));
+        }
     }
     Ok(())
 }
@@ -1201,6 +1215,64 @@ mod tests {
         worker.settings.retention = Retention::Storage { limit_bytes: MB };
         worker.store.set_favorite(row.id, false).unwrap();
         assert_eq!(worker.deadline(), None);
+    }
+
+    #[test]
+    fn recent_text_gives_the_newest_texts_first() {
+        let mut worker = worker(settings());
+        let now = super::now_ms();
+        worker
+            .store
+            .insert(&NewEntry::Text("um".into()), now)
+            .unwrap();
+        let second = worker
+            .store
+            .insert(&NewEntry::Text("dois".into()), now)
+            .unwrap()
+            .id;
+        worker
+            .store
+            .insert(
+                &NewEntry::Image {
+                    png: vec![1, 2, 3],
+                    width: 1,
+                    height: 1,
+                    thumbnail: vec![4],
+                },
+                now,
+            )
+            .unwrap();
+        let third = worker
+            .store
+            .insert(&NewEntry::Text("tres".into()), now)
+            .unwrap()
+            .id;
+        assert_eq!(
+            run(&mut worker, Command::RecentText { limit: 2 }),
+            [Event::RecentText(vec![
+                (third, "tres".into()),
+                (second, "dois".into())
+            ])]
+        );
+    }
+
+    #[test]
+    fn recent_text_leaves_out_what_mask_cannot_take() {
+        let mut worker = worker(settings());
+        let now = super::now_ms();
+        worker
+            .store
+            .insert(&NewEntry::Text("x".repeat(tex_mask::MAX_INPUT + 1)), now)
+            .unwrap();
+        let small = worker
+            .store
+            .insert(&NewEntry::Text("pequeno".into()), now)
+            .unwrap()
+            .id;
+        assert_eq!(
+            run(&mut worker, Command::RecentText { limit: 5 }),
+            [Event::RecentText(vec![(small, "pequeno".into())])]
+        );
     }
 
     #[test]
