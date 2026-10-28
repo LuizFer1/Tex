@@ -2,7 +2,7 @@
 
 > Your desktop, within reach.
 
-Tex is a personal desktop assistant for Windows. It lives in the tray and comes up when you call it: one box to find files, folders, and apps, a history of what you copy, a calculator in that same box, and a reader for the text files you find.
+Tex is a personal desktop assistant for Windows. It lives in the tray and comes up when you call it: one box to find files, folders, and apps, a history of what you copy, a calculator and mask tools in that same box, and a reader for the text files you find.
 
 ![Tex](crates/tex-app/ui/assets/app-icon.png)
 
@@ -36,13 +36,26 @@ A calculation shows a card above the list, on the All tab, while you type. **Ent
 
 Phrases work in Portuguese and English (`10 ft em m`, `52% de 900`). The decimal separator follows the interface language. A lone number, a file name, or a path does not open the card. There is no currency conversion. Turn the card off in Settings › Search.
 
+## Masks
+
+Take the mask off a number such as a CNPJ, or put it back, without leaving the keyboard. Two commands work on the All tab, once the word is followed by a space (the Portuguese and English words always both work):
+
+- **`clean`** (or `limpar`) `[text]` finds every occurrence of a registered mask in the text and replaces it with its characters joined: `clean 12.345.678/0001-95` gives `12345678000195`. The rest of the text stays as it is. When no mask matches, there is no card.
+- **`maskup`** (or `formatar`) `<mask> [text]` applies the named mask: `maskup cnpj 12345678000195` gives `12.345.678/0001-95`. It works line by line, so a list of numbers comes out formatted, and a line that does not fit is left as it is.
+
+Without text, the command works on the clipboard history, which is listed below the card (the 10 latest texts). **↑ / ↓** chooses an entry, and **Enter** copies the result and closes the popup. While you type a mask name, matching masks are listed (at most 5), and **Enter** completes the query. If what you type is not a name, Tex suggests the masks that fit that text.
+
+A mask is a name and a regular expression of the masked text, with one group per block and fixed sizes only, for example `(\d{2})\.(\d{3})\.(\d{3})/(\d{4})-(\d{2})`. Tex reads the separators and sizes from it. Repetitions like `+`, `*`, `?` and `{n,m}`, alternatives with `|`, nested groups, and groups with no separator between them are refused, with the reason shown as you type. Matching ignores case, `\d` is only `0-9`, and an occurrence cannot touch a letter or a digit. Masks live in Settings › Masks. CNPJ (the alphanumeric one), CPF, CEP, mobile and landline phones come ready, and "Restore defaults" brings them back.
+
+In the history, **Ctrl+M** on a text entry (or the Mask button) closes the history and opens the popup with `clean ` or `maskup ` and that entry as the input.
+
 ## Clipboard
 
 Tex keeps what you copy so you can find it later. Text and images are captured as you copy them.
 
 - The history lists entries newest first, with a preview. Search matches names and text. Images match by name. Filters cover favorites, text, and images.
 - **Enter** copies the entry back and closes the history. With "Copy and paste" in Settings, it also pastes into the window you were using. **Ctrl+Enter** does the other action.
-- **Ctrl+D** favorites an entry, **F2** gives it a name, **Ctrl+E** edits a text, and **Del** deletes it while the search box is empty. Deleting a favorite asks first.
+- **Ctrl+D** favorites an entry, **F2** gives it a name, **Ctrl+E** edits a text, **Ctrl+M** takes a text to the mask commands, and **Del** deletes it while the search box is empty. Deleting a favorite asks first.
 - Copies Tex writes itself are not captured again.
 
 Every copy is its own entry, even when the content matches an older one. Rename, edit, favorite, delete, and expiry act on that entry alone. The one exception: some apps write a single copy more than once, so the same content written again within 1 second of the last saved entry counts as that same copy.
@@ -86,10 +99,11 @@ Larger text files can still be read. Other types open when a [reader extension](
 | **Alt+V** | Open the clipboard history. |
 | **↑ / ↓** | Move the selection. |
 | **Tab** | Switch All, Apps, Files, and Folders. |
-| **Enter** | Open the selection, copy a calculation, or copy a history entry. |
+| **Enter** | Open the selection, copy a calculation or a mask result, or copy a history entry. |
 | **Ctrl+Enter** | Show the file in its folder, or the other clipboard action. |
 | **Shift+Enter** | Open the file in the reader. |
 | **Esc** | Close the popup, the history, or the reader. |
+| **Ctrl+M** | In the history, take the selected text to the mask commands. |
 | **Ctrl+,** | Settings, from search or from the history. |
 
 Clicking the tray icon opens or closes the popup. The menu has Open Tex, Clipboard history, Settings, About Tex, Pause capture, and Quit.
@@ -110,11 +124,12 @@ The second network use is remote images in Markdown files. Tex loads an `https:/
 
 The first launch asks nine questions. Each one already has the usual choice selected: light or dark theme, whether the Windows key opens search, whether Tex starts with Windows, whether it checks for updates, what Enter does on a result, whether search includes hidden files, whether Tex may keep what you copy, whether picking a history entry also pastes it, and when old entries are removed. Nothing is captured until you finish or close the questions.
 
-Every answer can be changed later. Settings is in the tray menu, or **Ctrl+,** in the search box, on three tabs:
+Every answer can be changed later. Settings is in the tray menu, or **Ctrl+,** in the search box, on four tabs:
 
 - **General.** Language (follow Windows, Portuguese, or English), theme (light, dark, or follow Windows; light is the default), shortcuts, the Windows key, start with Windows, which monitor the popup uses, and updates. "Redo" walks through the first-run questions again.
 - **Search.** How long the last query stays, hidden and system files, excluded folders, which categories appear, what Enter does, and the calculator.
 - **Clipboard.** The history shortcut, pause, which kinds to capture, the size limit per entry, copy or copy-and-paste, the cleanup policy, apps to ignore, and clearing the history.
+- **Masks.** The masks the `clean` and `maskup` commands use: add, edit, delete, and restore the defaults.
 
 With updates on, Tex downloads a new version in the background. "Update to …" in the tray menu, or "Update and restart" in Settings, runs the installer. The installer is checked against a signature shipped with Tex before it runs.
 
@@ -163,7 +178,7 @@ The result is `target\installer\Tex-Setup-0.4.5.exe`.
 
 Settings live in `%APPDATA%\Tex\settings.toml`. The search index and the service log live in `%ProgramData%\Tex`. The clipboard database lives in `%LOCALAPPDATA%\Tex`.
 
-Tex is a Cargo workspace. `tex-app` is the program and the Slint interface. `tex-indexer` is the search service. `tex-index`, `tex-clipboard`, `tex-reader`, and `tex-calc` are the pure cores behind search, history, the reader, and the calculator. `tex-platform` is the Windows code. `tex-ipc` is the pipe between the app and the service.
+Tex is a Cargo workspace. `tex-app` is the program and the Slint interface. `tex-indexer` is the search service. `tex-index`, `tex-clipboard`, `tex-reader`, `tex-calc`, and `tex-mask` are the pure cores behind search, history, the reader, the calculator, and the masks. `tex-platform` is the Windows code. `tex-ipc` is the pipe between the app and the service.
 
 The whole program is Rust. The interface is [Slint](https://slint.dev) with the software renderer. The clipboard history is SQLite, one row per copy, with names and content encrypted at rest. There is no account, no analytics, and no backend. Apart from the optional update check, every feature works offline.
 
