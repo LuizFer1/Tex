@@ -20,6 +20,8 @@ const MB: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Settings {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub masks: Option<Vec<MaskEntry>>,
     pub general: General,
     pub search: Search,
     pub clipboard: Clipboard,
@@ -64,6 +66,12 @@ pub struct Clipboard {
     pub cleanup_limit_mb: u32,
     pub respect_exclusion: bool,
     pub ignored_apps: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MaskEntry {
+    pub name: String,
+    pub pattern: String,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -233,6 +241,7 @@ impl Settings {
         let s = Search::default();
         let c = Clipboard::default();
         let mut settings = Settings {
+            masks: read_masks(&table),
             general: General {
                 language: field(general, "language").unwrap_or(g.language),
                 theme: field(general, "theme").unwrap_or(g.theme),
@@ -278,6 +287,42 @@ impl Settings {
 
     pub fn to_toml(&self) -> String {
         toml::to_string(self).expect("settings always serialize")
+    }
+
+    /// The user's masks, or the factory ones while none were saved.
+    pub fn mask_entries(&self) -> Vec<MaskEntry> {
+        self.masks.clone().unwrap_or_else(|| {
+            tex_mask::defaults()
+                .into_iter()
+                .map(|mask| MaskEntry {
+                    name: mask.name,
+                    pattern: mask.pattern,
+                })
+                .collect()
+        })
+    }
+
+    #[allow(dead_code)]
+    pub fn set_masks(&mut self, entries: Vec<MaskEntry>) {
+        self.masks = Some(entries);
+    }
+
+    #[allow(dead_code)]
+    pub fn restore_masks(&mut self) {
+        self.masks = None;
+    }
+
+    #[allow(dead_code)]
+    pub fn compiled_masks(&self) -> Vec<tex_mask::Compiled> {
+        let masks: Vec<tex_mask::Mask> = self
+            .mask_entries()
+            .into_iter()
+            .map(|entry| tex_mask::Mask {
+                name: entry.name,
+                pattern: entry.pattern,
+            })
+            .collect();
+        tex_mask::compile(&masks)
     }
 
     /// The Windows key hook only runs once the onboarding is done.
@@ -326,6 +371,23 @@ impl Settings {
 
 fn field<T: DeserializeOwned>(table: Option<&Table>, key: &str) -> Option<T> {
     table?.get(key)?.clone().try_into().ok()
+}
+
+/// An array of tables with a text `name` and `pattern` each; other items are skipped.
+fn read_masks(table: &Table) -> Option<Vec<MaskEntry>> {
+    let entries = table.get("masks")?.as_array()?;
+    Some(
+        entries
+            .iter()
+            .filter_map(Value::as_table)
+            .filter_map(|entry| {
+                Some(MaskEntry {
+                    name: entry.get("name")?.as_str()?.to_owned(),
+                    pattern: entry.get("pattern")?.as_str()?.to_owned(),
+                })
+            })
+            .collect(),
+    )
 }
 
 fn canonical_hotkey(text: &str, default: &str) -> String {
@@ -587,6 +649,62 @@ calculator = false
         assert_eq!(clipboard.on_pick, OnPick::Copy);
         assert_eq!(clipboard.cleanup, Cleanup::Time);
         assert!(clipboard.paused);
+    }
+
+    #[test]
+    fn masks_are_absent_by_default_and_give_the_factory_ones() {
+        let settings = Settings::default();
+        assert_eq!(settings.masks, None);
+        let names: Vec<String> = settings
+            .mask_entries()
+            .into_iter()
+            .map(|m| m.name)
+            .collect();
+        assert_eq!(names, vec!["cnpj", "cpf", "cep", "celular", "fixo"]);
+    }
+
+    #[test]
+    fn saving_an_unrelated_setting_does_not_write_the_masks() {
+        let mut settings = Settings::from_toml("").unwrap();
+        settings.search.calculator = false;
+        assert!(!settings.to_toml().contains("masks"));
+        assert_eq!(
+            Settings::from_toml(&settings.to_toml()).unwrap().masks,
+            None
+        );
+    }
+
+    #[test]
+    fn edited_masks_survive_a_round_trip_and_an_empty_list_stays_empty() {
+        let mut settings = Settings::default();
+        settings.set_masks(vec![MaskEntry {
+            name: "x".into(),
+            pattern: r"(\d)-(\d)".into(),
+        }]);
+        let back = Settings::from_toml(&settings.to_toml()).unwrap();
+        assert_eq!(back.mask_entries(), settings.mask_entries());
+
+        settings.set_masks(Vec::new());
+        let back = Settings::from_toml(&settings.to_toml()).unwrap();
+        assert_eq!(back.masks, Some(Vec::new()));
+        assert!(back.mask_entries().is_empty());
+    }
+
+    #[test]
+    fn restoring_the_masks_goes_back_to_absent() {
+        let mut settings = Settings::default();
+        settings.set_masks(Vec::new());
+        settings.restore_masks();
+        assert_eq!(settings.masks, None);
+    }
+
+    #[test]
+    fn a_bad_mask_entry_is_skipped() {
+        let settings = Settings::from_toml(
+            "[[masks]]\nname = \"ok\"\npattern = \"(\\\\d)-(\\\\d)\"\n\n[[masks]]\nname = 3\n",
+        )
+        .unwrap();
+        assert_eq!(settings.mask_entries().len(), 1);
     }
 
     #[test]

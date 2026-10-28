@@ -4719,6 +4719,7 @@ dependencies = [
  "tex-clipboard",
  "tex-index",
  "tex-ipc",
+ "tex-mask",
  "tex-platform",
  "tex-reader",
  "toml",
