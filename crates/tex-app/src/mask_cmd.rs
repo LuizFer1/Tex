@@ -144,13 +144,15 @@ pub fn complete(command: &Command, view: &View, name: &str) -> String {
     format!("{} {} {}", command.keyword, name, view.typed)
 }
 
+/// The panel's lines. The clipboard section only shows while nothing is typed, because only then the
+/// command works on a clip.
 pub fn rows(view: &View, clips: &[String]) -> Vec<Row> {
     let mut rows = Vec::new();
     if !view.suggestions.is_empty() {
         rows.push(Row::Header(Section::Masks));
         rows.extend(view.suggestions.iter().map(|&index| Row::Suggestion(index)));
     }
-    if !clips.is_empty() {
+    if !clips.is_empty() && view.typed.is_empty() {
         rows.push(Row::Header(Section::History));
         rows.extend((0..clips.len()).map(Row::Clip));
     }
@@ -370,6 +372,33 @@ mod tests {
         );
         let result = view(&parse("limpar x").unwrap(), &masks, &[], 0);
         assert!(rows(&result, &[]).is_empty());
+    }
+
+    #[test]
+    fn the_history_is_listed_only_while_nothing_is_typed() {
+        let masks = masks();
+        let clips = vec!["12345678000195".to_owned()];
+        for typed in [
+            "limpar 123.456.789-09",
+            "formatar cnpj 12345678000195",
+            "formatar 12345678909",
+        ] {
+            let result = view(&parse(typed).unwrap(), &masks, &clips, 0);
+            assert!(
+                rows(&result, &clips)
+                    .iter()
+                    .all(|row| !matches!(row, Row::Header(Section::History) | Row::Clip(_))),
+                "{typed} lists the history"
+            );
+        }
+        let partial = view(&parse("formatar cn").unwrap(), &masks, &clips, 0);
+        assert!(rows(&partial, &clips).contains(&Row::Header(Section::History)));
+        assert!(rows(&partial, &clips).contains(&Row::Clip(0)));
+        let empty = view(&parse("limpar ").unwrap(), &masks, &clips, 0);
+        assert_eq!(
+            rows(&empty, &clips),
+            vec![Row::Header(Section::History), Row::Clip(0)]
+        );
     }
 
     #[test]
