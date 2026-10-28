@@ -942,6 +942,54 @@ msgstr "domingo"
 msgid "Masks"
 msgstr "Máscaras"
 
+msgid "Current masks"
+msgstr "Máscaras atuais"
+
+msgid "Each mask is a name and a regular expression with groups of fixed size, like {0}."
+msgstr "Cada máscara é um nome e uma expressão regular com grupos de tamanho fixo, como {0}."
+
+msgid "Restore defaults"
+msgstr "Restaurar padrões"
+
+msgid "no masks"
+msgstr "nenhuma máscara"
+
+msgid "Name"
+msgstr "Nome"
+
+msgid "Regular expression"
+msgstr "Expressão regular"
+
+msgid "New mask"
+msgstr "Nova máscara"
+
+msgid "Add mask"
+msgstr "Adicionar máscara"
+
+msgid "Name is empty"
+msgstr "O nome está vazio"
+
+msgid "Name must be one word"
+msgstr "O nome deve ser uma palavra só"
+
+msgid "Another mask has this name"
+msgstr "Outra máscara tem esse nome"
+
+msgid "Invalid regular expression"
+msgstr "Expressão regular inválida"
+
+msgid "Use groups of a fixed size, like {0}"
+msgstr "Use grupos de tamanho fixo, como {0}"
+
+msgid "Put a group in parentheses"
+msgstr "Coloque um grupo entre parênteses"
+
+msgid "Put a separator between the groups"
+msgstr "Coloque um separador entre os grupos"
+
+msgid "Group too long"
+msgstr "Grupo longo demais"
+
 msgid "occurrences"
 msgstr "ocorrências"
 

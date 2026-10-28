@@ -7,6 +7,7 @@ mod history;
 mod icons;
 mod image_cache;
 mod mask_cmd;
+mod mask_settings;
 mod onboarding;
 mod placement;
 mod reader;
@@ -704,6 +705,7 @@ fn wire_settings(window: &SettingsWindow, windows: &Windows, client: &SearchClie
         move || client.send(Command::Status)
     });
     wire_clipboard_tab(window, windows);
+    wire_masks_tab(window, windows);
     window.window().on_close_requested({
         let window = window.as_weak();
         move || {
@@ -801,6 +803,82 @@ fn wire_clipboard_tab(window: &SettingsWindow, windows: &Windows) {
         }
     });
     window.on_clear_history(|| send_history(ClipboardCommand::Clear));
+}
+
+fn wire_masks_tab(window: &SettingsWindow, windows: &Windows) {
+    window.on_check_mask(|index, name, pattern| {
+        let index = usize::try_from(index).ok();
+        let entries = with_app(|app| app.settings.mask_entries());
+        mask_settings::check(&entries, index, name.as_str(), pattern.as_str())
+    });
+    window.on_mask_add({
+        let windows = windows.clone();
+        move |name, pattern| {
+            let accepted = change_masks(&windows, |entries| {
+                if mask_settings::check(entries, None, name.as_str(), pattern.as_str()) != 0 {
+                    return false;
+                }
+                entries.push(settings::MaskEntry {
+                    name: name.to_string(),
+                    pattern: pattern.to_string(),
+                });
+                true
+            });
+            if accepted && let Some(window) = windows.settings.upgrade() {
+                window.set_new_name("".into());
+                window.set_new_pattern("".into());
+            }
+        }
+    });
+    window.on_mask_edit({
+        let windows = windows.clone();
+        move |index, name, pattern| {
+            let Ok(index) = usize::try_from(index) else {
+                return;
+            };
+            let accepted = change_masks(&windows, |entries| {
+                if index >= entries.len()
+                    || mask_settings::check(entries, Some(index), name.as_str(), pattern.as_str())
+                        != 0
+                {
+                    return false;
+                }
+                entries[index] = settings::MaskEntry {
+                    name: name.to_string(),
+                    pattern: pattern.to_string(),
+                };
+                true
+            });
+            if accepted && let Some(window) = windows.settings.upgrade() {
+                window.set_editing_mask(-1);
+            }
+        }
+    });
+    window.on_mask_delete({
+        let windows = windows.clone();
+        move |index| {
+            let Ok(index) = usize::try_from(index) else {
+                return;
+            };
+            change_masks(&windows, |entries| {
+                if index >= entries.len() {
+                    return false;
+                }
+                entries.remove(index);
+                true
+            });
+        }
+    });
+    window.on_masks_restore({
+        let windows = windows.clone();
+        move || {
+            let Some(window) = windows.settings.upgrade() else {
+                return;
+            };
+            with_app(|app| app.settings.restore_masks());
+            masks_changed(&window);
+        }
+    });
 }
 
 /// While a shortcut is recorded neither one is registered, so pressing the other one is
@@ -908,6 +986,47 @@ fn folders_changed(windows: &Windows) {
     window.set_selected_excluded(-1);
     with_app(|app| fill_folders(&window, &app.settings));
     save_settings(&window);
+}
+
+/// Applies `change` to the mask list when it accepts, then shows and saves the list.
+fn change_masks(
+    windows: &Windows,
+    change: impl FnOnce(&mut Vec<settings::MaskEntry>) -> bool,
+) -> bool {
+    let Some(window) = windows.settings.upgrade() else {
+        return false;
+    };
+    let accepted = with_app(|app| {
+        let mut entries = app.settings.mask_entries();
+        let accepted = change(&mut entries);
+        if accepted {
+            app.settings.set_masks(entries);
+        }
+        accepted
+    });
+    if accepted {
+        masks_changed(&window);
+    }
+    accepted
+}
+
+fn masks_changed(window: &SettingsWindow) {
+    with_app(|app| fill_masks(window, &app.settings));
+    save_settings(window);
+}
+
+fn fill_masks(window: &SettingsWindow, settings: &Settings) {
+    let entries = settings.mask_entries();
+    let rows: Vec<MaskEntryRow> = entries
+        .iter()
+        .zip(mask_settings::errors(&entries))
+        .map(|(entry, error)| MaskEntryRow {
+            name: entry.name.as_str().into(),
+            pattern: entry.pattern.as_str().into(),
+            error,
+        })
+        .collect();
+    window.set_masks(ModelRc::new(VecModel::from(rows)));
 }
 
 fn save_settings(window: &SettingsWindow) {
@@ -1251,6 +1370,10 @@ fn fill_settings(window: &SettingsWindow, app: &AppState) {
     fill_ignored_apps(window, &app.settings);
     window.set_confirm_clear(false);
     window.set_capture_error(app.capture_error.as_str().into());
+    window.set_editing_mask(-1);
+    window.set_new_name("".into());
+    window.set_new_pattern("".into());
+    fill_masks(window, &app.settings);
 }
 
 fn preset_index(presets: &[u32], value: u32) -> i32 {

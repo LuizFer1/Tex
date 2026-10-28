@@ -302,12 +302,10 @@ impl Settings {
         })
     }
 
-    #[allow(dead_code)]
     pub fn set_masks(&mut self, entries: Vec<MaskEntry>) {
         self.masks = Some(entries);
     }
 
-    #[allow(dead_code)]
     pub fn restore_masks(&mut self) {
         self.masks = None;
     }
