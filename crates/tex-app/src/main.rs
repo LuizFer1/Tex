@@ -6,6 +6,8 @@ mod frame;
 mod history;
 mod icons;
 mod image_cache;
+#[allow(dead_code)]
+mod mask_cmd;
 mod onboarding;
 mod placement;
 mod reader;
