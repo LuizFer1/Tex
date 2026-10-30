@@ -6,13 +6,10 @@ use std::thread;
 
 use crate::entry::{ROOT, Record};
 use crate::matcher::{MatchKind, Query};
-use crate::normalize::fold_into;
+use crate::normalize::{fold, fold_into};
 use crate::volume::{FolderMask, VolumeIndex};
 
 const CHUNK: usize = 64 * 1024;
-const START_MENU_APP: u8 = 0;
-const EXECUTABLE_APP: u8 = 1;
-const NOT_APP: u8 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Filter {
@@ -63,7 +60,7 @@ pub struct SearchOutcome {
     pub total: u32,
 }
 
-type Key = (u8, Reverse<MatchKind>, Reverse<MatchKind>, bool, u16, u16);
+type Key = (bool, Reverse<MatchKind>, Reverse<MatchKind>, bool, u16, u16);
 
 struct Prepared<'a> {
     volume: &'a VolumeIndex,
@@ -308,8 +305,7 @@ impl<'a> Worker<'a> {
             {
                 continue;
             }
-            let app = app_rank(entry.is_dir(), name, lineage.in_app_root);
-            let is_app = app != NOT_APP;
+            let is_app = is_app(entry.is_dir(), name, lineage.in_app_root);
             let categories = self.request.categories;
             let shown = if is_app {
                 categories.apps
@@ -335,7 +331,7 @@ impl<'a> Worker<'a> {
                 })
                 .unwrap_or(MatchKind::Exact);
             let key = (
-                app,
+                !is_app,
                 Reverse(kind),
                 Reverse(folder),
                 !lineage.in_home,
@@ -378,17 +374,18 @@ impl<'a> Worker<'a> {
     }
 }
 
-/// 0 for a shortcut (.lnk or .url) inside a Start Menu folder, 1 for an .exe, 2 for anything else.
-fn app_rank(is_dir: bool, name: &[u8], in_app_root: bool) -> u8 {
-    if is_dir {
-        NOT_APP
-    } else if in_app_root && (has_extension(name, b".lnk") || has_extension(name, b".url")) {
-        START_MENU_APP
-    } else if has_extension(name, b".exe") {
-        EXECUTABLE_APP
-    } else {
-        NOT_APP
-    }
+/// A shortcut (.lnk or .url) inside a Start Menu folder, unless it uninstalls something.
+fn is_app(is_dir: bool, name: &[u8], in_app_root: bool) -> bool {
+    !is_dir
+        && in_app_root
+        && (has_extension(name, b".lnk") || has_extension(name, b".url"))
+        && !is_uninstaller(name)
+}
+
+fn is_uninstaller(name: &[u8]) -> bool {
+    fold(std::str::from_utf8(name).unwrap_or_default())
+        .split(|c: char| !c.is_alphanumeric())
+        .any(|word| word == "uninstall" || word == "desinstalar")
 }
 
 fn has_extension(name: &[u8], extension: &[u8]) -> bool {
@@ -722,14 +719,14 @@ mod tests {
             paths(&outcome),
             [
                 r"C:\ProgramData\Programs\Relatorio Studio.lnk",
-                r"C:\Projetos\relatorio.exe",
                 r"C:\Projetos\relatorio",
+                r"C:\Projetos\relatorio.exe",
                 r"C:\Users\luis\Documents\Relatório final.pdf",
                 r"C:\Projetos\old_relatorio.pdf",
             ]
         );
         let apps: Vec<bool> = outcome.hits.iter().map(|hit| hit.is_app).collect();
-        assert_eq!(apps, [true, true, false, false, false]);
+        assert_eq!(apps, [true, false, false, false, false]);
         assert_eq!(outcome.total, 5);
     }
 
@@ -739,14 +736,12 @@ mod tests {
         let roots = [r"C:\ProgramData\Programs"];
         assert_eq!(
             paths(&run_apps(&c, Filter::Apps, &roots)),
-            [
-                r"C:\ProgramData\Programs\Relatorio Studio.lnk",
-                r"C:\Projetos\relatorio.exe"
-            ]
+            [r"C:\ProgramData\Programs\Relatorio Studio.lnk"]
         );
         assert_eq!(
             paths(&run_apps(&c, Filter::Files, &roots)),
             [
+                r"C:\Projetos\relatorio.exe",
                 r"C:\Users\luis\Documents\Relatório final.pdf",
                 r"C:\Projetos\old_relatorio.pdf"
             ]
@@ -755,6 +750,56 @@ mod tests {
             paths(&run_apps(&c, Filter::Folders, &roots)),
             [r"C:\Projetos\relatorio"]
         );
+    }
+
+    #[test]
+    fn uninstallers_are_told_by_a_whole_word() {
+        for name in [
+            "Uninstall Go.lnk",
+            "Uninstall.lnk",
+            "Desinstalar o Free Download Manager.lnk",
+            "Foo - Uninstall.lnk",
+            "UNINSTALL NEOVIM.LNK",
+        ] {
+            assert!(is_uninstaller(name.as_bytes()), "{name}");
+        }
+        for name in [
+            "Revo Uninstaller.lnk",
+            "Visual Studio Installer.lnk",
+            "Microsoft Edge.lnk",
+        ] {
+            assert!(!is_uninstaller(name.as_bytes()), "{name}");
+        }
+    }
+
+    #[test]
+    fn start_menu_uninstallers_are_listed_as_files() {
+        let mut c = with_apps();
+        c.upsert(55, 51, "Uninstall Relatorio.lnk", FILE);
+        c.upsert(56, 51, "Relatorio Uninstaller.lnk", FILE);
+        let roots = [r"C:\ProgramData\Programs"];
+        assert_eq!(
+            paths(&run_apps(&c, Filter::Apps, &roots)),
+            [
+                r"C:\ProgramData\Programs\Relatorio Studio.lnk",
+                r"C:\ProgramData\Programs\Relatorio Uninstaller.lnk"
+            ]
+        );
+        assert!(
+            paths(&run_apps(&c, Filter::Files, &roots))
+                .contains(&r"C:\ProgramData\Programs\Uninstall Relatorio.lnk")
+        );
+    }
+
+    #[test]
+    fn only_start_menu_shortcuts_are_apps() {
+        assert!(is_app(false, b"Code.lnk", true));
+        assert!(is_app(false, b"Jogo.URL", true));
+        assert!(!is_app(false, b"Code.lnk", false));
+        assert!(!is_app(false, b"Code.exe", true));
+        assert!(!is_app(false, b"Code.exe", false));
+        assert!(!is_app(true, b"Code.lnk", true));
+        assert!(!is_app(false, b"Uninstall Code.lnk", true));
     }
 
     #[test]
