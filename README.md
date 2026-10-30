@@ -15,7 +15,7 @@ Tex is a personal desktop assistant for Windows. It lives in the tray and comes 
 Results appear as you type, from an index that stays up to date instead of walking every folder on each query.
 
 - Files and folders on every disk available to you, and installed apps, in the same list. Microsoft Store apps, such as Windows Terminal, are included.
-- Results are grouped into apps, files, and folders. **Tab** switches All, Apps, Files, and Folders. Apps are listed first.
+- Results are grouped into apps, files, and folders. **Tab** switches All, Apps, Files, and Folders. Apps are listed first. Apps means Start Menu shortcuts and Store apps; any other `.exe` is listed under Files, and so are Start Menu shortcuts named as uninstallers.
 - Files and folders show where they are, so two items with the same name can be told apart.
 - A path narrows the search. `Tex/.exe` finds `.exe` files inside folders named like Tex. `Projetos/Tex/` lists what is below them.
 - **Enter** opens the selection. **Ctrl+Enter** shows a file or folder in its folder. Settings can swap the two.
