@@ -171,10 +171,10 @@ cargo run --release -p tex-indexer --example fake_server -- C:\Users\you
 The installer is [Inno Setup 6](https://jrsoftware.org/isinfo.php). After a release build, from PowerShell, with the workspace version:
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.4.6 installer\tex.iss
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.4.7 installer\tex.iss
 ```
 
-The result is `target\installer\Tex-Setup-0.4.6.exe`.
+The result is `target\installer\Tex-Setup-0.4.7.exe`.
 
 Settings live in `%APPDATA%\Tex\settings.toml`. The search index and the service log live in `%ProgramData%\Tex`. The clipboard database lives in `%LOCALAPPDATA%\Tex`.
 
