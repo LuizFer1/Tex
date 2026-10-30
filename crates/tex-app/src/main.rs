@@ -62,7 +62,7 @@ use crate::icons::{IconCache, IconLoader, IconState};
 use crate::onboarding::{Onboarding, Outcome};
 use crate::results::{
     Row, Selection, build_rows, file_icon, group_digits, header_counts, readable, ready_summary,
-    short_path, status_parts, step_selection, step_with_answer,
+    short_path, status_parts, step_selection, step_with_answer, wants_icon,
 };
 use crate::search_client::{Command, Event, Latest, SearchClient};
 use crate::settings::{
@@ -2391,7 +2391,7 @@ fn to_result_row(row: &Row, count: usize, icons: &IconLoader, viewer_exts: &[Str
                 file_icon: file_icon(name).index(),
                 ..Default::default()
             };
-            if *is_app {
+            if wants_icon(path, *is_dir, *is_app) {
                 ICONS.with_borrow_mut(|cache| match cache.get(path) {
                     Some(IconState::Loaded(icon)) => {
                         result.icon = icon.clone();
@@ -2450,7 +2450,7 @@ fn icon_loaded(popup: &Popup, path: String, pixels: Option<IconPixels>) {
     let rows = popup.get_rows();
     for index in 0..rows.row_count() {
         if let Some(mut row) = rows.row_data(index)
-            && row.is_app
+            && wants_icon(&row.path, row.is_dir, row.is_app)
             && row.path == path.as_str()
         {
             row.icon = image.clone();

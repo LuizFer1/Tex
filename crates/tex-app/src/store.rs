@@ -187,4 +187,23 @@ mod tests {
         assert!(is_store_path(r"shell:AppsFolder\x!App"));
         assert!(!is_store_path(r"C:\shell:AppsFolder\x"));
     }
+
+    #[test]
+    fn the_app_leads_even_when_a_file_matches_better() {
+        let apps = [store("Calculadora")];
+        let hits = vec![
+            app_hit(r"C:\ProgramData\Menu\Microsoft Edge.lnk"),
+            file_hit(r"C:\Steam\bin\edgewallpaper64.exe"),
+        ];
+        let merged = merge(hits, &apps, "edge", Filter::All, true, 50);
+        let rows = crate::results::build_rows(&merged, &apps);
+        let names: Vec<&str> = rows
+            .iter()
+            .filter_map(|row| match row {
+                crate::results::Row::Item { name, .. } => Some(name.as_str()),
+                crate::results::Row::Header(_) => None,
+            })
+            .collect();
+        assert_eq!(names, ["Microsoft Edge", "edgewallpaper64.exe"]);
+    }
 }

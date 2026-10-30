@@ -89,7 +89,7 @@ fn item(hit: &Hit, store: &[StoreApp]) -> Row {
 }
 
 pub fn strip_app_extension(name: &str) -> &str {
-    [".lnk", ".url", ".exe"]
+    [".lnk", ".url"]
         .iter()
         .find_map(|extension| {
             let cut = name
@@ -101,6 +101,14 @@ pub fn strip_app_extension(name: &str) -> &str {
                 .then(|| &name[..cut])
         })
         .unwrap_or(name)
+}
+
+/// Whether the row shows the file's own icon: apps, and the .exe files listed as files.
+pub fn wants_icon(path: &str, is_dir: bool, is_app: bool) -> bool {
+    let executable = path
+        .get(path.len().saturating_sub(4)..)
+        .is_some_and(|end| end.eq_ignore_ascii_case(".exe"));
+    !is_dir && (is_app || executable)
 }
 
 /// Moves the selection by `step` (+1 or -1) to the next item row, skipping headers. Without a
@@ -370,7 +378,7 @@ mod tests {
                 hit(r"C:\Projetos\code", true),
                 app(r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Visual Studio Code.lnk"),
                 hit(r"C:\notes.code", false),
-                app(r"C:\Program Files\Code\Code.exe"),
+                app(r"C:\Users\ana\Start Menu\Programs\Code Docs.url"),
             ],
             &[],
         );
@@ -386,9 +394,9 @@ mod tests {
                     is_app: true,
                 },
                 Row::Item {
-                    name: "Code".into(),
-                    folder: r"C:\Program Files\Code".into(),
-                    path: r"C:\Program Files\Code\Code.exe".into(),
+                    name: "Code Docs".into(),
+                    folder: r"C:\Users\ana\Start Menu\Programs".into(),
+                    path: r"C:\Users\ana\Start Menu\Programs\Code Docs.url".into(),
                     is_dir: false,
                     is_app: true,
                 },
@@ -398,6 +406,34 @@ mod tests {
                 item("notes.code", r"C:\", r"C:\notes.code", false),
             ]
         );
+    }
+
+    #[test]
+    fn executables_listed_as_files_keep_their_extension() {
+        let rows = build_rows(&[hit(r"C:\Steam\bin\edgewallpaper64.exe", false)], &[]);
+        assert_eq!(
+            rows,
+            [
+                Row::Header(Category::Files),
+                item(
+                    "edgewallpaper64.exe",
+                    r"C:\Steam\bin",
+                    r"C:\Steam\bin\edgewallpaper64.exe",
+                    false
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn apps_and_executables_show_their_own_icon() {
+        assert!(wants_icon(r"C:\Menu\Word.lnk", false, true));
+        assert!(wants_icon(r"C:\Steam\jogo.exe", false, false));
+        assert!(wants_icon(r"C:\Steam\JOGO.EXE", false, false));
+        assert!(!wants_icon(r"C:\Docs\nota.txt", false, false));
+        assert!(!wants_icon(r"C:\Docs\pasta.exe", true, false));
+        assert!(!wants_icon("exe", false, false));
+        assert!(!wants_icon("é.ex", false, false));
     }
 
     #[test]
