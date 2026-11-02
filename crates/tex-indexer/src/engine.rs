@@ -155,17 +155,17 @@ impl Engine {
 
 /// Start Menu folders whose shortcuts count as apps: the shared one and the requesting user's.
 pub fn start_menu_roots(program_data: Option<&str>, home: &str) -> Vec<String> {
-    const PROGRAMS: &str = r"Microsoft\Windows\Start Menu\Programs";
+    const START_MENU: &str = r"Microsoft\Windows\Start Menu";
     let mut roots = Vec::new();
     if let Some(program_data) = program_data.filter(|path| !path.is_empty()) {
         roots.push(format!(
-            r"{}\{PROGRAMS}",
+            r"{}\{START_MENU}",
             program_data.trim_end_matches('\\')
         ));
     }
     if !home.is_empty() {
         roots.push(format!(
-            r"{}\AppData\Roaming\{PROGRAMS}",
+            r"{}\AppData\Roaming\{START_MENU}",
             home.trim_end_matches('\\')
         ));
     }
@@ -381,22 +381,19 @@ mod tests {
         assert_eq!(
             start_menu_roots(Some(r"C:\ProgramData"), r"C:\Users\luis"),
             [
-                r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs",
-                r"C:\Users\luis\AppData\Roaming\Microsoft\Windows\Start Menu\Programs",
+                r"C:\ProgramData\Microsoft\Windows\Start Menu",
+                r"C:\Users\luis\AppData\Roaming\Microsoft\Windows\Start Menu",
             ]
         );
         assert!(start_menu_roots(None, "").is_empty());
     }
 
-    #[test]
-    fn user_start_menu_shortcuts_are_apps() {
-        let engine = Engine::new();
+    fn user_start_menu_index() -> VolumeIndex {
         let hidden_dir = Attributes {
             dir: true,
             hidden: true,
             system: false,
         };
-        let volume = engine.add('C', 1).unwrap();
         let mut index = VolumeIndex::new('C');
         index.upsert(
             20,
@@ -453,6 +450,14 @@ mod tests {
                 ..Attributes::default()
             },
         );
+        index
+    }
+
+    #[test]
+    fn user_start_menu_shortcuts_are_apps() {
+        let engine = Engine::new();
+        let volume = engine.add('C', 1).unwrap();
+        let mut index = user_start_menu_index();
         index.upsert(
             27,
             26,
@@ -474,5 +479,19 @@ mod tests {
                 .path
                 .ends_with(r"Programs\Visual Studio Code.lnk")
         );
+    }
+
+    #[test]
+    fn shortcuts_at_the_root_of_the_start_menu_are_apps() {
+        let engine = Engine::new();
+        let volume = engine.add('C', 1).unwrap();
+        let mut index = user_start_menu_index();
+        index.upsert(27, 26, "Ubuntu.lnk", Attributes::default());
+        volume.write().index = Some(index);
+        let mut request = query("ubuntu", Filter::Apps);
+        request.home = r"C:\Users\luis".into();
+        let results = engine.search(&request);
+        assert_eq!(results.hits.len(), 1);
+        assert!(results.hits[0].is_app);
     }
 }
