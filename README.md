@@ -20,7 +20,7 @@ Results appear as you type, from an index that stays up to date instead of walki
 - A path narrows the search. `Tex/.exe` finds `.exe` files inside folders named like Tex. `Projetos/Tex/` lists what is below them.
 - **Enter** opens the selection. **Ctrl+Enter** shows a file or folder in its folder. Settings can swap the two.
 - **Shift+Enter** opens a readable file in the reader.
-- **Ctrl+D** (or the star on a row) favorites a file, folder, or app. With nothing typed, the popup lists your favorites and the apps you open most through Tex; a favorite that matches what you type comes first. Suggestions can be turned off and cleared in Settings › Search.
+- **Ctrl+D** (or the star on a row) favorites a file, folder, or app. With nothing typed, the popup lists your favorites and the apps you open most through Tex; a favorite that matches what you type comes first. **Delete** (or the X on the row) removes a suggested app for good. Suggestions can be turned off in Settings › Search, and "Clear usage history" there also brings the removed apps back.
 - **Esc**, or a click outside, closes the popup. The Windows key also opens Tex, unless you turn that off. The popup follows the monitor under the cursor.
 
 Hidden files are included by default. System files are not. Both, and whole folders you want left out, are in Settings › Search.
