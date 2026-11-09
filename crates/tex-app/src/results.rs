@@ -1,6 +1,7 @@
 use tex_ipc::{Hit, VolumeState, VolumeStatus};
 use tex_platform::StoreApp;
 
+use crate::favorites::Favorite;
 use crate::store::display_name;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -8,6 +9,10 @@ pub enum Category {
     Apps,
     Folders,
     Files,
+    #[allow(dead_code)]
+    Favorites,
+    #[allow(dead_code)]
+    Suggestions,
 }
 
 impl Category {
@@ -16,6 +21,8 @@ impl Category {
             Category::Apps => 0,
             Category::Folders => 1,
             Category::Files => 2,
+            Category::Favorites => 3,
+            Category::Suggestions => 4,
         }
     }
 }
@@ -57,6 +64,94 @@ pub fn build_rows(hits: &[Hit], store: &[StoreApp]) -> Vec<Row> {
         rows.extend(group.into_iter().map(|hit| item(hit, store)));
     }
     rows
+}
+
+/// Puts the matched favorites in their own group on top and drops their paths from the other groups
+/// (a group left empty loses its header).
+#[allow(dead_code)]
+pub fn with_favorites(rows: Vec<Row>, favorites: &[&Favorite], store: &[StoreApp]) -> Vec<Row> {
+    if favorites.is_empty() {
+        return rows;
+    }
+    let taken = |path: &str| {
+        favorites
+            .iter()
+            .any(|favorite| favorite.path.eq_ignore_ascii_case(path))
+    };
+    let mut out = vec![Row::Header(Category::Favorites)];
+    out.extend(
+        favorites
+            .iter()
+            .map(|favorite| favorite_row(favorite, store)),
+    );
+    let mut pending: Option<Row> = None;
+    for row in rows {
+        match row {
+            Row::Header(_) => pending = Some(row),
+            Row::Item { ref path, .. } if taken(path) => {}
+            item => {
+                out.extend(pending.take());
+                out.push(item);
+            }
+        }
+    }
+    out
+}
+
+/// The popup with no query: the favorites, then the suggested apps.
+#[allow(dead_code)]
+pub fn home_rows(favorites: &[&Favorite], suggestions: &[&str], store: &[StoreApp]) -> Vec<Row> {
+    let mut rows = Vec::new();
+    if !favorites.is_empty() {
+        rows.push(Row::Header(Category::Favorites));
+        rows.extend(
+            favorites
+                .iter()
+                .map(|favorite| favorite_row(favorite, store)),
+        );
+    }
+    if !suggestions.is_empty() {
+        rows.push(Row::Header(Category::Suggestions));
+        rows.extend(suggestions.iter().map(|path| {
+            item(
+                &Hit {
+                    path: (*path).to_owned(),
+                    is_dir: false,
+                    is_app: true,
+                },
+                store,
+            )
+        }));
+    }
+    rows
+}
+
+fn favorite_row(favorite: &Favorite, store: &[StoreApp]) -> Row {
+    let hit = Hit {
+        path: favorite.path.clone(),
+        is_dir: favorite.is_dir,
+        is_app: favorite.is_app,
+    };
+    match item(&hit, store) {
+        Row::Item {
+            folder,
+            path,
+            is_dir,
+            is_app,
+            ..
+        } => Row::Item {
+            name: favorite.name.clone(),
+            folder: if crate::store::is_store_path(&path) {
+                "Microsoft Store".to_owned()
+            } else {
+                folder
+            },
+            path,
+            is_dir,
+            is_app,
+        },
+        header => header,
+    }
 }
 
 fn item(hit: &Hit, store: &[StoreApp]) -> Row {
@@ -569,6 +664,93 @@ mod tests {
         assert_eq!(file_icon("main.rs"), FileIcon::Code);
         assert_eq!(file_icon("Makefile"), FileIcon::File);
         assert_eq!(file_icon(".gitignore"), FileIcon::File);
+    }
+
+    fn favorite(path: &str, name: &str, is_dir: bool, is_app: bool) -> Favorite {
+        Favorite {
+            path: path.to_owned(),
+            name: name.to_owned(),
+            is_dir,
+            is_app,
+        }
+    }
+
+    fn names(rows: &[Row]) -> Vec<String> {
+        rows.iter()
+            .map(|row| match row {
+                Row::Header(category) => format!("#{}", category.index()),
+                Row::Item { name, .. } => name.clone(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn favorites_go_on_top_without_duplicates() {
+        let hits = [
+            Hit {
+                path: r"C:\Menu\Handbrake.lnk".to_owned(),
+                is_dir: false,
+                is_app: true,
+            },
+            Hit {
+                path: r"D:\h.txt".to_owned(),
+                is_dir: false,
+                is_app: false,
+            },
+        ];
+        let favorite = favorite(r"c:\menu\handbrake.LNK", "Handbrake", false, true);
+        let rows = with_favorites(build_rows(&hits, &[]), &[&favorite], &[]);
+        assert_eq!(names(&rows), ["#3", "Handbrake", "#2", "h.txt"]);
+        assert_eq!(header_counts(&rows), [1, 0, 1, 0]);
+    }
+
+    #[test]
+    fn favorites_group_keeps_other_rows_without_favorites() {
+        let hits = [Hit {
+            path: r"D:\h.txt".to_owned(),
+            is_dir: false,
+            is_app: false,
+        }];
+        let rows = build_rows(&hits, &[]);
+        assert_eq!(with_favorites(rows.clone(), &[], &[]), rows);
+    }
+
+    #[test]
+    fn home_rows_lists_favorites_then_suggestions() {
+        let app = favorite(r"C:\Menu\Tool.lnk", "Tool", false, true);
+        let folder = favorite(r"C:\Docs", "Docs", true, false);
+        let rows = home_rows(&[&app, &folder], &[r"C:\Menu\Other.lnk"], &[]);
+        assert_eq!(names(&rows), ["#3", "Tool", "Docs", "#4", "Other"]);
+        assert_eq!(
+            home_rows(&[&app], &[], &[]).len(),
+            2,
+            "no suggestions group"
+        );
+        assert_eq!(
+            names(&home_rows(&[], &[r"C:\Menu\Other.lnk"], &[])),
+            ["#4", "Other"]
+        );
+    }
+
+    #[test]
+    fn home_rows_is_empty_without_either() {
+        assert!(home_rows(&[], &[], &[]).is_empty());
+    }
+
+    #[test]
+    fn favorite_rows_keep_the_saved_name() {
+        let saved = favorite(r"C:\Menu\Tool.lnk", "Meu app", false, true);
+        let rows = home_rows(&[&saved], &[], &[]);
+        assert_eq!(
+            rows[1],
+            Row::Item {
+                name: "Meu app".to_owned(),
+                folder: r"C:\Menu".to_owned(),
+                path: r"C:\Menu\Tool.lnk".to_owned(),
+                is_dir: false,
+                is_app: true,
+            }
+        );
     }
 
     #[test]
