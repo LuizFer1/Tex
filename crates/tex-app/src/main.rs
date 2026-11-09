@@ -24,6 +24,8 @@ mod theme;
 mod tools;
 mod update;
 mod update_client;
+#[allow(dead_code)]
+mod usage;
 
 use std::cell::RefCell;
 use std::collections::HashSet;
