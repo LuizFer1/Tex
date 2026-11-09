@@ -20,6 +20,7 @@ Results appear as you type, from an index that stays up to date instead of walki
 - A path narrows the search. `Tex/.exe` finds `.exe` files inside folders named like Tex. `Projetos/Tex/` lists what is below them.
 - **Enter** opens the selection. **Ctrl+Enter** shows a file or folder in its folder. Settings can swap the two.
 - **Shift+Enter** opens a readable file in the reader.
+- **Ctrl+D** (or the star on a row) favorites a file, folder, or app. With nothing typed, the popup lists your favorites and the apps you open most through Tex; a favorite that matches what you type comes first. Suggestions can be turned off and cleared in Settings › Search.
 - **Esc**, or a click outside, closes the popup. The Windows key also opens Tex, unless you turn that off. The popup follows the monitor under the cursor.
 
 Hidden files are included by default. System files are not. Both, and whole folders you want left out, are in Settings › Search.
@@ -127,7 +128,7 @@ The first launch asks nine questions. Each one already has the usual choice sele
 Every answer can be changed later. Settings is in the tray menu, or **Ctrl+,** in the search box, on four tabs:
 
 - **General.** Language (follow Windows, Portuguese, or English), theme (light, dark, or follow Windows; light is the default), shortcuts, the Windows key, start with Windows, which monitor the popup uses, and updates. "Redo" walks through the first-run questions again.
-- **Search.** How long the last query stays, hidden and system files, excluded folders, which categories appear, what Enter does, and the calculator.
+- **Search.** How long the last query stays, hidden and system files, excluded folders, which categories appear, what Enter does, the calculator, and the suggested apps.
 - **Clipboard.** The history shortcut, pause, which kinds to capture, the size limit per entry, copy or copy-and-paste, the cleanup policy, apps to ignore, and clearing the history.
 - **Masks.** The masks the `clean` and `maskup` commands use: add, edit, delete, and restore the defaults.
 
