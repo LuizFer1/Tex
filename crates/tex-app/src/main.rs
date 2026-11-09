@@ -645,6 +645,12 @@ fn wire_settings(window: &SettingsWindow, windows: &Windows, client: &SearchClie
         let windows = windows.clone();
         move || redo_onboarding(&windows)
     });
+    window.on_clear_usage(|| {
+        with_app(|app| {
+            app.usage.clear();
+            app.save_usage();
+        });
+    });
     window.on_change_hotkey({
         let window = window.as_weak();
         move || {
@@ -1364,6 +1370,7 @@ fn fill_settings(window: &SettingsWindow, app: &AppState) {
     });
     window.set_include_hidden(search.include_hidden);
     window.set_calculator(search.calculator);
+    window.set_suggestions(search.suggestions);
     window.set_include_system(search.include_system);
     window.set_show_apps(search.show_apps);
     window.set_show_files(search.show_files);
@@ -1470,6 +1477,7 @@ fn read_settings(window: &SettingsWindow, current: &Settings) -> Settings {
     };
     search.include_hidden = window.get_include_hidden();
     search.calculator = window.get_calculator();
+    search.suggestions = window.get_suggestions();
     search.include_system = window.get_include_system();
     search.show_apps = window.get_show_apps();
     search.show_files = window.get_show_files();

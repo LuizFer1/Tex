@@ -62,6 +62,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> show-folders;
     in-out property <int> enter-action;
     in-out property <bool> calculator;
+    in-out property <bool> suggestions;
     in property <[DriveRow]> drives;
     in property <bool> drives-unavailable;
 
@@ -119,6 +120,7 @@ export component SettingsWindow inherits Window {
     callback add-app();
     callback remove-app(int);
     callback clear-history();
+    callback clear-usage();
     callback check-updates();
     callback install-update();
     callback redo-onboarding();
@@ -591,6 +593,26 @@ export component SettingsWindow inherits Window {
                                             checked <=> root.calculator;
                                             toggled => {
                                                 root.edited();
+                                            }
+                                        }
+                                    }
+                                    SettingRow {
+                                        label: @tr("Suggest most used apps");
+                                        description: @tr("Shows the apps you open most through Tex when the search is empty.");
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            Button {
+                                                text: @tr("Clear usage history");
+                                                clicked => {
+                                                    root.clear-usage();
+                                                }
+                                            }
+                                            Toggle {
+                                                label: @tr("Suggest most used apps");
+                                                checked <=> root.suggestions;
+                                                toggled => {
+                                                    root.edited();
+                                                }
                                             }
                                         }
                                     }
