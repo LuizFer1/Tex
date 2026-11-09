@@ -16,6 +16,7 @@ export struct ResultRow {
     file-icon: int,
     count: int,
     favorite: bool,
+    suggested: bool,
 }
 
 export struct CalcAnswer {
@@ -278,6 +279,7 @@ component ResultItem inherits Rectangle {
     callback double-clicked();
     callback hovered();
     callback star-clicked();
+    callback remove-clicked();
 
     if root.item.header: HorizontalLayout {
         padding-left: 20px;
@@ -345,6 +347,14 @@ component ResultItem inherits Rectangle {
                 vertical-alignment: center;
                 overflow: elide;
             }
+            if root.item.suggested: Rectangle {
+                width: 22px;
+                Icon {
+                    width: 14px;
+                    source: Icons.close;
+                    tint: root.selected ? Tokens.on-action-muted : transparent;
+                }
+            }
             Rectangle {
                 width: 22px;
                 Icon {
@@ -371,6 +381,19 @@ component ResultItem inherits Rectangle {
         }
         double-clicked => {
             root.double-clicked();
+        }
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.move {
+                root.hovered();
+            }
+        }
+    }
+
+    if !root.item.header && root.item.suggested: TouchArea {
+        x: root.width - 110px;
+        width: 22px;
+        clicked => {
+            root.remove-clicked();
         }
         pointer-event(event) => {
             if event.kind == PointerEventKind.move {
@@ -424,6 +447,7 @@ export component Popup inherits Window {
     property <string> mask-hints: root.mask-action == 1 ? @tr("enter copy result · esc close") : root.mask-action == 2 ? @tr("enter choose mask · esc close") : @tr("esc close");
     property <length> answer-height: (root.has-answer || root.has-mask-card) ? 64px : 0px;
     property <bool> selected-readable: root.selected >= 0 && root.selected < root.rows.length && root.rows[root.selected].readable;
+    property <bool> selected-suggested: root.selected >= 0 && root.selected < root.rows.length && root.rows[root.selected].suggested;
     property <string> base-hints: @tr("↑↓ navigate · enter {0} · ctrl enter {1} · ctrl d favorite · esc close", root.enter-reveals ? root.reveal-text : root.open-text, root.enter-reveals ? root.open-text : root.reveal-text);
     in-out property <int> filter: 0;
     in property <bool> show-apps: true;
@@ -446,6 +470,7 @@ export component Popup inherits Window {
     callback select-answer();
     callback copy-answer();
     callback toggle-favorite(int);
+    callback remove-suggestion(int);
 
     property <length> row-height: 36px;
     property <string> open-text: @tr("open");
@@ -531,6 +556,10 @@ export component Popup inherits Window {
             }
             if event.text == "," && event.modifiers.control {
                 root.open-settings();
+                return accept;
+            }
+            if event.text == Key.Delete && root.query == "" && !root.mask-mode && !root.answer-selected && root.selected-suggested {
+                root.remove-suggestion(root.selected);
                 return accept;
             }
             reject
@@ -701,6 +730,9 @@ export component Popup inherits Window {
                                 star-clicked => {
                                     root.toggle-favorite(index);
                                 }
+                                remove-clicked => {
+                                    root.remove-suggestion(index);
+                                }
                             }
                             for row[index] in root.mask-rows: MaskItem {
                                 height: root.row-height;
@@ -747,7 +779,7 @@ export component Popup inherits Window {
             }
 
             Footer {
-                hints: root.mask-mode ? root.mask-hints : root.answer-selected ? @tr("enter copy result · esc close") : root.selected-readable ? @tr("{0} · shift enter read", root.base-hints) : root.base-hints;
+                hints: root.mask-mode ? root.mask-hints : root.answer-selected ? @tr("enter copy result · esc close") : root.selected-suggested ? @tr("{0} · del remove", root.base-hints) : root.selected-readable ? @tr("{0} · shift enter read", root.base-hints) : root.base-hints;
                 status: root.status-text;
                 status-color: root.service-unavailable || root.status-failed != "" ? Tokens.warn-text : Tokens.muted;
             }

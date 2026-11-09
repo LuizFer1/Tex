@@ -792,6 +792,9 @@ msgstr "linhas: {0} · {1}"
 msgid "{0} · shift enter read"
 msgstr "{0} · shift enter ler"
 
+msgid "{0} · del remove"
+msgstr "{0} · del remover"
+
 msgid "This file is too large to edit in Tex (more than {0} KB)."
 msgstr "Este arquivo é grande demais para editar no Tex (mais de {0} KB)."
 

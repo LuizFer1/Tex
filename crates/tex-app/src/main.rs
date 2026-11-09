@@ -66,7 +66,7 @@ use crate::onboarding::{Onboarding, Outcome};
 use crate::results::{
     Row, Selection, build_rows, file_icon, group_digits, header_counts, home_rows, nearest_item,
     readable, ready_summary, short_path, status_parts, step_selection, step_with_answer,
-    wants_icon, with_favorites,
+    suggested_flags, wants_icon, with_favorites,
 };
 use crate::search_client::{Command, Event, Latest, SearchClient};
 use crate::settings::{
@@ -593,6 +593,14 @@ fn wire_popup(popup: &Popup, windows: &Windows, client: &SearchClient) {
         move |index| {
             if let Some(popup) = popup.upgrade() {
                 toggle_favorite(&popup, index);
+            }
+        }
+    });
+    popup.on_remove_suggestion({
+        let popup = popup.as_weak();
+        move |index| {
+            if let Some(popup) = popup.upgrade() {
+                remove_suggestion(&popup, index);
             }
         }
     });
@@ -2019,7 +2027,16 @@ fn show_home(popup: &Popup) {
         home_rows(&favorites, &suggestions, &store_apps)
     });
     popup.set_expanded(!rows.is_empty());
-    popup.set_rows(result_model(&rows));
+    let model = result_model(&rows);
+    for (index, suggested) in suggested_flags(&rows).into_iter().enumerate() {
+        if let Some(mut row) = model.row_data(index)
+            && suggested
+        {
+            row.suggested = true;
+            model.set_row_data(index, row);
+        }
+    }
+    popup.set_rows(model);
     let is_item: Vec<bool> = rows.iter().map(Row::is_item).collect();
     popup.set_selected(step_selection(&is_item, None, 1).map_or(-1, |index| index as i32));
 }
@@ -2072,6 +2089,33 @@ fn toggle_favorite(popup: &Popup, index: i32) {
     });
     let is_item: Vec<bool> = rows.iter().map(|row| !row.header).collect();
     let selected = moved.or_else(|| nearest_item(&is_item, index));
+    popup.set_selected(selected.map_or(-1, |index| index as i32));
+}
+
+/// The X button or Delete on a suggested app: the app stays out of the suggestions until the usage
+/// history is cleared. The selection goes to the nearest item.
+fn remove_suggestion(popup: &Popup, index: i32) {
+    if popup.get_mask_mode() {
+        return;
+    }
+    let Some(index) = usize::try_from(index).ok() else {
+        return;
+    };
+    let rows = popup.get_rows();
+    let Some(row) = rows
+        .row_data(index)
+        .filter(|row| !row.header && row.suggested)
+    else {
+        return;
+    };
+    with_app(|app| {
+        app.usage.hide(row.path.as_str());
+        app.save_usage();
+    });
+    show_home(popup);
+    let rows = popup.get_rows();
+    let is_item: Vec<bool> = rows.iter().map(|row| !row.header).collect();
+    let selected = nearest_item(&is_item, index);
     popup.set_selected(selected.map_or(-1, |index| index as i32));
 }
 
