@@ -15,6 +15,7 @@ export struct ResultRow {
     has-icon: bool,
     file-icon: int,
     count: int,
+    favorite: bool,
 }
 
 export struct CalcAnswer {
@@ -276,6 +277,7 @@ component ResultItem inherits Rectangle {
     callback clicked();
     callback double-clicked();
     callback hovered();
+    callback star-clicked();
 
     if root.item.header: HorizontalLayout {
         padding-left: 20px;
@@ -283,7 +285,7 @@ component ResultItem inherits Rectangle {
         padding-top: 10px;
         spacing: 10px;
         Text {
-            text: (root.item.category == 0 ? @tr("Apps") : root.item.category == 1 ? @tr("Folders") : @tr("Files")).to-uppercase() + " — " + (root.item.count < 10 ? "0" : "") + root.item.count;
+            text: (root.item.category == 3 ? @tr("Favorites") : root.item.category == 4 ? @tr("Suggestions") : root.item.category == 0 ? @tr("Apps") : root.item.category == 1 ? @tr("Folders") : @tr("Files")).to-uppercase() + " — " + (root.item.count < 10 ? "0" : "") + root.item.count;
             font-family: Tokens.mono-font;
             font-size: Tokens.size-kicker;
             font-weight: 500;
@@ -347,6 +349,14 @@ component ResultItem inherits Rectangle {
                 width: 22px;
                 Icon {
                     width: 14px;
+                    source: Icons.star;
+                    tint: root.item.favorite ? Tokens.highlight : root.selected ? Tokens.on-action-muted : transparent;
+                }
+            }
+            Rectangle {
+                width: 22px;
+                Icon {
+                    width: 14px;
                     source: Icons.enter;
                     tint: root.selected ? Tokens.highlight : transparent;
                 }
@@ -361,6 +371,19 @@ component ResultItem inherits Rectangle {
         }
         double-clicked => {
             root.double-clicked();
+        }
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.move {
+                root.hovered();
+            }
+        }
+    }
+
+    if !root.item.header: TouchArea {
+        x: root.width - 76px;
+        width: 22px;
+        clicked => {
+            root.star-clicked();
         }
         pointer-event(event) => {
             if event.kind == PointerEventKind.move {
@@ -401,13 +424,13 @@ export component Popup inherits Window {
     property <string> mask-hints: root.mask-action == 1 ? @tr("enter copy result · esc close") : root.mask-action == 2 ? @tr("enter choose mask · esc close") : @tr("esc close");
     property <length> answer-height: (root.has-answer || root.has-mask-card) ? 64px : 0px;
     property <bool> selected-readable: root.selected >= 0 && root.selected < root.rows.length && root.rows[root.selected].readable;
-    property <string> base-hints: @tr("↑↓ navigate · enter {0} · ctrl enter {1} · esc close", root.enter-reveals ? root.reveal-text : root.open-text, root.enter-reveals ? root.open-text : root.reveal-text);
+    property <string> base-hints: @tr("↑↓ navigate · enter {0} · ctrl enter {1} · ctrl d favorite · esc close", root.enter-reveals ? root.reveal-text : root.open-text, root.enter-reveals ? root.open-text : root.reveal-text);
     in-out property <int> filter: 0;
     in property <bool> show-apps: true;
     in property <bool> show-files: true;
     in property <bool> show-folders: true;
     in property <ColorScheme> scheme;
-    // Whether the query has more than spaces in it, set by the app on every edit.
+    // Whether the popup shows its list: a query with more than spaces, or the favorites and suggestions.
     in-out property <bool> expanded;
     out property <length> tab-width: frame.tab-width;
     out property <length> tab-height: frame.tab-height;
@@ -422,6 +445,7 @@ export component Popup inherits Window {
     callback open-settings();
     callback select-answer();
     callback copy-answer();
+    callback toggle-favorite(int);
 
     property <length> row-height: 36px;
     property <string> open-text: @tr("open");
@@ -499,6 +523,10 @@ export component Popup inherits Window {
             }
             if event.text == Key.Backtab || (event.text == Key.Tab && event.modifiers.shift) {
                 root.set-filter(root.next-filter(3));
+                return accept;
+            }
+            if (event.text == "d" || event.text == "D") && event.modifiers.control && !root.mask-mode && !root.answer-selected {
+                root.toggle-favorite(root.selected);
                 return accept;
             }
             if event.text == "," && event.modifiers.control {
@@ -669,6 +697,9 @@ export component Popup inherits Window {
                                     if index != root.selected {
                                         root.select(index);
                                     }
+                                }
+                                star-clicked => {
+                                    root.toggle-favorite(index);
                                 }
                             }
                             for row[index] in root.mask-rows: MaskItem {

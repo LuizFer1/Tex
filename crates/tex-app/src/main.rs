@@ -2,7 +2,6 @@
 
 mod app;
 mod clipboard_client;
-#[allow(dead_code)]
 mod favorites;
 mod frame;
 mod history;
@@ -24,7 +23,6 @@ mod theme;
 mod tools;
 mod update;
 mod update_client;
-#[allow(dead_code)]
 mod usage;
 
 use std::cell::RefCell;
@@ -61,12 +59,14 @@ use crate::clipboard_client::{
     ClipboardClient, Command as ClipboardCommand, Event as ClipboardEvent, PAGE_SIZE, SEARCH_LIMIT,
     history_folder, now_ms,
 };
+use crate::favorites::{Favorite, Favorites};
 use crate::history::{HistoryList, day_starts_through, size_parts, when_parts};
 use crate::icons::{IconCache, IconLoader, IconState};
 use crate::onboarding::{Onboarding, Outcome};
 use crate::results::{
-    Row, Selection, build_rows, file_icon, group_digits, header_counts, readable, ready_summary,
-    short_path, status_parts, step_selection, step_with_answer, wants_icon,
+    Row, Selection, build_rows, file_icon, group_digits, header_counts, home_rows, nearest_item,
+    readable, ready_summary, short_path, status_parts, step_selection, step_with_answer,
+    wants_icon, with_favorites,
 };
 use crate::search_client::{Command, Event, Latest, SearchClient};
 use crate::settings::{
@@ -77,6 +77,7 @@ use crate::shortcut::Shortcut;
 use crate::store_client::StoreClient;
 use crate::theme::{Art, Design};
 use crate::update_client::{UpdateClient, UpdateStatus, is_stale};
+use crate::usage::Usage;
 
 slint::include_modules!();
 
@@ -84,6 +85,7 @@ const ICON_CACHE_SIZE: usize = 256;
 const SEARCH_TAB: i32 = 1;
 const CLIPBOARD_TAB: i32 = 2;
 const PREVIEW_CHARS: usize = 100_000;
+const SUGGESTIONS: usize = 5;
 
 thread_local! {
     static ICONS: RefCell<IconCache<Image>> = RefCell::new(IconCache::new(ICON_CACHE_SIZE));
@@ -93,6 +95,11 @@ thread_local! {
 }
 
 static STORE: OnceLock<StoreClient> = OnceLock::new();
+static ICON_LOADER: OnceLock<IconLoader> = OnceLock::new();
+
+fn icon_loader() -> &'static IconLoader {
+    ICON_LOADER.get().expect("icon loader started")
+}
 
 fn store() -> &'static StoreClient {
     STORE.get_or_init(StoreClient::start)
@@ -179,7 +186,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         onboarding: onboarding.as_weak(),
     };
 
-    app::init(AppState::new(settings, path, GlobalHotKeyManager::new()?));
+    let favorites = settings::load_toml(&favorites::favorites_path(), Favorites::from_toml);
+    let usage = settings::load_toml(&usage::usage_path(), Usage::from_toml);
+    app::init(AppState::new(
+        settings,
+        path,
+        favorites,
+        usage,
+        GlobalHotKeyManager::new()?,
+    ));
     let language = with_app(|app| app.settings.general.language);
     app::apply_language(language);
     apply_theme(&windows);
@@ -232,12 +247,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     tray.set_paused(with_app(|app| app::capture_paused(&app.settings)));
 
-    let icons = IconLoader::start({
+    let _ = ICON_LOADER.set(IconLoader::start({
         let popup = popup.as_weak();
         move |path, pixels| {
             let _ = popup.upgrade_in_event_loop(move |popup| icon_loaded(&popup, path, pixels));
         }
-    });
+    }));
     store();
 
     let latest = Latest::default();
@@ -246,14 +261,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         latest.clone(),
         {
             let windows = windows.clone();
-            let icons = icons.clone();
             move |event| {
                 let windows = windows.clone();
-                let icons = icons.clone();
                 let latest = latest.clone();
-                let _ = slint::invoke_from_event_loop(move || {
-                    show_event(&windows, event, &icons, &latest)
-                });
+                let _ = slint::invoke_from_event_loop(move || show_event(&windows, event, &latest));
             }
         },
     );
@@ -574,6 +585,14 @@ fn wire_popup(popup: &Popup, windows: &Windows, client: &SearchClient) {
                 } else {
                     activate(&popup, index, alternate);
                 }
+            }
+        }
+    });
+    popup.on_toggle_favorite({
+        let popup = popup.as_weak();
+        move |index| {
+            if let Some(popup) = popup.upgrade() {
+                toggle_favorite(&popup, index);
             }
         }
     });
@@ -1815,6 +1834,7 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
         popup.set_has_answer(false);
         popup.set_answer_selected(false);
         leave_mask(&popup);
+        show_home(&popup);
     }
     popup.set_status_indexing("".into());
     popup.set_status_failed("".into());
@@ -1957,8 +1977,7 @@ fn search(popup: &Popup, client: &SearchClient) {
     leave_mask(popup);
     calculate(popup);
     if query.trim().is_empty() {
-        popup.set_rows(ModelRc::default());
-        popup.set_selected(-1);
+        show_home(popup);
         return;
     }
     popup.set_searching(true);
@@ -1967,6 +1986,85 @@ fn search(popup: &Popup, client: &SearchClient) {
         current_filter(popup),
         with_app(|app| app::search_options(&app.settings.search)),
     );
+}
+
+/// The popup with no query: the favorites, then the most used apps (when suggestions are on).
+/// It expands only when there is something to show.
+fn show_home(popup: &Popup) {
+    let filter = current_filter(popup);
+    let store_apps = store().apps();
+    let rows = with_app(|app| {
+        let shown = app.shown();
+        let favorites = app.favorites.visible(filter, shown);
+        let suggest = app.settings.search.suggestions
+            && shown.apps
+            && matches!(filter, Filter::All | Filter::Apps);
+        let suggestions: Vec<&str> = if suggest {
+            app.usage.top(SUGGESTIONS, usage::now(), |path| {
+                app.favorites.contains(path)
+                    || (store::is_store_path(path)
+                        && store::display_name(&store_apps, path).is_none())
+            })
+        } else {
+            Vec::new()
+        };
+        home_rows(&favorites, &suggestions, &store_apps)
+    });
+    popup.set_expanded(!rows.is_empty());
+    popup.set_rows(result_model(&rows));
+    let is_item: Vec<bool> = rows.iter().map(Row::is_item).collect();
+    popup.set_selected(step_selection(&is_item, None, 1).map_or(-1, |index| index as i32));
+}
+
+/// The popup's rows for `rows`, with their icons asked for and their favorite flags set.
+fn result_model(rows: &[Row]) -> ModelRc<ResultRow> {
+    let viewer_exts = reader_client::viewer_extensions();
+    let model: Vec<ResultRow> = rows
+        .iter()
+        .zip(header_counts(rows))
+        .map(|(row, count)| to_result_row(row, count, &viewer_exts))
+        .collect();
+    ModelRc::new(VecModel::from(model))
+}
+
+/// Ctrl+D or the star on a row: adds the row to the favorites or removes it. With no query the home
+/// list is built again, keeping the selection on the row or near its place; otherwise only the row's star changes.
+fn toggle_favorite(popup: &Popup, index: i32) {
+    if popup.get_mask_mode() {
+        return;
+    }
+    let Some(index) = usize::try_from(index).ok() else {
+        return;
+    };
+    let rows = popup.get_rows();
+    let Some(mut row) = rows.row_data(index).filter(|row| !row.header) else {
+        return;
+    };
+    let favorite = Favorite {
+        path: row.path.to_string(),
+        name: row.title.to_string(),
+        is_dir: row.is_dir,
+        is_app: row.is_app,
+    };
+    let now_favorite = with_app(|app| {
+        let now_favorite = app.favorites.toggle(favorite);
+        app.save_favorites();
+        now_favorite
+    });
+    if !popup.get_query().trim().is_empty() {
+        row.favorite = now_favorite;
+        rows.set_row_data(index, row);
+        return;
+    }
+    show_home(popup);
+    let rows = popup.get_rows();
+    let moved = (0..rows.row_count()).find(|&i| {
+        rows.row_data(i)
+            .is_some_and(|other| !other.header && other.path == row.path)
+    });
+    let is_item: Vec<bool> = rows.iter().map(|row| !row.header).collect();
+    let selected = moved.or_else(|| nearest_item(&is_item, index));
+    popup.set_selected(selected.map_or(-1, |index| index as i32));
 }
 
 fn current_filter(popup: &Popup) -> Filter {
@@ -2266,7 +2364,7 @@ fn leave_mask(popup: &Popup) {
     }
 }
 
-fn show_event(windows: &Windows, event: Event, icons: &IconLoader, latest: &Latest) {
+fn show_event(windows: &Windows, event: Event, latest: &Latest) {
     let popup = windows.popup.upgrade();
     let settings = windows.settings.upgrade();
     match event {
@@ -2281,26 +2379,30 @@ fn show_event(windows: &Windows, event: Event, icons: &IconLoader, latest: &Late
                 return;
             }
             let store_apps = store().apps();
-            let show_apps = with_app(|app| app.settings.search.show_apps);
+            let filter = current_filter(&popup);
+            let (show_apps, favorites) = with_app(|app| {
+                let favorites: Vec<Favorite> = app
+                    .favorites
+                    .matching(&popup.get_query(), filter, app.shown())
+                    .into_iter()
+                    .cloned()
+                    .collect();
+                (app.settings.search.show_apps, favorites)
+            });
             let hits = store::merge(
                 results.hits,
                 &store_apps,
                 &popup.get_query(),
-                current_filter(&popup),
+                filter,
                 show_apps,
-                search_client::LIMIT as usize,
+                (search_client::LIMIT as usize).saturating_sub(favorites.len()),
             );
-            let rows = build_rows(&hits, &store_apps);
+            let favorites: Vec<&Favorite> = favorites.iter().collect();
+            let rows = with_favorites(build_rows(&hits, &store_apps), &favorites, &store_apps);
             let is_item: Vec<bool> = rows.iter().map(Row::is_item).collect();
             let selected = step_selection(&is_item, None, 1);
-            let counts = header_counts(&rows);
-            let viewer_exts = reader_client::viewer_extensions();
-            let model: Vec<ResultRow> = rows
-                .iter()
-                .zip(counts)
-                .map(|(row, count)| to_result_row(row, count, icons, &viewer_exts))
-                .collect();
-            popup.set_rows(ModelRc::new(VecModel::from(model)));
+            let model = result_model(&rows);
+            popup.set_rows(model);
             popup.set_selected(if popup.get_answer_selected() {
                 -1
             } else {
@@ -2368,7 +2470,7 @@ fn drive_row(volume: &VolumeStatus, separator: char) -> DriveRow {
     row
 }
 
-fn to_result_row(row: &Row, count: usize, icons: &IconLoader, viewer_exts: &[String]) -> ResultRow {
+fn to_result_row(row: &Row, count: usize, viewer_exts: &[String]) -> ResultRow {
     match row {
         Row::Header(category) => ResultRow {
             header: true,
@@ -2393,6 +2495,7 @@ fn to_result_row(row: &Row, count: usize, icons: &IconLoader, viewer_exts: &[Str
                 is_app: *is_app,
                 readable: readable(name, *is_dir, *is_app, viewer_exts),
                 file_icon: file_icon(name).index(),
+                favorite: with_app(|app| app.favorites.contains(path)),
                 ..Default::default()
             };
             if wants_icon(path, *is_dir, *is_app) {
@@ -2404,7 +2507,7 @@ fn to_result_row(row: &Row, count: usize, icons: &IconLoader, viewer_exts: &[Str
                     Some(_) => {}
                     None => {
                         if cache.mark_requested(path) {
-                            icons.request(path.clone());
+                            icon_loader().request(path.clone());
                         }
                     }
                 });
@@ -2434,6 +2537,14 @@ fn activate(popup: &Popup, index: i32, alternate: bool) {
         open_path(&row.path)
     };
     if opened.is_ok() {
+        if !reveal && row.is_app {
+            with_app(|app| {
+                if app.settings.search.suggestions {
+                    app.usage.record(&row.path, usage::now());
+                    app.save_usage();
+                }
+            });
+        }
         hide_popup(popup);
     }
 }

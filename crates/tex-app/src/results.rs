@@ -9,9 +9,7 @@ pub enum Category {
     Apps,
     Folders,
     Files,
-    #[allow(dead_code)]
     Favorites,
-    #[allow(dead_code)]
     Suggestions,
 }
 
@@ -68,7 +66,6 @@ pub fn build_rows(hits: &[Hit], store: &[StoreApp]) -> Vec<Row> {
 
 /// Puts the matched favorites in their own group on top and drops their paths from the other groups
 /// (a group left empty loses its header).
-#[allow(dead_code)]
 pub fn with_favorites(rows: Vec<Row>, favorites: &[&Favorite], store: &[StoreApp]) -> Vec<Row> {
     if favorites.is_empty() {
         return rows;
@@ -99,7 +96,6 @@ pub fn with_favorites(rows: Vec<Row>, favorites: &[&Favorite], store: &[StoreApp
 }
 
 /// The popup with no query: the favorites, then the suggested apps.
-#[allow(dead_code)]
 pub fn home_rows(favorites: &[&Favorite], suggestions: &[&str], store: &[StoreApp]) -> Vec<Row> {
     let mut rows = Vec::new();
     if !favorites.is_empty() {
@@ -221,6 +217,14 @@ pub fn step_selection(is_item: &[bool], current: Option<usize>, step: isize) -> 
         index += step;
     }
     current
+}
+
+/// The item row closest to `index` (clamped to the last row), looking down first, then up.
+pub fn nearest_item(is_item: &[bool], index: usize) -> Option<usize> {
+    let index = index.min(is_item.len().checked_sub(1)?);
+    (index..is_item.len())
+        .find(|&i| is_item[i])
+        .or_else(|| (0..index).rev().find(|&i| is_item[i]))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -770,6 +774,18 @@ mod tests {
             item(),
         ];
         assert_eq!(header_counts(&rows), [2, 0, 0, 1, 0]);
+    }
+
+    #[test]
+    fn nearest_item_clamps_and_skips_headers() {
+        let rows = [false, true, true, false, true];
+        assert_eq!(nearest_item(&rows, 0), Some(1));
+        assert_eq!(nearest_item(&rows, 2), Some(2));
+        assert_eq!(nearest_item(&rows, 3), Some(4));
+        assert_eq!(nearest_item(&rows, 9), Some(4));
+        assert_eq!(nearest_item(&[true, false], 1), Some(0));
+        assert_eq!(nearest_item(&[false], 0), None);
+        assert_eq!(nearest_item(&[], 0), None);
     }
 
     #[test]
