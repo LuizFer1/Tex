@@ -2,6 +2,8 @@
 
 mod app;
 mod clipboard_client;
+#[allow(dead_code)]
+mod favorites;
 mod frame;
 mod history;
 mod icons;
