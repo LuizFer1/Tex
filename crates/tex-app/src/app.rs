@@ -8,14 +8,18 @@ use slint::language::ColorScheme;
 use tex_platform::{WinKeyHook, system_uses_dark_theme, user_language};
 
 use crate::clipboard_client::ClientSettings;
+use crate::favorites::{self, Favorites, Shown};
 use crate::search_client::SearchOptions;
 use crate::settings::{self, Language, Search, Settings, Theme};
 use crate::shortcut::Shortcut;
+use crate::usage::{self, Usage};
 
 /// Everything the UI thread changes at run time: the settings and what applies them.
 pub struct AppState {
     pub settings: Settings,
     pub path: PathBuf,
+    pub favorites: Favorites,
+    pub usage: Usage,
     pub closed_at: Option<Instant>,
     pub hotkey_failed: bool,
     pub history_hotkey_failed: bool,
@@ -65,10 +69,18 @@ pub fn with_app<R>(f: impl FnOnce(&mut AppState) -> R) -> R {
 }
 
 impl AppState {
-    pub fn new(settings: Settings, path: PathBuf, hotkeys: GlobalHotKeyManager) -> Self {
+    pub fn new(
+        settings: Settings,
+        path: PathBuf,
+        favorites: Favorites,
+        usage: Usage,
+        hotkeys: GlobalHotKeyManager,
+    ) -> Self {
         Self {
             settings,
             path,
+            favorites,
+            usage,
             closed_at: None,
             hotkey_failed: false,
             history_hotkey_failed: false,
@@ -88,6 +100,24 @@ impl AppState {
             hotkey: None,
             history_hotkey: None,
             winkey: None,
+        }
+    }
+
+    pub fn save_favorites(&self) {
+        let _ = settings::save_text(&favorites::favorites_path(), &self.favorites.to_toml());
+    }
+
+    pub fn save_usage(&self) {
+        let _ = settings::save_text(&usage::usage_path(), &self.usage.to_toml());
+    }
+
+    /// The categories Settings › Search lets the popup show.
+    pub fn shown(&self) -> Shown {
+        let search = &self.settings.search;
+        Shown {
+            apps: search.show_apps,
+            files: search.show_files,
+            folders: search.show_folders,
         }
     }
 
@@ -329,7 +359,13 @@ mod tests {
         settings.general.hotkey = "ctrl+alt+shift+f23".into();
         settings.clipboard.hotkey = "ctrl+alt+shift+f24".into();
         let hotkeys = GlobalHotKeyManager::new().unwrap();
-        let mut app = AppState::new(settings, PathBuf::new(), hotkeys);
+        let mut app = AppState::new(
+            settings,
+            PathBuf::new(),
+            Favorites::default(),
+            Usage::default(),
+            hotkeys,
+        );
         let history = app.history_shortcut();
         assert_eq!(app.apply_hotkey(&history), Err(HotkeyError::Conflict));
         assert_eq!(app.settings.general.hotkey, "ctrl+alt+shift+f23");

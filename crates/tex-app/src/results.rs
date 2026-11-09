@@ -1,6 +1,7 @@
 use tex_ipc::{Hit, VolumeState, VolumeStatus};
 use tex_platform::StoreApp;
 
+use crate::favorites::Favorite;
 use crate::store::display_name;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -8,6 +9,8 @@ pub enum Category {
     Apps,
     Folders,
     Files,
+    Favorites,
+    Suggestions,
 }
 
 impl Category {
@@ -16,6 +19,8 @@ impl Category {
             Category::Apps => 0,
             Category::Folders => 1,
             Category::Files => 2,
+            Category::Favorites => 3,
+            Category::Suggestions => 4,
         }
     }
 }
@@ -59,6 +64,92 @@ pub fn build_rows(hits: &[Hit], store: &[StoreApp]) -> Vec<Row> {
     rows
 }
 
+/// Puts the matched favorites in their own group on top and drops their paths from the other groups
+/// (a group left empty loses its header).
+pub fn with_favorites(rows: Vec<Row>, favorites: &[&Favorite], store: &[StoreApp]) -> Vec<Row> {
+    if favorites.is_empty() {
+        return rows;
+    }
+    let taken = |path: &str| {
+        favorites
+            .iter()
+            .any(|favorite| favorite.path.eq_ignore_ascii_case(path))
+    };
+    let mut out = vec![Row::Header(Category::Favorites)];
+    out.extend(
+        favorites
+            .iter()
+            .map(|favorite| favorite_row(favorite, store)),
+    );
+    let mut pending: Option<Row> = None;
+    for row in rows {
+        match row {
+            Row::Header(_) => pending = Some(row),
+            Row::Item { ref path, .. } if taken(path) => {}
+            item => {
+                out.extend(pending.take());
+                out.push(item);
+            }
+        }
+    }
+    out
+}
+
+/// The popup with no query: the favorites, then the suggested apps.
+pub fn home_rows(favorites: &[&Favorite], suggestions: &[&str], store: &[StoreApp]) -> Vec<Row> {
+    let mut rows = Vec::new();
+    if !favorites.is_empty() {
+        rows.push(Row::Header(Category::Favorites));
+        rows.extend(
+            favorites
+                .iter()
+                .map(|favorite| favorite_row(favorite, store)),
+        );
+    }
+    if !suggestions.is_empty() {
+        rows.push(Row::Header(Category::Suggestions));
+        rows.extend(suggestions.iter().map(|path| {
+            item(
+                &Hit {
+                    path: (*path).to_owned(),
+                    is_dir: false,
+                    is_app: true,
+                },
+                store,
+            )
+        }));
+    }
+    rows
+}
+
+fn favorite_row(favorite: &Favorite, store: &[StoreApp]) -> Row {
+    let hit = Hit {
+        path: favorite.path.clone(),
+        is_dir: favorite.is_dir,
+        is_app: favorite.is_app,
+    };
+    match item(&hit, store) {
+        Row::Item {
+            folder,
+            path,
+            is_dir,
+            is_app,
+            ..
+        } => Row::Item {
+            name: favorite.name.clone(),
+            folder: if crate::store::is_store_path(&path) {
+                "Microsoft Store".to_owned()
+            } else {
+                folder
+            },
+            path,
+            is_dir,
+            is_app,
+        },
+        header => header,
+    }
+}
+
 fn item(hit: &Hit, store: &[StoreApp]) -> Row {
     if let Some(name) = display_name(store, &hit.path) {
         return Row::Item {
@@ -89,7 +180,7 @@ fn item(hit: &Hit, store: &[StoreApp]) -> Row {
 }
 
 pub fn strip_app_extension(name: &str) -> &str {
-    [".lnk", ".url", ".exe"]
+    [".lnk", ".url"]
         .iter()
         .find_map(|extension| {
             let cut = name
@@ -101,6 +192,14 @@ pub fn strip_app_extension(name: &str) -> &str {
                 .then(|| &name[..cut])
         })
         .unwrap_or(name)
+}
+
+/// Whether the row shows the file's own icon: apps, and the .exe files listed as files.
+pub fn wants_icon(path: &str, is_dir: bool, is_app: bool) -> bool {
+    let executable = path
+        .get(path.len().saturating_sub(4)..)
+        .is_some_and(|end| end.eq_ignore_ascii_case(".exe"));
+    !is_dir && (is_app || executable)
 }
 
 /// Moves the selection by `step` (+1 or -1) to the next item row, skipping headers. Without a
@@ -118,6 +217,14 @@ pub fn step_selection(is_item: &[bool], current: Option<usize>, step: isize) -> 
         index += step;
     }
     current
+}
+
+/// The item row closest to `index` (clamped to the last row), looking down first, then up.
+pub fn nearest_item(is_item: &[bool], index: usize) -> Option<usize> {
+    let index = index.min(is_item.len().checked_sub(1)?);
+    (index..is_item.len())
+        .find(|&i| is_item[i])
+        .or_else(|| (0..index).rev().find(|&i| is_item[i]))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -370,7 +477,7 @@ mod tests {
                 hit(r"C:\Projetos\code", true),
                 app(r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Visual Studio Code.lnk"),
                 hit(r"C:\notes.code", false),
-                app(r"C:\Program Files\Code\Code.exe"),
+                app(r"C:\Users\ana\Start Menu\Programs\Code Docs.url"),
             ],
             &[],
         );
@@ -386,9 +493,9 @@ mod tests {
                     is_app: true,
                 },
                 Row::Item {
-                    name: "Code".into(),
-                    folder: r"C:\Program Files\Code".into(),
-                    path: r"C:\Program Files\Code\Code.exe".into(),
+                    name: "Code Docs".into(),
+                    folder: r"C:\Users\ana\Start Menu\Programs".into(),
+                    path: r"C:\Users\ana\Start Menu\Programs\Code Docs.url".into(),
                     is_dir: false,
                     is_app: true,
                 },
@@ -398,6 +505,34 @@ mod tests {
                 item("notes.code", r"C:\", r"C:\notes.code", false),
             ]
         );
+    }
+
+    #[test]
+    fn executables_listed_as_files_keep_their_extension() {
+        let rows = build_rows(&[hit(r"C:\Steam\bin\edgewallpaper64.exe", false)], &[]);
+        assert_eq!(
+            rows,
+            [
+                Row::Header(Category::Files),
+                item(
+                    "edgewallpaper64.exe",
+                    r"C:\Steam\bin",
+                    r"C:\Steam\bin\edgewallpaper64.exe",
+                    false
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn apps_and_executables_show_their_own_icon() {
+        assert!(wants_icon(r"C:\Menu\Word.lnk", false, true));
+        assert!(wants_icon(r"C:\Steam\jogo.exe", false, false));
+        assert!(wants_icon(r"C:\Steam\JOGO.EXE", false, false));
+        assert!(!wants_icon(r"C:\Docs\nota.txt", false, false));
+        assert!(!wants_icon(r"C:\Docs\pasta.exe", true, false));
+        assert!(!wants_icon("exe", false, false));
+        assert!(!wants_icon("é.ex", false, false));
     }
 
     #[test]
@@ -535,6 +670,93 @@ mod tests {
         assert_eq!(file_icon(".gitignore"), FileIcon::File);
     }
 
+    fn favorite(path: &str, name: &str, is_dir: bool, is_app: bool) -> Favorite {
+        Favorite {
+            path: path.to_owned(),
+            name: name.to_owned(),
+            is_dir,
+            is_app,
+        }
+    }
+
+    fn names(rows: &[Row]) -> Vec<String> {
+        rows.iter()
+            .map(|row| match row {
+                Row::Header(category) => format!("#{}", category.index()),
+                Row::Item { name, .. } => name.clone(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn favorites_go_on_top_without_duplicates() {
+        let hits = [
+            Hit {
+                path: r"C:\Menu\Handbrake.lnk".to_owned(),
+                is_dir: false,
+                is_app: true,
+            },
+            Hit {
+                path: r"D:\h.txt".to_owned(),
+                is_dir: false,
+                is_app: false,
+            },
+        ];
+        let favorite = favorite(r"c:\menu\handbrake.LNK", "Handbrake", false, true);
+        let rows = with_favorites(build_rows(&hits, &[]), &[&favorite], &[]);
+        assert_eq!(names(&rows), ["#3", "Handbrake", "#2", "h.txt"]);
+        assert_eq!(header_counts(&rows), [1, 0, 1, 0]);
+    }
+
+    #[test]
+    fn favorites_group_keeps_other_rows_without_favorites() {
+        let hits = [Hit {
+            path: r"D:\h.txt".to_owned(),
+            is_dir: false,
+            is_app: false,
+        }];
+        let rows = build_rows(&hits, &[]);
+        assert_eq!(with_favorites(rows.clone(), &[], &[]), rows);
+    }
+
+    #[test]
+    fn home_rows_lists_favorites_then_suggestions() {
+        let app = favorite(r"C:\Menu\Tool.lnk", "Tool", false, true);
+        let folder = favorite(r"C:\Docs", "Docs", true, false);
+        let rows = home_rows(&[&app, &folder], &[r"C:\Menu\Other.lnk"], &[]);
+        assert_eq!(names(&rows), ["#3", "Tool", "Docs", "#4", "Other"]);
+        assert_eq!(
+            home_rows(&[&app], &[], &[]).len(),
+            2,
+            "no suggestions group"
+        );
+        assert_eq!(
+            names(&home_rows(&[], &[r"C:\Menu\Other.lnk"], &[])),
+            ["#4", "Other"]
+        );
+    }
+
+    #[test]
+    fn home_rows_is_empty_without_either() {
+        assert!(home_rows(&[], &[], &[]).is_empty());
+    }
+
+    #[test]
+    fn favorite_rows_keep_the_saved_name() {
+        let saved = favorite(r"C:\Menu\Tool.lnk", "Meu app", false, true);
+        let rows = home_rows(&[&saved], &[], &[]);
+        assert_eq!(
+            rows[1],
+            Row::Item {
+                name: "Meu app".to_owned(),
+                folder: r"C:\Menu".to_owned(),
+                path: r"C:\Menu\Tool.lnk".to_owned(),
+                is_dir: false,
+                is_app: true,
+            }
+        );
+    }
+
     #[test]
     fn header_counts_count_items_of_each_group() {
         let item = || Row::Item {
@@ -552,6 +774,18 @@ mod tests {
             item(),
         ];
         assert_eq!(header_counts(&rows), [2, 0, 0, 1, 0]);
+    }
+
+    #[test]
+    fn nearest_item_clamps_and_skips_headers() {
+        let rows = [false, true, true, false, true];
+        assert_eq!(nearest_item(&rows, 0), Some(1));
+        assert_eq!(nearest_item(&rows, 2), Some(2));
+        assert_eq!(nearest_item(&rows, 3), Some(4));
+        assert_eq!(nearest_item(&rows, 9), Some(4));
+        assert_eq!(nearest_item(&[true, false], 1), Some(0));
+        assert_eq!(nearest_item(&[false], 0), None);
+        assert_eq!(nearest_item(&[], 0), None);
     }
 
     #[test]

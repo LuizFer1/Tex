@@ -15,11 +15,12 @@ Tex is a personal desktop assistant for Windows. It lives in the tray and comes 
 Results appear as you type, from an index that stays up to date instead of walking every folder on each query.
 
 - Files and folders on every disk available to you, and installed apps, in the same list. Microsoft Store apps, such as Windows Terminal, are included.
-- Results are grouped into apps, files, and folders. **Tab** switches All, Apps, Files, and Folders. Apps are listed first.
+- Results are grouped into apps, files, and folders. **Tab** switches All, Apps, Files, and Folders. Apps are listed first. Apps means Start Menu shortcuts and Store apps; any other `.exe` is listed under Files, and so are Start Menu shortcuts named as uninstallers.
 - Files and folders show where they are, so two items with the same name can be told apart.
 - A path narrows the search. `Tex/.exe` finds `.exe` files inside folders named like Tex. `Projetos/Tex/` lists what is below them.
 - **Enter** opens the selection. **Ctrl+Enter** shows a file or folder in its folder. Settings can swap the two.
 - **Shift+Enter** opens a readable file in the reader.
+- **Ctrl+D** (or the star on a row) favorites a file, folder, or app. With nothing typed, the popup lists your favorites and the apps you open most through Tex; a favorite that matches what you type comes first. Suggestions can be turned off and cleared in Settings › Search.
 - **Esc**, or a click outside, closes the popup. The Windows key also opens Tex, unless you turn that off. The popup follows the monitor under the cursor.
 
 Hidden files are included by default. System files are not. Both, and whole folders you want left out, are in Settings › Search.
@@ -127,7 +128,7 @@ The first launch asks nine questions. Each one already has the usual choice sele
 Every answer can be changed later. Settings is in the tray menu, or **Ctrl+,** in the search box, on four tabs:
 
 - **General.** Language (follow Windows, Portuguese, or English), theme (light, dark, or follow Windows; light is the default), shortcuts, the Windows key, start with Windows, which monitor the popup uses, and updates. "Redo" walks through the first-run questions again.
-- **Search.** How long the last query stays, hidden and system files, excluded folders, which categories appear, what Enter does, and the calculator.
+- **Search.** How long the last query stays, hidden and system files, excluded folders, which categories appear, what Enter does, the calculator, and the suggested apps.
 - **Clipboard.** The history shortcut, pause, which kinds to capture, the size limit per entry, copy or copy-and-paste, the cleanup policy, apps to ignore, and clearing the history.
 - **Masks.** The masks the `clean` and `maskup` commands use: add, edit, delete, and restore the defaults.
 
@@ -171,10 +172,10 @@ cargo run --release -p tex-indexer --example fake_server -- C:\Users\you
 The installer is [Inno Setup 6](https://jrsoftware.org/isinfo.php). After a release build, from PowerShell, with the workspace version:
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.4.6 installer\tex.iss
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.4.8 installer\tex.iss
 ```
 
-The result is `target\installer\Tex-Setup-0.4.6.exe`.
+The result is `target\installer\Tex-Setup-0.4.8.exe`.
 
 Settings live in `%APPDATA%\Tex\settings.toml`. The search index and the service log live in `%ProgramData%\Tex`. The clipboard database lives in `%LOCALAPPDATA%\Tex`.
 

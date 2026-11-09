@@ -51,6 +51,7 @@ pub struct Search {
     pub show_folders: bool,
     pub enter_action: EnterAction,
     pub calculator: bool,
+    pub suggestions: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -153,6 +154,7 @@ impl Default for Search {
             show_folders: true,
             enter_action: EnterAction::Open,
             calculator: true,
+            suggestions: true,
         }
     }
 }
@@ -264,6 +266,7 @@ impl Settings {
                 show_folders: field(search, "show_folders").unwrap_or(s.show_folders),
                 enter_action: field(search, "enter_action").unwrap_or(s.enter_action),
                 calculator: field(search, "calculator").unwrap_or(s.calculator),
+                suggestions: field(search, "suggestions").unwrap_or(s.suggestions),
             },
             clipboard: Clipboard {
                 hotkey: field(clipboard, "hotkey").unwrap_or(c.hotkey),
@@ -443,17 +446,17 @@ pub fn extensions_dir() -> PathBuf {
     settings_path().with_file_name("extensions")
 }
 
-/// Missing file: defaults. Unreadable or not TOML: defaults, and the file is kept as `settings.toml.bad`.
-pub fn load(path: &Path) -> Settings {
+/// Missing file: default. Unreadable or unparsable: default, and the file is kept as `<name>.toml.bad`.
+pub fn load_toml<T: Default>(path: &Path, parse: impl FnOnce(&str) -> Option<T>) -> T {
     match fs::read_to_string(path) {
-        Ok(text) => Settings::from_toml(&text).unwrap_or_else(|| {
+        Ok(text) => parse(&text).unwrap_or_else(|| {
             set_aside(path);
-            Settings::default()
+            T::default()
         }),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Settings::default(),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => T::default(),
         Err(_) => {
             set_aside(path);
-            Settings::default()
+            T::default()
         }
     }
 }
@@ -463,18 +466,60 @@ fn set_aside(path: &Path) {
 }
 
 /// Writes to a temporary file and renames it, so a crash never leaves half a file.
-pub fn save(path: &Path, settings: &Settings) -> io::Result<()> {
+pub fn save_text(path: &Path, text: &str) -> io::Result<()> {
     if let Some(folder) = path.parent() {
         fs::create_dir_all(folder)?;
     }
     let temporary = path.with_extension("toml.tmp");
-    fs::write(&temporary, settings.to_toml())?;
+    fs::write(&temporary, text)?;
     fs::rename(&temporary, path)
+}
+
+pub fn load(path: &Path) -> Settings {
+    load_toml(path, Settings::from_toml)
+}
+
+pub fn save(path: &Path, settings: &Settings) -> io::Result<()> {
+    save_text(path, &settings.to_toml())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn suggestions_are_on_by_default_and_can_be_turned_off() {
+        assert!(Settings::default().search.suggestions);
+        let settings = Settings::from_toml(
+            "[search]
+suggestions = false
+",
+        )
+        .unwrap();
+        assert!(!settings.search.suggestions);
+        let settings = Settings::from_toml(
+            "[search]
+suggestions = 3
+",
+        )
+        .unwrap();
+        assert!(settings.search.suggestions);
+    }
+
+    #[test]
+    fn load_toml_sets_a_broken_file_aside_and_save_text_writes_it() {
+        let dir = std::env::temp_dir().join(format!("tex-load-toml-{}", std::process::id()));
+        let path = dir.join("x.toml");
+        save_text(&path, "a = 1").unwrap();
+        assert_eq!(
+            load_toml(&path, |text| text.parse::<Table>().ok()).get("a"),
+            Some(&Value::Integer(1))
+        );
+        fs::write(&path, "not toml [").unwrap();
+        assert!(load_toml(&path, |text| text.parse::<Table>().ok()).is_empty());
+        assert!(path.with_extension("toml.bad").exists());
+        let _ = fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn calculator_is_on_by_default_and_can_be_turned_off() {

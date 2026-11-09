@@ -51,6 +51,18 @@ msgstr "Por tempo"
 msgid "Calculator in search"
 msgstr "Calculadora na pesquisa"
 
+msgid "Suggest most used apps"
+msgstr "Sugerir apps mais usados"
+
+msgid "Shows the apps you open most through Tex when the search is empty."
+msgstr "Mostra os apps que você mais abre pelo Tex quando a pesquisa está vazia."
+
+msgid "Clear usage history"
+msgstr "Limpar histórico de uso"
+
+msgid "Suggestions"
+msgstr "Sugestões"
+
 msgid "Shows the result of calculations and conversions above the results."
 msgstr "Mostra o resultado de contas e conversões acima dos resultados."
 
@@ -339,8 +351,8 @@ msgstr "abrir"
 msgid "open location"
 msgstr "abrir local"
 
-msgid "↑↓ navigate · enter {0} · ctrl enter {1} · esc close"
-msgstr "↑↓ navegar · enter {0} · ctrl enter {1} · esc fechar"
+msgid "↑↓ navigate · enter {0} · ctrl enter {1} · ctrl d favorite · esc close"
+msgstr "↑↓ navegar · enter {0} · ctrl enter {1} · ctrl d favoritar · esc fechar"
 
 msgid "search service stopped"
 msgstr "serviço de pesquisa parado"
