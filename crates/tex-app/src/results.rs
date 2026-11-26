@@ -122,6 +122,20 @@ pub fn home_rows(favorites: &[&Favorite], suggestions: &[&str], store: &[StoreAp
     rows
 }
 
+/// For each row, whether it is a suggested app (an item under the Suggestions header).
+pub fn suggested_flags(rows: &[Row]) -> Vec<bool> {
+    let mut inside = false;
+    rows.iter()
+        .map(|row| match row {
+            Row::Header(category) => {
+                inside = *category == Category::Suggestions;
+                false
+            }
+            Row::Item { .. } => inside,
+        })
+        .collect()
+}
+
 fn favorite_row(favorite: &Favorite, store: &[StoreApp]) -> Row {
     let hit = Hit {
         path: favorite.path.clone(),
@@ -739,6 +753,18 @@ mod tests {
     #[test]
     fn home_rows_is_empty_without_either() {
         assert!(home_rows(&[], &[], &[]).is_empty());
+    }
+
+    #[test]
+    fn suggested_flags_marks_only_the_suggestion_items() {
+        let app = favorite(r"C:\Menu\Tool.lnk", "Tool", false, true);
+        let rows = home_rows(&[&app], &[r"C:\Menu\Other.lnk"], &[]);
+        assert_eq!(suggested_flags(&rows), [false, false, false, true]);
+        assert_eq!(
+            suggested_flags(&home_rows(&[&app], &[], &[])),
+            [false, false]
+        );
+        assert!(suggested_flags(&[]).is_empty());
     }
 
     #[test]

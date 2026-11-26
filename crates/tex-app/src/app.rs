@@ -35,6 +35,7 @@ pub struct AppState {
     pub mask_copy: Option<String>,
     pub mask_seed: Option<String>,
     pub mask_seed_text: Option<String>,
+    pub gen_cache: Option<(crate::gen_cmd::Key, Vec<String>)>,
     hotkeys: GlobalHotKeyManager,
     hotkey: Option<HotKey>,
     history_hotkey: Option<HotKey>,
@@ -96,6 +97,7 @@ impl AppState {
             mask_copy: None,
             mask_seed: None,
             mask_seed_text: None,
+            gen_cache: None,
             hotkeys,
             hotkey: None,
             history_hotkey: None,
@@ -129,6 +131,7 @@ impl AppState {
         self.mask_rows = Vec::new();
         self.mask_copy = None;
         self.mask_seed_text = None;
+        self.gen_cache = None;
     }
 
     pub fn shortcut(&self) -> Shortcut {

@@ -1,23 +1,38 @@
 import { Tokens } from "../theme.slint";
+import { FocusRing } from "focus.slint";
 
 export component TabItem inherits Rectangle {
     in property <string> text;
     in property <string> number;
     in property <bool> active;
     in property <length> font-size: Tokens.size-body;
+    // Side padding. With it the tab also gets a hover background.
+    in property <length> pad: 0px;
+    // Draws the keyboard focus ring; the tab strip owns the focus.
+    in property <bool> focused;
     callback clicked();
 
     horizontal-stretch: 0;
     accessible-role: tab;
     accessible-label: root.text;
 
+    Rectangle {
+        height: parent.height - 2px;
+        y: 0px;
+        border-top-left-radius: Tokens.radius-control;
+        border-top-right-radius: Tokens.radius-control;
+        background: root.pad > 0px && touch.has-hover && !root.active ? Tokens.border-2 : transparent;
+    }
+
     HorizontalLayout {
+        padding-left: root.pad;
+        padding-right: root.pad;
         spacing: 6px;
         if root.number != "": Text {
             text: root.number;
             font-family: Tokens.mono-font;
             font-size: Tokens.size-kicker;
-            color: root.active ? Tokens.action : Tokens.muted-2;
+            color: root.active ? Tokens.action-strong : Tokens.muted;
             vertical-alignment: center;
         }
         Text {
@@ -35,11 +50,15 @@ export component TabItem inherits Rectangle {
         background: root.active ? Tokens.action : transparent;
     }
 
-    TouchArea {
+    touch := TouchArea {
         mouse-cursor: pointer;
         clicked => {
             root.clicked();
         }
+    }
+
+    FocusRing {
+        show: root.focused;
     }
 }
 

@@ -4,6 +4,8 @@ mod app;
 mod clipboard_client;
 mod favorites;
 mod frame;
+mod gen_cmd;
+mod gen_settings;
 mod history;
 mod icons;
 mod image_cache;
@@ -11,6 +13,7 @@ mod mask_cmd;
 mod mask_settings;
 mod onboarding;
 mod placement;
+mod random;
 mod reader;
 mod reader_client;
 mod results;
@@ -47,6 +50,7 @@ use tex_clipboard::{
     Content, EditError, HistoryFilter, Kind, Preview, Rgba, Summary, decode_png, rgba_to_dib,
 };
 use tex_ipc::{Filter, VolumeState, VolumeStatus};
+use tex_mask::{Builtin, GenSource};
 use tex_platform::{
     ClipboardWatcher, IconPixels, LocalTime, SingleInstance, catch_windows_key, foreground_window,
     local_time, lock_foreground, open_path, paste_into, pick_file, pick_folder, primary_work_area,
@@ -63,15 +67,16 @@ use crate::favorites::{Favorite, Favorites};
 use crate::history::{HistoryList, day_starts_through, size_parts, when_parts};
 use crate::icons::{IconCache, IconLoader, IconState};
 use crate::onboarding::{Onboarding, Outcome};
+use crate::random::OsRandom;
 use crate::results::{
     Row, Selection, build_rows, file_icon, group_digits, header_counts, home_rows, nearest_item,
     readable, ready_summary, short_path, status_parts, step_selection, step_with_answer,
-    wants_icon, with_favorites,
+    suggested_flags, wants_icon, with_favorites,
 };
 use crate::search_client::{Command, Event, Latest, SearchClient};
 use crate::settings::{
-    CLEANUP_DAYS, Cleanup, EnterAction, ITEM_SIZES_MB, KeepSearch, Language, OnPick, PopupMonitor,
-    STORAGE_LIMITS_MB, Settings, Theme, settings_path,
+    CLEANUP_DAYS, Cleanup, EnterAction, ITEM_SIZES_MB, KeepSearch, Language, OnPick,
+    PASSWORD_LENGTHS, PopupMonitor, STORAGE_LIMITS_MB, Settings, Theme, settings_path,
 };
 use crate::shortcut::Shortcut;
 use crate::store_client::StoreClient;
@@ -596,6 +601,14 @@ fn wire_popup(popup: &Popup, windows: &Windows, client: &SearchClient) {
             }
         }
     });
+    popup.on_remove_suggestion({
+        let popup = popup.as_weak();
+        move |index| {
+            if let Some(popup) = popup.upgrade() {
+                remove_suggestion(&popup, index);
+            }
+        }
+    });
     popup.on_read({
         let popup = popup.as_weak();
         let windows = windows.clone();
@@ -735,6 +748,7 @@ fn wire_settings(window: &SettingsWindow, windows: &Windows, client: &SearchClie
     });
     wire_clipboard_tab(window, windows);
     wire_masks_tab(window, windows);
+    wire_generators_tab(window, windows);
     window.window().on_close_requested({
         let window = window.as_weak();
         move || {
@@ -915,6 +929,93 @@ fn wire_masks_tab(window: &SettingsWindow, windows: &Windows) {
     });
 }
 
+fn wire_generators_tab(window: &SettingsWindow, windows: &Windows) {
+    window.on_check_generator(|index, name, pattern| {
+        let index = usize::try_from(index).ok();
+        let entries = with_app(|app| app.settings.generator_entries(english(&app.settings)));
+        gen_settings::check(&entries, index, name.as_str(), pattern.as_str())
+    });
+    window.on_generator_add({
+        let windows = windows.clone();
+        move |name, pattern| {
+            let accepted = change_generators(&windows, |entries| {
+                if gen_settings::check(entries, None, name.as_str(), pattern.as_str()) != 0 {
+                    return false;
+                }
+                entries.push(settings::GeneratorEntry {
+                    name: name.to_string(),
+                    source: GenSource::Pattern(pattern.to_string()),
+                });
+                true
+            });
+            if accepted && let Some(window) = windows.settings.upgrade() {
+                window.set_gen_new_name("".into());
+                window.set_gen_new_pattern("".into());
+            }
+        }
+    });
+    window.on_generator_edit({
+        let windows = windows.clone();
+        move |index, name, pattern| {
+            let Ok(index) = usize::try_from(index) else {
+                return;
+            };
+            let accepted = change_generators(&windows, |entries| {
+                if index >= entries.len()
+                    || gen_settings::check(entries, Some(index), name.as_str(), pattern.as_str())
+                        != 0
+                {
+                    return false;
+                }
+                let source = if matches!(entries[index].source, GenSource::Builtin(_)) {
+                    entries[index].source.clone()
+                } else {
+                    GenSource::Pattern(pattern.to_string())
+                };
+                entries[index] = settings::GeneratorEntry {
+                    name: name.to_string(),
+                    source,
+                };
+                true
+            });
+            if accepted && let Some(window) = windows.settings.upgrade() {
+                window.set_editing_generator(-1);
+            }
+        }
+    });
+    window.on_generator_delete({
+        let windows = windows.clone();
+        move |index| {
+            let Ok(index) = usize::try_from(index) else {
+                return;
+            };
+            let accepted = change_generators(&windows, |entries| {
+                if index >= entries.len() {
+                    return false;
+                }
+                entries.remove(index);
+                true
+            });
+            if accepted && let Some(window) = windows.settings.upgrade() {
+                let editing =
+                    mask_settings::editing_after_delete(window.get_editing_generator(), index);
+                window.set_editing_generator(editing);
+            }
+        }
+    });
+    window.on_generators_restore({
+        let windows = windows.clone();
+        move || {
+            let Some(window) = windows.settings.upgrade() else {
+                return;
+            };
+            with_app(|app| app.settings.restore_generators());
+            window.set_editing_generator(-1);
+            generators_changed(&window);
+        }
+    });
+}
+
 /// While a shortcut is recorded neither one is registered, so pressing the other one is
 /// recorded (and refused) instead of opening its window.
 fn suspend_hotkeys() {
@@ -1051,16 +1152,76 @@ fn masks_changed(window: &SettingsWindow) {
 
 fn fill_masks(window: &SettingsWindow, settings: &Settings) {
     let entries = settings.mask_entries();
-    let rows: Vec<MaskEntryRow> = entries
+    let rows: Vec<EntryRow> = entries
         .iter()
         .zip(mask_settings::errors(&entries))
-        .map(|(entry, error)| MaskEntryRow {
+        .map(|(entry, error)| EntryRow {
             name: entry.name.as_str().into(),
             pattern: entry.pattern.as_str().into(),
+            builtin: 0,
             error,
         })
         .collect();
     window.set_masks(ModelRc::new(VecModel::from(rows)));
+}
+
+/// Applies `change` to the generator list when it accepts, then shows and saves the list.
+fn change_generators(
+    windows: &Windows,
+    change: impl FnOnce(&mut Vec<settings::GeneratorEntry>) -> bool,
+) -> bool {
+    let Some(window) = windows.settings.upgrade() else {
+        return false;
+    };
+    let accepted = with_app(|app| {
+        let mut entries = app.settings.generator_entries(english(&app.settings));
+        let accepted = change(&mut entries);
+        if accepted {
+            app.settings.set_generators(entries);
+        }
+        accepted
+    });
+    if accepted {
+        generators_changed(&window);
+    }
+    accepted
+}
+
+fn generators_changed(window: &SettingsWindow) {
+    with_app(|app| fill_generators(window, &app.settings));
+    save_settings(window);
+}
+
+fn fill_generators(window: &SettingsWindow, settings: &Settings) {
+    let entries = settings.generator_entries(english(settings));
+    let rows: Vec<EntryRow> = entries
+        .iter()
+        .zip(gen_settings::errors(&entries))
+        .map(|(entry, error)| {
+            let pattern = match &entry.source {
+                GenSource::Pattern(pattern) => pattern.as_str(),
+                GenSource::Builtin(_) => "",
+            };
+            EntryRow {
+                name: entry.name.as_str().into(),
+                pattern: pattern.into(),
+                builtin: builtin_code(&entry.source),
+                error,
+            }
+        })
+        .collect();
+    window.set_generators(ModelRc::new(VecModel::from(rows)));
+}
+
+/// What the settings window shows for a generator: 0 for a pattern, else the built-in kind.
+fn builtin_code(source: &GenSource) -> i32 {
+    match source {
+        GenSource::Pattern(_) => 0,
+        GenSource::Builtin(Builtin::Cpf) => 1,
+        GenSource::Builtin(Builtin::Cnpj) => 2,
+        GenSource::Builtin(Builtin::CnpjAlpha) => 3,
+        GenSource::Builtin(Builtin::Password) => 4,
+    }
 }
 
 fn save_settings(window: &SettingsWindow) {
@@ -1099,6 +1260,9 @@ fn apply_settings(
         apply_categories(&popup, &new);
     }
     if let Some(window) = windows.settings.upgrade() {
+        if new.general.language != old.general.language {
+            fill_generators(&window, &new);
+        }
         save_settings(&window);
     }
     if new.clipboard != old.clipboard || new.general.onboarding_done != old.general.onboarding_done
@@ -1409,6 +1573,16 @@ fn fill_settings(window: &SettingsWindow, app: &AppState) {
     window.set_new_name("".into());
     window.set_new_pattern("".into());
     fill_masks(window, &app.settings);
+    let generate = &app.settings.generate;
+    window.set_gen_formatted(generate.formatted);
+    window.set_password_length(preset_index(&PASSWORD_LENGTHS, generate.password_length));
+    window.set_password_symbols(generate.password_symbols);
+    window.set_editing_generator(-1);
+    window.set_gen_edit_name("".into());
+    window.set_gen_edit_pattern("".into());
+    window.set_gen_new_name("".into());
+    window.set_gen_new_pattern("".into());
+    fill_generators(window, &app.settings);
 }
 
 fn preset_index(presets: &[u32], value: u32) -> i32 {
@@ -1514,6 +1688,14 @@ fn read_settings(window: &SettingsWindow, current: &Settings) -> Settings {
         clipboard.cleanup_limit_mb,
     );
     clipboard.respect_exclusion = window.get_respect_exclusion();
+    let generate = &mut settings.generate;
+    generate.formatted = window.get_gen_formatted();
+    generate.password_length = preset_at(
+        &PASSWORD_LENGTHS,
+        window.get_password_length(),
+        generate.password_length,
+    );
+    generate.password_symbols = window.get_password_symbols();
     settings.normalize();
     settings
 }
@@ -1535,6 +1717,7 @@ fn show_settings(windows: &Windows, client: &SearchClient, tab: Option<i32>) {
     }
     send_history(ClipboardCommand::Usage);
     let _ = window.show();
+    window.invoke_take_focus();
     if let Some(hwnd) = window_hwnd(window.window()) {
         round_corners(hwnd);
     }
@@ -1904,15 +2087,23 @@ fn show_popup(windows: &Windows, client: &SearchClient) {
     }
 }
 
+/// Whether the interface is in English, which picks the English command words and generator names.
+fn english(settings: &Settings) -> bool {
+    matches!(
+        app::calc_locale(settings.general.language),
+        tex_calc::Locale::En
+    )
+}
+
 /// Opens the command panel on the history item the Ctrl+M shortcut picked: the query that fits it,
 /// with the item as the first clip. The clipboard's recent texts follow when the worker answers.
 fn open_mask_seed(popup: &Popup, client: &SearchClient, text: String) {
     let query = with_app(|app| {
-        let english = matches!(
-            app::calc_locale(app.settings.general.language),
-            tex_calc::Locale::En
-        );
-        mask_cmd::history_query(&app.settings.compiled_masks(), &text, english)
+        mask_cmd::history_query(
+            &app.settings.compiled_masks(),
+            &text,
+            english(&app.settings),
+        )
     });
     with_app(|app| {
         app.mask_clips = vec![text.clone()];
@@ -2019,7 +2210,16 @@ fn show_home(popup: &Popup) {
         home_rows(&favorites, &suggestions, &store_apps)
     });
     popup.set_expanded(!rows.is_empty());
-    popup.set_rows(result_model(&rows));
+    let model = result_model(&rows);
+    for (index, suggested) in suggested_flags(&rows).into_iter().enumerate() {
+        if let Some(mut row) = model.row_data(index)
+            && suggested
+        {
+            row.suggested = true;
+            model.set_row_data(index, row);
+        }
+    }
+    popup.set_rows(model);
     let is_item: Vec<bool> = rows.iter().map(Row::is_item).collect();
     popup.set_selected(step_selection(&is_item, None, 1).map_or(-1, |index| index as i32));
 }
@@ -2075,6 +2275,33 @@ fn toggle_favorite(popup: &Popup, index: i32) {
     popup.set_selected(selected.map_or(-1, |index| index as i32));
 }
 
+/// The X button or Delete on a suggested app: the app stays out of the suggestions until the usage
+/// history is cleared. The selection goes to the nearest item.
+fn remove_suggestion(popup: &Popup, index: i32) {
+    if popup.get_mask_mode() {
+        return;
+    }
+    let Some(index) = usize::try_from(index).ok() else {
+        return;
+    };
+    let rows = popup.get_rows();
+    let Some(row) = rows
+        .row_data(index)
+        .filter(|row| !row.header && row.suggested)
+    else {
+        return;
+    };
+    with_app(|app| {
+        app.usage.hide(row.path.as_str());
+        app.save_usage();
+    });
+    show_home(popup);
+    let rows = popup.get_rows();
+    let is_item: Vec<bool> = rows.iter().map(|row| !row.header).collect();
+    let selected = nearest_item(&is_item, index);
+    popup.set_selected(selected.map_or(-1, |index| index as i32));
+}
+
 fn current_filter(popup: &Popup) -> Filter {
     match popup.get_filter() {
         1 => Filter::Apps,
@@ -2109,18 +2336,22 @@ fn move_selection(popup: &Popup, step: i32) {
     }
 }
 
-/// Enters the command panel for `command` and draws it. Entering asks the clipboard for its recent
-/// texts once; the query edits that follow only redraw.
+/// Enters the command panel for `command` and draws it. Entering a command that works on clips asks
+/// the clipboard for its recent texts once; the query edits that follow only redraw. The generator
+/// panel clears `mask_mode`, so the next clip command asks again.
 fn mask_panel(popup: &Popup, command: &mask_cmd::Command) {
-    let entering = with_app(|app| !std::mem::replace(&mut app.mask_mode, true));
+    let clips = command.kind != mask_cmd::Kind::Generate;
+    let entering = with_app(|app| !std::mem::replace(&mut app.mask_mode, clips));
     if entering {
         popup.set_rows(ModelRc::default());
         popup.set_searching(false);
-        with_history(|history| {
-            history.client.send(ClipboardCommand::RecentText {
-                limit: mask_cmd::MAX_CLIPS,
+        if clips {
+            with_history(|history| {
+                history.client.send(ClipboardCommand::RecentText {
+                    limit: mask_cmd::MAX_CLIPS,
+                });
             });
-        });
+        }
     }
     popup.set_answer_selected(false);
     popup.set_selected(-1);
@@ -2131,7 +2362,11 @@ fn mask_panel(popup: &Popup, command: &mask_cmd::Command) {
 /// Draws the command panel from the clips and the chosen one. The rows are replaced only when they
 /// change, so moving through the clips does not scroll the list back to the top.
 fn show_mask(popup: &Popup, command: &mask_cmd::Command) {
+    if command.kind == mask_cmd::Kind::Generate {
+        return show_generate(popup, command);
+    }
     let (card, copy, rows, previous, lines) = with_app(|app| {
+        app.gen_cache = None;
         let masks = app.settings.compiled_masks();
         let entries = app.settings.mask_entries();
         let view = mask_cmd::view(command, &masks, &app.mask_clips, app.mask_chosen);
@@ -2151,12 +2386,82 @@ fn show_mask(popup: &Popup, command: &mask_cmd::Command) {
             } else {
                 0
             },
+            generated: false,
         });
         let previous = std::mem::replace(&mut app.mask_rows, rows.clone());
         app.mask_copy = copy.clone();
         let lines = (previous != rows).then_some(lines);
         (card, copy, rows, previous, lines)
     });
+    draw_panel(popup, card, lines, &previous, &rows, copy.is_some());
+}
+
+/// Draws the generator panel. The values of the request are made once and kept in
+/// `AppState::gen_cache`, so redraws show the same ones until the request changes.
+fn show_generate(popup: &Popup, command: &mask_cmd::Command) {
+    let (card, copy, rows, previous, lines) = with_app(|app| {
+        let language = english(&app.settings);
+        let generators = app.settings.compiled_generators(language);
+        let entries = app.settings.generator_entries(language);
+        let options = app.settings.generate.options();
+        let view = gen_cmd::view(command, &generators);
+        let values = match view.request {
+            Some(request) => gen_cmd::values(
+                &mut app.gen_cache,
+                request,
+                &generators,
+                options,
+                &mut OsRandom,
+            ),
+            None => {
+                app.gen_cache = None;
+                None
+            }
+        };
+        let (card, copy) = match (view.request, values.as_deref()) {
+            (Some(request), Some(values)) => values
+                .first()
+                .map(|first| {
+                    (
+                        MaskCard {
+                            input: gen_cmd::input(request, &generators).into(),
+                            output: mask_cmd::preview(first, 60).into(),
+                            mask: generators
+                                .get(request.generator)
+                                .map_or_else(String::new, |generator| generator.name.clone())
+                                .into(),
+                            count: request.amount as i32,
+                            generated: true,
+                        },
+                        gen_cmd::copy_text(values),
+                    )
+                })
+                .unzip(),
+            _ => (None, None),
+        };
+        let rows = gen_cmd::rows(&view, card.is_some());
+        let lines: Vec<MaskRow> = rows
+            .iter()
+            .map(|row| gen_line(row, &generators, &entries, options))
+            .collect();
+        let previous = std::mem::replace(&mut app.mask_rows, rows.clone());
+        app.mask_copy = copy.clone();
+        let lines = (previous != rows).then_some(lines);
+        (card, copy, rows, previous, lines)
+    });
+    draw_panel(popup, card, lines, &previous, &rows, copy.is_some());
+}
+
+/// Draws the card, the lines, the selection and the hint of the command panel. The lines are
+/// replaced only when `lines` is given, so moving through them keeps the list where it is.
+fn draw_panel(
+    popup: &Popup,
+    card: Option<MaskCard>,
+    lines: Option<Vec<MaskRow>>,
+    previous: &[mask_cmd::Row],
+    rows: &[mask_cmd::Row],
+    has_copy: bool,
+) {
     let has_card = card.is_some();
     popup.set_has_answer(false);
     popup.set_mask_mode(true);
@@ -2165,10 +2470,52 @@ fn show_mask(popup: &Popup, command: &mask_cmd::Command) {
     if let Some(lines) = lines {
         popup.set_mask_rows(ModelRc::new(VecModel::from(lines)));
     }
-    let selection = mask_cmd::settle(current_selection(popup), &previous, &rows, has_card);
+    let selection = mask_cmd::settle(current_selection(popup), previous, rows, has_card);
     apply_selection(popup, selection);
-    let action = mask_cmd::action(selection, &rows, copy.is_some());
+    let action = mask_cmd::action(selection, rows, has_copy);
     popup.set_mask_action(mask_hint(action));
+}
+
+/// One line of the generator panel. `kind` 4 is its section header, 5 a generator (`index` is its
+/// position, the detail its shape or its saved pattern) and 6 the line that generates again.
+fn gen_line(
+    row: &mask_cmd::Row,
+    generators: &[tex_mask::Generator],
+    entries: &[settings::GeneratorEntry],
+    options: tex_mask::GenOptions,
+) -> MaskRow {
+    let (header, kind, index, label, detail) = match *row {
+        mask_cmd::Row::Header(mask_cmd::Section::Generators) => {
+            (true, 4, 0, String::new(), String::new())
+        }
+        mask_cmd::Row::Generator(index) => match generators.get(index) {
+            Some(generator) => {
+                let saved = entries
+                    .iter()
+                    .find(|entry| entry.name == generator.name)
+                    .and_then(|entry| match &entry.source {
+                        tex_mask::GenSource::Pattern(pattern) => {
+                            Some(mask_cmd::preview(pattern, 80))
+                        }
+                        tex_mask::GenSource::Builtin(_) => None,
+                    });
+                let detail = gen_cmd::detail(generator, options)
+                    .or(saved)
+                    .unwrap_or_default();
+                (false, 5, index, generator.name.clone(), detail)
+            }
+            None => (false, 0, 0, String::new(), String::new()),
+        },
+        mask_cmd::Row::Again => (false, 6, 0, String::new(), String::new()),
+        _ => (false, 0, 0, String::new(), String::new()),
+    };
+    MaskRow {
+        header,
+        kind,
+        index: index as i32,
+        label: label.into(),
+        detail: detail.into(),
+    }
 }
 
 /// One line of the command panel. `kind` tells the Slint side what the line is: 0 and 1 are the
@@ -2202,6 +2549,9 @@ fn mask_line(
                 .map_or_else(String::new, |clip| mask_cmd::preview(clip, 80));
             (false, 3, index, text, String::new())
         }
+        mask_cmd::Row::Header(mask_cmd::Section::Generators)
+        | mask_cmd::Row::Generator(_)
+        | mask_cmd::Row::Again => (false, 0, 0, String::new(), String::new()),
     };
     MaskRow {
         header,
@@ -2290,9 +2640,11 @@ fn refresh_mask_action(popup: &Popup) {
 
 fn mask_hint(action: mask_cmd::Action) -> i32 {
     match action {
+        mask_cmd::Action::Nothing => 0,
         mask_cmd::Action::Copy => 1,
         mask_cmd::Action::Choose(_) => 2,
-        mask_cmd::Action::Nothing => 0,
+        mask_cmd::Action::Again => 3,
+        mask_cmd::Action::ChooseGenerator(_) => 4,
     }
 }
 
@@ -2330,6 +2682,23 @@ fn activate_mask(popup: &Popup, index: i32, client: &SearchClient) {
             popup.set_query(query.into());
             search(popup, client);
             popup.invoke_cursor_to(end as i32);
+        }
+        mask_cmd::Action::ChooseGenerator(generator) => {
+            let name = with_app(|app| {
+                app.settings
+                    .compiled_generators(english(&app.settings))
+                    .get(generator)
+                    .map_or_else(String::new, |generator| generator.name.clone())
+            });
+            let query = gen_cmd::complete(&command, &name);
+            let end = query.len();
+            popup.set_query(query.into());
+            search(popup, client);
+            popup.invoke_cursor_to(end as i32);
+        }
+        mask_cmd::Action::Again => {
+            with_app(|app| app.gen_cache = None);
+            show_mask(popup, &command);
         }
         mask_cmd::Action::Nothing => {}
     }

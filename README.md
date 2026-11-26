@@ -2,7 +2,7 @@
 
 > Your desktop, within reach.
 
-Tex is a personal desktop assistant for Windows. It lives in the tray and comes up when you call it: one box to find files, folders, and apps, a history of what you copy, a calculator and mask tools in that same box, and a reader for the text files you find.
+Tex is a personal desktop assistant for Windows. It lives in the tray and comes up when you call it: one box to find files, folders, and apps, a history of what you copy, a calculator, mask tools and test-data generators in that same box, and a reader for the text files you find.
 
 ![Tex](crates/tex-app/ui/assets/app-icon.png)
 
@@ -20,7 +20,7 @@ Results appear as you type, from an index that stays up to date instead of walki
 - A path narrows the search. `Tex/.exe` finds `.exe` files inside folders named like Tex. `Projetos/Tex/` lists what is below them.
 - **Enter** opens the selection. **Ctrl+Enter** shows a file or folder in its folder. Settings can swap the two.
 - **Shift+Enter** opens a readable file in the reader.
-- **Ctrl+D** (or the star on a row) favorites a file, folder, or app. With nothing typed, the popup lists your favorites and the apps you open most through Tex; a favorite that matches what you type comes first. Suggestions can be turned off and cleared in Settings › Search.
+- **Ctrl+D** (or the star on a row) favorites a file, folder, or app. With nothing typed, the popup lists your favorites and the apps you open most through Tex; a favorite that matches what you type comes first. **Delete** (or the X on the row) removes a suggested app for good. Suggestions can be turned off in Settings › Search, and "Clear usage history" there also brings the removed apps back.
 - **Esc**, or a click outside, closes the popup. The Windows key also opens Tex, unless you turn that off. The popup follows the monitor under the cursor.
 
 Hidden files are included by default. System files are not. Both, and whole folders you want left out, are in Settings › Search.
@@ -49,6 +49,14 @@ Without text, the command works on the clipboard history, which is listed below 
 A mask is a name and a regular expression of the masked text, with one group per block and fixed sizes only, for example `(\d{2})\.(\d{3})\.(\d{3})/(\d{4})-(\d{2})`. Tex reads the separators and sizes from it. Repetitions like `+`, `*`, `?` and `{n,m}`, alternatives with `|`, nested groups, and groups with no separator between them are refused, with the reason shown as you type. Matching ignores case, `\d` is only `0-9`, and an occurrence cannot touch a letter or a digit. Masks live in Settings › Masks. CNPJ (the alphanumeric one), CPF, CEP, mobile and landline phones come ready, and "Restore defaults" brings them back.
 
 In the history, **Ctrl+M** on a text entry (or the Mask button) closes the history and opens the popup with `clean ` or `maskup ` and that entry as the input.
+
+## Generators
+
+Make test data without leaving the keyboard. **`generate`** (or `gerar`) `<generator> [amount]` works on the All tab like the mask commands: `generate cpf` shows a valid CPF, `generate cnpj 5` five valid CNPJs, one per line (up to 100). **Enter** copies everything and closes the popup; Tex's own copies never go into the history, so a password stays out of it. The value stays the same while the query does not change; the **Generate again** line below the card draws a new one. While you type a name, matching generators are listed and **Enter** completes it.
+
+Ready to use: `cpf`, `cnpj` (numeric, branch `0001`), `cnpja` (the alphanumeric CNPJ) and `senha` (`password` with the English interface). CPF and CNPJ have the right check digits and come out punctuated unless you turn that off; passwords mix upper and lower case letters, digits and, if on, symbols, with at least one of each, at the length chosen in Settings › Generators. Everything is drawn from the system's secure random source.
+
+Your own generators are a name and a regular expression in the same fixed-size format as masks, but groups and separators are optional: `[A-Z]{3}\d[A-Z]\d{2}` makes Mercosul plates. Each class gives a random character among the printable ASCII ones it holds, as written (`[A-Z]` gives capitals), and literal text is copied as is. Variable sizes, alternatives, a pattern with no random part, or more than 256 characters per value are refused as you type. All generators, the ready ones included, can be renamed or deleted in Settings › Generators, and "Restore defaults" brings the ready ones back.
 
 ## Clipboard
 
@@ -131,6 +139,7 @@ Every answer can be changed later. Settings is in the tray menu, or **Ctrl+,** i
 - **Search.** How long the last query stays, hidden and system files, excluded folders, which categories appear, what Enter does, the calculator, and the suggested apps.
 - **Clipboard.** The history shortcut, pause, which kinds to capture, the size limit per entry, copy or copy-and-paste, the cleanup policy, apps to ignore, and clearing the history.
 - **Masks.** The masks the `clean` and `maskup` commands use: add, edit, delete, and restore the defaults.
+- **Generators.** Punctuation for CPF and CNPJ, password length and symbols, and the generators the `generate` command uses: add, rename or edit, delete, and restore the defaults.
 
 With updates on, Tex downloads a new version in the background. "Update to …" in the tray menu, or "Update and restart" in Settings, runs the installer. The installer is checked against a signature shipped with Tex before it runs.
 
@@ -172,14 +181,14 @@ cargo run --release -p tex-indexer --example fake_server -- C:\Users\you
 The installer is [Inno Setup 6](https://jrsoftware.org/isinfo.php). After a release build, from PowerShell, with the workspace version:
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.4.8 installer\tex.iss
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.4.11 installer\tex.iss
 ```
 
-The result is `target\installer\Tex-Setup-0.4.8.exe`.
+The result is `target\installer\Tex-Setup-0.4.11.exe`.
 
 Settings live in `%APPDATA%\Tex\settings.toml`. The search index and the service log live in `%ProgramData%\Tex`. The clipboard database lives in `%LOCALAPPDATA%\Tex`.
 
-Tex is a Cargo workspace. `tex-app` is the program and the Slint interface. `tex-indexer` is the search service. `tex-index`, `tex-clipboard`, `tex-reader`, `tex-calc`, and `tex-mask` are the pure cores behind search, history, the reader, the calculator, and the masks. `tex-platform` is the Windows code. `tex-ipc` is the pipe between the app and the service.
+Tex is a Cargo workspace. `tex-app` is the program and the Slint interface. `tex-indexer` is the search service. `tex-index`, `tex-clipboard`, `tex-reader`, `tex-calc`, and `tex-mask` are the pure cores behind search, history, the reader, the calculator, and the masks and generators. `tex-platform` is the Windows code. `tex-ipc` is the pipe between the app and the service.
 
 The whole program is Rust. The interface is [Slint](https://slint.dev) with the software renderer. The clipboard history is SQLite, one row per copy, with names and content encrypted at rest. There is no account, no analytics, and no backend. Apart from the optional update check, every feature works offline.
 
