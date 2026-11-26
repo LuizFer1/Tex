@@ -1,5 +1,11 @@
+mod generator;
 mod template;
 
+pub use generator::{
+    Builtin, GenError, GenKind, GenOptions, GenSource, GenSpec, Generator, MAX_VALUE_LEN, Pattern,
+    Random, SYMBOLS, cnpj, cnpj_alpha, cnpj_valid, compile_generators, cpf, cpf_valid,
+    default_generators, password,
+};
 pub use template::{CharClass, MaskError, Part, Template};
 
 use tex_index::fold;
