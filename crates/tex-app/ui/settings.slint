@@ -1,7 +1,10 @@
 import { Palette } from "std-widgets.slint";
 import { Tokens } from "theme.slint";
-import { Icon, Icons, ScrollBar, TabItem, Toggle, Segmented, Select, Section, SettingRow, ShortcutField, Button, ButtonKind, CheckBox, PathList, TextLink, TextField, TitleButton, ResizeEdge } from "kit/kit.slint";
+import { Icons, ScrollBar, TabItem, Toggle, Segmented, Select, Section, SettingRow, Paragraph, ShortcutField, Button, ButtonKind, CheckBox, PathList, ConfirmButton, Notice, Footer, TitleButton, ResizeEdge } from "kit/kit.slint";
 import { HistoryText } from "history.slint";
+import { EntryRow, EntryList } from "settings-entries.slint";
+
+export { EntryRow }
 
 export struct DriveRow {
     letter: string,
@@ -10,13 +13,6 @@ export struct DriveRow {
     percent: int,
     entries: string,
     reason: string,
-}
-
-// 0 when the mask works, else the code `mask-message` explains.
-export struct MaskEntryRow {
-    name: string,
-    pattern: string,
-    error: int,
 }
 
 export component SettingsWindow inherits Window {
@@ -89,7 +85,7 @@ export component SettingsWindow inherits Window {
     in property <string> capture-error;
     in property <string> history-unavailable;
 
-    in property <[MaskEntryRow]> masks;
+    in property <[EntryRow]> masks;
     // -1 when no row is being edited
     in-out property <int> editing-mask: -1;
     in-out property <string> edit-name;
@@ -99,7 +95,32 @@ export component SettingsWindow inherits Window {
     property <int> edit-error: root.masks.length >= 0 ? root.check-mask(root.editing-mask, root.edit-name, root.edit-pattern) : 0;
     property <int> new-error: root.masks.length >= 0 ? root.check-mask(-1, root.new-name, root.new-pattern) : 0;
 
+    in-out property <bool> gen-formatted;
+    in-out property <int> password-length;
+    in-out property <bool> password-symbols;
+    in property <[EntryRow]> generators;
+    in-out property <int> editing-generator: -1;
+    in-out property <string> gen-edit-name;
+    in-out property <string> gen-edit-pattern;
+    in-out property <string> gen-new-name;
+    in-out property <string> gen-new-pattern;
+    property <int> gen-edit-error: root.generators.length >= 0 ? root.check-generator(root.editing-generator, root.gen-edit-name, root.gen-edit-pattern) : 0;
+    property <int> gen-new-error: root.generators.length >= 0 ? root.check-generator(-1, root.gen-new-name, root.gen-new-pattern) : 0;
+
     in property <string> save-error;
+
+    // Questions waiting for an answer. Esc and a change of tab drop them all.
+    property <int> mask-confirm: -1;
+    property <int> generator-confirm: -1;
+    property <bool> confirm-usage;
+    property <bool> confirm-masks-restore;
+    property <bool> confirm-generators-restore;
+
+    property <[string]> tab-labels: [@tr("General"), @tr("Search"), @tr("Clipboard"), @tr("Masks"), @tr("Generators")];
+    // The content keeps a readable width and stays centered in a wide window.
+    property <length> gutter: 32px;
+    property <length> column: 760px;
+    property <length> select-width: 200px;
     out property <string> folder-picker-title: @tr("Choose a folder to ignore in search");
     out property <string> app-picker-title: @tr("Choose an app to ignore");
     out property <string> app-picker-filter: @tr("Programs");
@@ -130,6 +151,11 @@ export component SettingsWindow inherits Window {
     callback mask-edit(int, string, string);
     callback mask-delete(int);
     callback masks-restore();
+    pure callback check-generator(int, string, string) -> int;
+    callback generator-add(string, string);
+    callback generator-edit(int, string, string);
+    callback generator-delete(int);
+    callback generators-restore();
 
     pure function mask-message(code: int) -> string {
         if code == 1 {
@@ -159,16 +185,114 @@ export component SettingsWindow inherits Window {
         return "";
     }
 
+    pure function gen-message(code: int) -> string {
+        if code == 1 {
+            return @tr("Name is empty");
+        }
+        if code == 2 {
+            return @tr("Name must be one word");
+        }
+        if code == 3 {
+            return @tr("Another generator has this name");
+        }
+        if code == 11 {
+            return @tr("Invalid regular expression");
+        }
+        if code == 12 {
+            return @tr("Use parts of a fixed size, like {0}", "\\d{3}");
+        }
+        if code == 13 {
+            return @tr("Add at least one random part, like {0}", "[A-Z]");
+        }
+        if code == 15 {
+            return @tr("Too long: up to 256 characters per value");
+        }
+        if code == 16 {
+            return @tr("A part has no character that can be typed");
+        }
+        return "";
+    }
+
+    pure function builtin-text(builtin: int) -> string {
+        if builtin == 1 {
+            return @tr("Valid CPF");
+        }
+        if builtin == 2 {
+            return @tr("Valid CNPJ");
+        }
+        if builtin == 3 {
+            return @tr("Valid alphanumeric CNPJ");
+        }
+        if builtin == 4 {
+            return @tr("Password");
+        }
+        return "";
+    }
+
     callback drag();
     callback resize(int);
     callback minimize();
     callback toggle-maximize();
     callback close-window();
 
+    forward-focus: recorder;
+
+    function step-tab(delta: int) {
+        root.current-tab = Math.mod(root.current-tab + delta + root.tab-labels.length, root.tab-labels.length);
+    }
+
+    function scroll-by(delta: length) {
+        flick.content-y = min(0px, max(flick.height - flick.content-height, flick.content-y - delta));
+    }
+
+    function drop-questions() {
+        root.editing-mask = -1;
+        root.editing-generator = -1;
+        root.mask-confirm = -1;
+        root.generator-confirm = -1;
+        root.confirm-clear = false;
+        root.confirm-usage = false;
+        root.confirm-masks-restore = false;
+        root.confirm-generators-restore = false;
+    }
+
+    /// Esc first gives up an edit or a question in progress; true when there was one.
+    function dismiss() -> bool {
+        if root.editing-mask >= 0 || root.editing-generator >= 0 || root.mask-confirm >= 0 || root.generator-confirm >= 0 || root.confirm-clear || root.confirm-usage || root.confirm-masks-restore || root.confirm-generators-restore {
+            root.drop-questions();
+            return true;
+        }
+        return false;
+    }
+
+    /// Called when the window is shown: no question is left from the last time and its keys
+    /// work before the first click.
+    public function take-focus() {
+        root.drop-questions();
+        recorder.focus();
+    }
+
     changed current-tab => {
         flick.content-y = 0;
+        root.drop-questions();
+        if !tabs.has-focus {
+            recorder.focus();
+        }
         if self.current-tab == 1 {
             root.refresh-drives();
+        }
+    }
+
+    // The edit fields are gone with their focus: the window takes it back.
+    changed editing-mask => {
+        if self.editing-mask < 0 && !tabs.has-focus {
+            recorder.focus();
+        }
+    }
+
+    changed editing-generator => {
+        if self.editing-generator < 0 && !tabs.has-focus {
+            recorder.focus();
         }
     }
 
@@ -176,28 +300,53 @@ export component SettingsWindow inherits Window {
         Palette.color-scheme = self.scheme;
     }
 
+    // Every key nothing else took ends here: the shortcut being recorded, Esc and the keys
+    // that change tab or scroll. It is never a Tab stop.
     recorder := FocusScope {
-        enabled: root.recording || root.history-recording;
-        key-pressed(event) => {
-            if !root.recording && !root.history-recording {
+        focus-on-tab-navigation: false;
+        capture-key-pressed(event) => {
+            if root.recording || root.history-recording {
                 return reject;
             }
-            if event.text == Key.Escape {
+            if event.modifiers.control && (event.text == Key.Tab || event.text == Key.Backtab) {
+                root.step-tab(event.modifiers.shift || event.text == Key.Backtab ? -1 : 1);
+                return accept;
+            }
+            reject
+        }
+        key-pressed(event) => {
+            if root.recording || root.history-recording {
+                if event.text == Key.Escape {
+                    if root.recording {
+                        root.cancel-recording();
+                    } else {
+                        root.cancel-history-recording();
+                    }
+                    return accept;
+                }
                 if root.recording {
-                    root.cancel-recording();
+                    root.shortcut-captured(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift, event.modifiers.meta);
                 } else {
-                    root.cancel-history-recording();
+                    root.history-shortcut-captured(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift, event.modifiers.meta);
                 }
                 return accept;
             }
-            if root.recording {
-                root.shortcut-captured(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift, event.modifiers.meta);
-            } else {
-                root.history-shortcut-captured(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift, event.modifiers.meta);
+            if event.text == Key.Escape {
+                if !root.dismiss() {
+                    root.close-window();
+                }
+                return accept;
             }
-            accept
+            if event.text == Key.PageDown {
+                root.scroll-by(flick.height - 60px);
+                return accept;
+            }
+            if event.text == Key.PageUp {
+                root.scroll-by(60px - flick.height);
+                return accept;
+            }
+            reject
         }
-
 
         Rectangle {
             border-width: root.window-maximized ? 0px : Tokens.border-control;
@@ -272,48 +421,74 @@ export component SettingsWindow inherits Window {
                         height: 1px;
                         background: Tokens.border;
                     }
-                    HorizontalLayout {
-                        padding-top: 18px;
-                        padding-left: 32px;
-                        padding-right: 32px;
-                        spacing: 28px;
-                        alignment: start;
-                        TabItem {
-                            number: "01";
-                            text: @tr("General");
-                            font-size: Tokens.size-tab;
-                            active: root.current-tab == 0;
-                            clicked => {
-                                root.current-tab = 0;
+                    // One Tab stop for the whole strip: the arrows move between the tabs.
+                    tabs := FocusScope {
+                        property <bool> keyboard;
+                        focus-on-click: false;
+                        accessible-role: tab-list;
+                        key-pressed(event) => {
+                            if event.text == Key.LeftArrow {
+                                root.step-tab(-1);
+                                return accept;
+                            }
+                            if event.text == Key.RightArrow {
+                                root.step-tab(1);
+                                return accept;
+                            }
+                            reject
+                        }
+                        focus-gained(reason) => {
+                            self.keyboard = reason == FocusReason.tab-navigation;
+                        }
+                        HorizontalLayout {
+                            padding-top: 6px;
+                            padding-left: root.gutter - 10px;
+                            padding-right: root.gutter - 10px;
+                            Rectangle {
+                                horizontal-stretch: 1;
+                            }
+                            Rectangle {
+                                horizontal-stretch: 10000;
+                                max-width: root.column + 20px;
+                                HorizontalLayout {
+                                    spacing: 2px;
+                                    alignment: start;
+                                    for label[index] in root.tab-labels: TabItem {
+                                        height: 38px;
+                                        pad: 10px;
+                                        number: "0" + (index + 1);
+                                        text: label;
+                                        font-size: Tokens.size-tab;
+                                        active: root.current-tab == index;
+                                        focused: tabs.has-focus && tabs.keyboard && root.current-tab == index;
+                                        clicked => {
+                                            root.current-tab = index;
+                                        }
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                horizontal-stretch: 1;
                             }
                         }
-                        TabItem {
-                            number: "02";
-                            text: @tr("Search");
-                            font-size: Tokens.size-tab;
-                            active: root.current-tab == 1;
-                            clicked => {
-                                root.current-tab = 1;
-                            }
-                        }
-                        TabItem {
-                            number: "03";
-                            text: @tr("Clipboard");
-                            font-size: Tokens.size-tab;
-                            active: root.current-tab == 2;
-                            clicked => {
-                                root.current-tab = 2;
-                            }
-                        }
-                        TabItem {
-                            number: "04";
-                            text: @tr("Masks");
-                            font-size: Tokens.size-tab;
-                            active: root.current-tab == 3;
-                            clicked => {
-                                root.current-tab = 3;
-                            }
-                        }
+                    }
+                }
+
+                if root.save-error != "": HorizontalLayout {
+                    padding-top: 12px;
+                    padding-left: root.gutter;
+                    padding-right: root.gutter;
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+                    Notice {
+                        horizontal-stretch: 10000;
+                        max-width: root.column;
+                        danger: true;
+                        text: @tr("Could not save the settings: {}", root.save-error);
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
                     }
                 }
 
@@ -322,12 +497,17 @@ export component SettingsWindow inherits Window {
                     flick := Flickable {
                         width: parent.width;
                         height: parent.height;
-                        content-height: page.preferred-height;
+                        // The page's preferred height counts wrapped texts as one line, so the
+                        // end of the content is read from where the layout put its last item.
+                        content-height: page-end.y + 32px;
                         page := VerticalLayout {
-                            width: flick.width;
+                            x: (flick.width - self.width) / 2;
+                            y: 0px;
+                            width: min(flick.width, root.column + 2 * root.gutter);
+                            height: self.preferred-height;
                             padding-top: 8px;
-                            padding-left: 32px;
-                            padding-right: 32px;
+                            padding-left: root.gutter;
+                            padding-right: root.gutter;
                             padding-bottom: 32px;
 
                             if root.current-tab == 0: VerticalLayout {
@@ -335,43 +515,54 @@ export component SettingsWindow inherits Window {
                                     height: 22px;
                                 }
                                 Rectangle {
-                                    height: 150px;
                                     border-radius: Tokens.radius-window;
                                     background: Tokens.banner;
                                     clip: true;
                                     HorizontalLayout {
                                         spacing: 18px;
-                                        padding-right: 20px;
+                                        padding-right: 16px;
                                         Image {
-                                            width: 132px;
+                                            width: 96px;
+                                            min-height: 108px;
                                             source: Tokens.art-banner;
                                             image-fit: cover;
                                         }
                                         VerticalLayout {
+                                            horizontal-stretch: 1;
                                             alignment: center;
-                                            spacing: 6px;
+                                            padding-top: 12px;
+                                            padding-bottom: 12px;
+                                            spacing: 4px;
                                             Text {
-                                                text: "TEX " + root.version + (root.paused ? " · " + @tr("Capture paused").to-uppercase() : "");
+                                                text: "TEX " + root.version;
                                                 font-family: Tokens.mono-font;
                                                 font-size: Tokens.size-kicker;
                                                 font-weight: 600;
                                                 letter-spacing: Tokens.size-kicker * 0.08;
                                                 color: Tokens.banner-kicker;
                                             }
-                                            Text {
+                                            Paragraph {
                                                 text: @tr("Hi! I keep what you copy and find what you look for.");
                                                 font-size: Tokens.size-banner;
                                                 font-weight: 600;
-                                                color: Tokens.banner-ink;
-                                                wrap: word-wrap;
+                                                ink: Tokens.banner-ink;
                                             }
-                                            Text {
+                                            Paragraph {
                                                 text: root.paused
                                                     ? @tr("{0} searches · {1} opens the history · capture paused", root.hotkey-text, root.history-hotkey-text)
                                                     : @tr("{0} searches · {1} opens the history · capture on", root.hotkey-text, root.history-hotkey-text);
-                                                font-size: Tokens.size-desc;
-                                                color: Tokens.banner-ink-2;
-                                                wrap: word-wrap;
+                                                ink: Tokens.banner-ink-2;
+                                            }
+                                        }
+                                        if root.paused: VerticalLayout {
+                                            alignment: center;
+                                            Button {
+                                                on-banner: true;
+                                                text: @tr("Resume capture");
+                                                clicked => {
+                                                    root.paused = false;
+                                                    root.edited();
+                                                }
                                             }
                                         }
                                     }
@@ -382,7 +573,7 @@ export component SettingsWindow inherits Window {
                                     SettingRow {
                                         label: @tr("Language");
                                         Select {
-                                            min-width: 220px;
+                                            min-width: root.select-width;
                                             label: @tr("Language");
                                             options: [@tr("Follow system"), "Português (Brasil)", "English"];
                                             current-index <=> root.language;
@@ -409,7 +600,7 @@ export component SettingsWindow inherits Window {
                                     title: @tr("Open Tex");
                                     SettingRow {
                                         label: @tr("Shortcut to open Tex");
-                                        description: root.recording ? @tr("Use at least one of Ctrl, Alt, Shift or Win plus a key. Esc cancels.") : "";
+                                        description: root.recording ? @tr("Use at least one of Ctrl, Alt, Shift or Win plus a key.") : "";
                                         error: root.hotkey-error == 1 ? @tr("That shortcut is already used by another program. The previous one was kept.") : root.hotkey-error == 3 ? @tr("That shortcut is already used by another program, so it is not active. Choose another one.") : root.hotkey-error == 2 ? @tr("Already used to open the clipboard history") : "";
                                         ShortcutField {
                                             keys: root.hotkey-keys;
@@ -444,7 +635,7 @@ export component SettingsWindow inherits Window {
                                         label: @tr("Popup monitor");
                                         separator: false;
                                         Select {
-                                            min-width: 220px;
+                                            min-width: root.select-width;
                                             label: @tr("Popup monitor");
                                             options: [@tr("Under the cursor"), @tr("Primary monitor")];
                                             current-index <=> root.popup-monitor;
@@ -494,13 +685,14 @@ export component SettingsWindow inherits Window {
                                         }
                                     }
                                     SettingRow {
-                                        label: root.update-state == 1 ? @tr("Checking for updates…")
+                                        label: @tr("Version {0}", root.version);
+                                        description: root.update-state == 1 ? @tr("Checking for updates…")
                                             : root.update-state == 2 ? @tr("Tex is up to date.")
                                             : root.update-state == 3 ? @tr("Downloading version {0}…", root.update-version)
                                             : root.update-state == 4 ? @tr("Version {0} is ready to install.", root.update-version)
-                                            : root.update-state == 5 ? @tr("Could not check for updates.")
                                             : root.update-state == 6 ? @tr("Installing version {0}…", root.update-version)
-                                            : @tr("Version {0}", root.version);
+                                            : "";
+                                        error: root.update-state == 5 ? @tr("Could not check for updates.") : "";
                                         separator: false;
                                         HorizontalLayout {
                                             spacing: 8px;
@@ -540,11 +732,25 @@ export component SettingsWindow inherits Window {
                             }
 
                             if root.current-tab == 1: VerticalLayout {
+                                if root.drives-unavailable: VerticalLayout {
+                                    padding-top: 22px;
+                                    Notice {
+                                        text: @tr("Search service is not running.");
+                                        Button {
+                                            on-banner: true;
+                                            text: @tr("Refresh");
+                                            clicked => {
+                                                root.refresh-drives();
+                                            }
+                                        }
+                                    }
+                                }
                                 Section {
                                     title: @tr("Results");
                                     first: true;
                                     SettingRow {
                                         label: @tr("Categories shown");
+                                        description: @tr("At least one option always stays on.");
                                         HorizontalLayout {
                                             spacing: 16px;
                                             CheckBox {
@@ -586,6 +792,23 @@ export component SettingsWindow inherits Window {
                                         }
                                     }
                                     SettingRow {
+                                        label: @tr("Keep the last search for");
+                                        separator: false;
+                                        Select {
+                                            min-width: root.select-width;
+                                            label: @tr("Keep the last search for");
+                                            options: [@tr("Never"), @tr("30 seconds"), @tr("1 minute"), @tr("5 minutes"), @tr("Always")];
+                                            current-index <=> root.keep-search;
+                                            selected => {
+                                                root.edited();
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Section {
+                                    title: @tr("Extras");
+                                    SettingRow {
                                         label: @tr("Calculator in search");
                                         description: @tr("Shows the result of calculations and conversions above the results.");
                                         Toggle {
@@ -599,39 +822,34 @@ export component SettingsWindow inherits Window {
                                     SettingRow {
                                         label: @tr("Suggest most used apps");
                                         description: @tr("Shows the apps you open most through Tex when the search is empty.");
-                                        HorizontalLayout {
-                                            spacing: 8px;
-                                            Button {
-                                                text: @tr("Clear usage history");
-                                                clicked => {
-                                                    root.clear-usage();
-                                                }
-                                            }
-                                            Toggle {
-                                                label: @tr("Suggest most used apps");
-                                                checked <=> root.suggestions;
-                                                toggled => {
-                                                    root.edited();
-                                                }
+                                        Toggle {
+                                            label: @tr("Suggest most used apps");
+                                            checked <=> root.suggestions;
+                                            toggled => {
+                                                root.edited();
                                             }
                                         }
                                     }
                                     SettingRow {
-                                        label: @tr("Keep the last search for");
+                                        label: root.confirm-usage ? @tr("Clear the usage history?") : @tr("Usage history");
+                                        description: @tr("Clearing it forgets which apps you open most and lets the suggestions you removed show up again.");
                                         separator: false;
-                                        Select {
-                                            label: @tr("Keep the last search for");
-                                            options: [@tr("Never"), @tr("30 seconds"), @tr("1 minute"), @tr("5 minutes"), @tr("Always")];
-                                            current-index <=> root.keep-search;
-                                            selected => {
-                                                root.edited();
+                                        ConfirmButton {
+                                            kind: ButtonKind.secondary;
+                                            text: @tr("Clear…");
+                                            confirm-text: @tr("Clear");
+                                            cancel-text: @tr("Cancel");
+                                            armed <=> root.confirm-usage;
+                                            confirmed => {
+                                                root.clear-usage();
+                                                footer.show-toast(@tr("usage history cleared"));
                                             }
                                         }
                                     }
                                 }
 
                                 Section {
-                                    title: @tr("Indexing");
+                                    title: @tr("What is searched");
                                     SettingRow {
                                         label: @tr("Include hidden files and folders");
                                         Toggle {
@@ -653,62 +871,6 @@ export component SettingsWindow inherits Window {
                                         }
                                     }
                                     SettingRow {
-                                        label: @tr("Indexed drives");
-                                        separator: false;
-                                        Button {
-                                            text: @tr("Refresh");
-                                            clicked => {
-                                                root.refresh-drives();
-                                            }
-                                        }
-                                    }
-                                    if root.drives-unavailable: Text {
-                                        text: @tr("Search service is not running.");
-                                        font-size: Tokens.size-desc;
-                                        color: Tokens.warn-text;
-                                    }
-                                    for drive in root.drives: HorizontalLayout {
-                                        height: 28px;
-                                        spacing: 12px;
-                                        Text {
-                                            width: 34px;
-                                            text: drive.letter + ":";
-                                            font-family: Tokens.mono-font;
-                                            font-size: Tokens.size-label;
-                                            font-weight: 600;
-                                            color: Tokens.ink;
-                                            vertical-alignment: center;
-                                        }
-                                        VerticalLayout {
-                                            horizontal-stretch: 1;
-                                            alignment: center;
-                                            Rectangle {
-                                                height: 6px;
-                                                border-radius: 3px;
-                                                background: Tokens.border-2;
-                                                Rectangle {
-                                                    x: 0px;
-                                                    width: parent.width * (drive.state == 0 ? drive.percent / 100 : drive.state == 1 ? 1 : 0);
-                                                    border-radius: 3px;
-                                                    background: drive.state == 0 ? Tokens.highlight : Tokens.action;
-                                                }
-                                            }
-                                        }
-                                        Text {
-                                            width: 170px;
-                                            text: drive.state == 1 ? @tr("ready · {0}", drive.entries) : drive.state == 0 ? @tr("indexing {0}%", drive.percent) : @tr("failed: {0}", drive.reason);
-                                            font-family: Tokens.mono-font;
-                                            font-size: Tokens.size-path;
-                                            color: drive.state == 2 ? Tokens.danger : Tokens.muted;
-                                            vertical-alignment: center;
-                                            overflow: elide;
-                                        }
-                                    }
-                                }
-
-                                Section {
-                                    title: @tr("Ignored folders");
-                                    SettingRow {
                                         label: @tr("Folders left out of the search");
                                         separator: false;
                                         Button {
@@ -721,21 +883,108 @@ export component SettingsWindow inherits Window {
                                     PathList {
                                         items: root.excluded;
                                         empty-text: @tr("no ignored folders");
-                                        remove-text: @tr("remove");
+                                        remove-text: @tr("Remove");
                                         remove(index) => {
                                             root.remove-folder(index);
+                                            recorder.focus();
+                                        }
+                                    }
+                                }
+
+                                Section {
+                                    title: @tr("Indexing");
+                                    SettingRow {
+                                        label: @tr("Indexed drives");
+                                        separator: false;
+                                        Button {
+                                            text: @tr("Refresh");
+                                            clicked => {
+                                                root.refresh-drives();
+                                            }
+                                        }
+                                    }
+                                    if root.drives.length > 0: Rectangle {
+                                        background: Tokens.field;
+                                        border-width: Tokens.border-control;
+                                        border-color: Tokens.border;
+                                        border-radius: Tokens.radius-control;
+                                        VerticalLayout {
+                                            for drive[index] in root.drives: VerticalLayout {
+                                                if index > 0: Rectangle {
+                                                    height: 1px;
+                                                    background: Tokens.border-2;
+                                                }
+                                                HorizontalLayout {
+                                                    height: 36px;
+                                                    padding-left: 12px;
+                                                    padding-right: 12px;
+                                                    spacing: 12px;
+                                                    Text {
+                                                        width: 24px;
+                                                        text: drive.letter + ":";
+                                                        font-family: Tokens.mono-font;
+                                                        font-size: Tokens.size-body;
+                                                        font-weight: 600;
+                                                        color: Tokens.ink;
+                                                        vertical-alignment: center;
+                                                    }
+                                                    VerticalLayout {
+                                                        horizontal-stretch: 1;
+                                                        alignment: center;
+                                                        Rectangle {
+                                                            height: 6px;
+                                                            border-radius: 3px;
+                                                            background: Tokens.border-2;
+                                                            Rectangle {
+                                                                x: 0px;
+                                                                width: parent.width * (drive.state == 0 ? drive.percent / 100 : drive.state == 1 ? 1 : 0);
+                                                                border-radius: 3px;
+                                                                background: drive.state == 0 ? Tokens.highlight : Tokens.action;
+                                                            }
+                                                        }
+                                                    }
+                                                    Text {
+                                                        width: 150px;
+                                                        text: drive.state == 1 ? @tr("ready · {0}", drive.entries) : drive.state == 0 ? @tr("indexing {0}%", drive.percent) : @tr("failed");
+                                                        font-family: Tokens.mono-font;
+                                                        font-size: Tokens.size-path;
+                                                        color: drive.state == 2 ? Tokens.danger : Tokens.muted;
+                                                        vertical-alignment: center;
+                                                        horizontal-alignment: right;
+                                                        overflow: elide;
+                                                    }
+                                                }
+                                                if drive.state == 2 && drive.reason != "": VerticalLayout {
+                                                    padding-left: 48px;
+                                                    padding-right: 12px;
+                                                    padding-bottom: 10px;
+                                                    Text {
+                                                        text: drive.reason;
+                                                        font-size: Tokens.size-desc;
+                                                        color: Tokens.danger;
+                                                        wrap: word-wrap;
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
 
                             if root.current-tab == 2: VerticalLayout {
+                                if root.history-unavailable != "": VerticalLayout {
+                                    padding-top: 22px;
+                                    Notice {
+                                        danger: true;
+                                        text: @tr("Clipboard history unavailable: {0}", root.history-unavailable);
+                                    }
+                                }
                                 Section {
-                                    title: @tr("Capture");
+                                    title: @tr("History");
                                     first: true;
                                     SettingRow {
                                         label: @tr("Shortcut to open the clipboard history");
-                                        description: root.history-recording ? @tr("Use at least one of Ctrl, Alt, Shift or Win plus a key. Esc cancels.") : "";
+                                        description: root.history-recording ? @tr("Use at least one of Ctrl, Alt, Shift or Win plus a key.") : "";
                                         error: root.history-hotkey-error == 1 ? @tr("That shortcut is already used by another program. The previous one was kept.") : root.history-hotkey-error == 3 ? @tr("That shortcut is already used by another program, so it is not active. Choose another one.") : root.history-hotkey-error == 2 ? @tr("Already used to open Tex") : "";
                                         ShortcutField {
                                             keys: root.history-hotkey-keys;
@@ -755,6 +1004,22 @@ export component SettingsWindow inherits Window {
                                         }
                                     }
                                     SettingRow {
+                                        label: @tr("When choosing an entry");
+                                        separator: false;
+                                        Segmented {
+                                            label: @tr("When choosing an entry");
+                                            options: [@tr("Copy only"), @tr("Copy and paste")];
+                                            current-index <=> root.on-pick;
+                                            selected => {
+                                                root.edited();
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Section {
+                                    title: @tr("Capture");
+                                    SettingRow {
                                         label: @tr("Pause capture");
                                         error: root.capture-error != "" ? @tr("Could not watch the clipboard: {0}", root.capture-error) : "";
                                         Toggle {
@@ -766,7 +1031,8 @@ export component SettingsWindow inherits Window {
                                         }
                                     }
                                     SettingRow {
-                                        label: @tr("Capture");
+                                        label: @tr("What to capture");
+                                        description: @tr("At least one option always stays on.");
                                         HorizontalLayout {
                                             spacing: 16px;
                                             CheckBox {
@@ -789,22 +1055,13 @@ export component SettingsWindow inherits Window {
                                     }
                                     SettingRow {
                                         label: @tr("Maximum size per entry");
+                                        description: @tr("Larger copies are not saved.");
+                                        separator: false;
                                         Select {
+                                            min-width: root.select-width;
                                             label: @tr("Maximum size per entry");
                                             options: [@tr("{0} MB", 1), @tr("{0} MB", 5), @tr("{0} MB", 10), @tr("{0} MB", 25), @tr("{0} MB", 50)];
                                             current-index <=> root.item-size;
-                                            selected => {
-                                                root.edited();
-                                            }
-                                        }
-                                    }
-                                    SettingRow {
-                                        label: @tr("When choosing an entry");
-                                        separator: false;
-                                        Segmented {
-                                            label: @tr("When choosing an entry");
-                                            options: [@tr("Copy only"), @tr("Copy and paste")];
-                                            current-index <=> root.on-pick;
                                             selected => {
                                                 root.edited();
                                             }
@@ -830,6 +1087,7 @@ export component SettingsWindow inherits Window {
                                         description: @tr("Favorites are never deleted by cleanup and do not count toward the limit.");
                                         separator: false;
                                         Select {
+                                            min-width: root.select-width;
                                             label: @tr("Delete entries older than");
                                             options: [@tr("3 days"), @tr("1 week"), @tr("1 month")];
                                             current-index <=> root.cleanup-days;
@@ -843,6 +1101,7 @@ export component SettingsWindow inherits Window {
                                         description: (root.usage-value != "" ? @tr("Using {0} of {1}", HistoryText.size-text(root.usage-value, root.usage-unit), root.limit-labels[root.cleanup-limit]) + " · " : "") + @tr("Favorites are never deleted by cleanup and do not count toward the limit.");
                                         separator: false;
                                         Select {
+                                            min-width: root.select-width;
                                             label: @tr("Storage limit");
                                             options: root.limit-labels;
                                             current-index <=> root.cleanup-limit;
@@ -879,15 +1138,16 @@ export component SettingsWindow inherits Window {
                                     PathList {
                                         items: root.ignored-apps;
                                         empty-text: @tr("no ignored apps");
-                                        remove-text: @tr("remove");
+                                        remove-text: @tr("Remove");
                                         remove(index) => {
                                             root.remove-app(index);
+                                            recorder.focus();
                                         }
                                     }
                                 }
 
                                 Rectangle {
-                                    height: 26px;
+                                    height: 28px;
                                 }
                                 Rectangle {
                                     border-width: Tokens.border-strong;
@@ -907,233 +1167,192 @@ export component SettingsWindow inherits Window {
                                                 color: Tokens.ink;
                                                 wrap: word-wrap;
                                             }
-                                            if !root.confirm-clear: Text {
+                                            Text {
                                                 text: @tr("Deletes every entry except favorites.");
                                                 font-size: Tokens.size-desc;
                                                 color: Tokens.muted;
                                                 wrap: word-wrap;
                                             }
                                         }
-                                        if !root.confirm-clear: VerticalLayout {
+                                        VerticalLayout {
                                             alignment: center;
-                                            Button {
-                                                kind: ButtonKind.danger;
+                                            ConfirmButton {
                                                 text: @tr("Clear…");
-                                                clicked => {
-                                                    root.confirm-clear = true;
-                                                }
-                                            }
-                                        }
-                                        if root.confirm-clear: HorizontalLayout {
-                                            spacing: 6px;
-                                            VerticalLayout {
-                                                alignment: center;
-                                                Button {
-                                                    text: @tr("Cancel");
-                                                    clicked => {
-                                                        root.confirm-clear = false;
-                                                    }
-                                                }
-                                            }
-                                            VerticalLayout {
-                                                alignment: center;
-                                                Button {
-                                                    kind: ButtonKind.danger-filled;
-                                                    text: @tr("Delete now");
-                                                    clicked => {
-                                                        root.confirm-clear = false;
-                                                        root.clear-history();
+                                                confirm-text: @tr("Delete now");
+                                                cancel-text: @tr("Cancel");
+                                                armed <=> root.confirm-clear;
+                                                confirmed => {
+                                                    root.clear-history();
+                                                    if root.history-unavailable == "" {
+                                                        footer.show-toast(@tr("history cleared"));
                                                     }
                                                 }
                                             }
                                         }
                                     }
-                                }
-
-                                if root.history-unavailable != "": Text {
-                                    text: @tr("Clipboard history unavailable: {0}", root.history-unavailable);
-                                    font-size: Tokens.size-desc;
-                                    color: Tokens.danger;
-                                    wrap: word-wrap;
                                 }
                             }
 
                             if root.current-tab == 3: VerticalLayout {
                                 Section {
-                                    title: @tr("Masks");
+                                    title: @tr("Available masks");
+                                    description: @tr("Type clean or maskup in the search to take a mask off a text or to put one on. In the clipboard history, Ctrl+M does it with the selected entry.");
                                     first: true;
+                                    EntryList {
+                                        entries: root.masks;
+                                        editing <=> root.editing-mask;
+                                        confirming <=> root.mask-confirm;
+                                        edit-name <=> root.edit-name;
+                                        edit-pattern <=> root.edit-pattern;
+                                        edit-error: root.edit-error;
+                                        new-name <=> root.new-name;
+                                        new-pattern <=> root.new-pattern;
+                                        new-error: root.new-error;
+                                        pattern-title: @tr("Regular expression");
+                                        add-text: @tr("Add mask");
+                                        delete-question: @tr("Delete this mask?");
+                                        empty-title: @tr("No masks");
+                                        empty-hint: @tr("Add a mask below or restore the default ones.");
+                                        hint: @tr("Each mask is a name and a regular expression with groups of fixed size, like {0}.", "(\\d{3})");
+                                        message(code) => {
+                                            return root.mask-message(code);
+                                        }
+                                        add(name, pattern) => {
+                                            root.mask-add(name, pattern);
+                                        }
+                                        save(index, name, pattern) => {
+                                            root.mask-edit(index, name, pattern);
+                                        }
+                                        delete(index) => {
+                                            root.mask-delete(index);
+                                            footer.show-toast(@tr("mask deleted"));
+                                            recorder.focus();
+                                        }
+                                        blur => {
+                                            recorder.focus();
+                                        }
+                                    }
                                     SettingRow {
-                                        label: @tr("Current masks");
-                                        description: @tr("Each mask is a name and a regular expression with groups of fixed size, like {0}.", "(\\d{3})");
+                                        label: root.confirm-masks-restore ? @tr("Replace the list with the default masks?") : @tr("Default masks");
+                                        description: @tr("Brings back the masks Tex comes with. The ones you added or changed are lost.");
                                         separator: false;
-                                        Button {
-                                            text: @tr("Restore defaults");
-                                            clicked => {
+                                        ConfirmButton {
+                                            kind: ButtonKind.secondary;
+                                            text: @tr("Restore…");
+                                            confirm-text: @tr("Restore");
+                                            cancel-text: @tr("Cancel");
+                                            armed <=> root.confirm-masks-restore;
+                                            confirmed => {
                                                 root.masks-restore();
+                                                footer.show-toast(@tr("defaults restored"));
                                             }
                                         }
                                     }
-                                    Rectangle {
-                                        background: Tokens.field;
-                                        border-width: Tokens.border-control;
-                                        border-color: Tokens.border;
-                                        border-radius: Tokens.radius-control;
-                                        VerticalLayout {
-                                            if root.masks.length == 0: HorizontalLayout {
-                                                padding-left: 12px;
-                                                height: 36px;
-                                                Text {
-                                                    text: @tr("no masks");
-                                                    font-family: Tokens.mono-font;
-                                                    font-size: Tokens.size-path;
-                                                    color: Tokens.muted;
-                                                    vertical-alignment: center;
-                                                }
+                                }
+                            }
+
+                            if root.current-tab == 4: VerticalLayout {
+                                Section {
+                                    title: @tr("Options");
+                                    first: true;
+                                    SettingRow {
+                                        label: @tr("CPF and CNPJ with punctuation");
+                                        description: @tr("Off, they are generated with digits and letters only.");
+                                        Toggle {
+                                            label: @tr("CPF and CNPJ with punctuation");
+                                            checked <=> root.gen-formatted;
+                                            toggled => {
+                                                root.edited();
                                             }
-                                            for entry[index] in root.masks: VerticalLayout {
-                                                if index > 0: Rectangle {
-                                                    height: 1px;
-                                                    background: Tokens.border-2;
-                                                }
-                                                VerticalLayout {
-                                                    padding-top: 8px;
-                                                    padding-bottom: 8px;
-                                                    padding-left: 12px;
-                                                    padding-right: 8px;
-                                                    spacing: 6px;
-                                                    if root.editing-mask != index: HorizontalLayout {
-                                                        spacing: 10px;
-                                                        Text {
-                                                            width: 110px;
-                                                            text: entry.name;
-                                                            font-family: Tokens.mono-font;
-                                                            font-size: Tokens.size-button;
-                                                            font-weight: 600;
-                                                            color: Tokens.ink;
-                                                            vertical-alignment: center;
-                                                            overflow: elide;
-                                                        }
-                                                        Text {
-                                                            horizontal-stretch: 1;
-                                                            text: entry.pattern;
-                                                            font-family: Tokens.mono-font;
-                                                            font-size: Tokens.size-path;
-                                                            color: Tokens.muted;
-                                                            vertical-alignment: center;
-                                                            overflow: elide;
-                                                        }
-                                                        Button {
-                                                            text: @tr("Edit");
-                                                            clicked => {
-                                                                root.edit-name = entry.name;
-                                                                root.edit-pattern = entry.pattern;
-                                                                root.editing-mask = index;
-                                                            }
-                                                        }
-                                                        VerticalLayout {
-                                                            alignment: center;
-                                                            TextLink {
-                                                                text: @tr("Delete");
-                                                                clicked => {
-                                                                    root.mask-delete(index);
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                    if root.editing-mask == index: HorizontalLayout {
-                                                        spacing: 8px;
-                                                        TextField {
-                                                            width: 120px;
-                                                            height: 30px;
-                                                            boxed: true;
-                                                            mono: true;
-                                                            placeholder: @tr("Name");
-                                                            text <=> root.edit-name;
-                                                        }
-                                                        TextField {
-                                                            horizontal-stretch: 1;
-                                                            height: 30px;
-                                                            boxed: true;
-                                                            mono: true;
-                                                            placeholder: @tr("Regular expression");
-                                                            text <=> root.edit-pattern;
-                                                        }
-                                                        Button {
-                                                            kind: ButtonKind.primary;
-                                                            text: @tr("Save");
-                                                            enabled: root.edit-error == 0;
-                                                            clicked => {
-                                                                root.mask-edit(index, root.edit-name, root.edit-pattern);
-                                                            }
-                                                        }
-                                                        Button {
-                                                            text: @tr("Cancel");
-                                                            clicked => {
-                                                                root.editing-mask = -1;
-                                                            }
-                                                        }
-                                                    }
-                                                    if root.editing-mask == index && root.edit-error != 0: Text {
-                                                        text: root.mask-message(root.edit-error);
-                                                        font-size: Tokens.size-desc;
-                                                        color: Tokens.danger;
-                                                    }
-                                                    if root.editing-mask != index && entry.error != 0: Text {
-                                                        text: root.mask-message(entry.error);
-                                                        font-size: Tokens.size-desc;
-                                                        color: Tokens.danger;
-                                                    }
-                                                }
+                                        }
+                                    }
+                                    SettingRow {
+                                        label: @tr("Password length");
+                                        Select {
+                                            min-width: root.select-width;
+                                            label: @tr("Password length");
+                                            options: ["12", "16", "20", "24", "32", "64"];
+                                            current-index <=> root.password-length;
+                                            selected => {
+                                                root.edited();
+                                            }
+                                        }
+                                    }
+                                    SettingRow {
+                                        label: @tr("Symbols in passwords");
+                                        description: @tr("Uses {0}", "!@#$%&*-_=+?");
+                                        separator: false;
+                                        Toggle {
+                                            label: @tr("Symbols in passwords");
+                                            checked <=> root.password-symbols;
+                                            toggled => {
+                                                root.edited();
                                             }
                                         }
                                     }
                                 }
 
                                 Section {
-                                    title: @tr("New mask");
-                                    HorizontalLayout {
-                                        spacing: 8px;
-                                        TextField {
-                                            width: 120px;
-                                            height: 30px;
-                                            boxed: true;
-                                            mono: true;
-                                            placeholder: @tr("Name");
-                                            text <=> root.new-name;
+                                    title: @tr("Available generators");
+                                    description: @tr("Type {0} in the search to generate a value. A number after the name generates several, like {1}.", @tr("generate cpf"), @tr("generate cpf") + " 5");
+                                    EntryList {
+                                        entries: root.generators;
+                                        editing <=> root.editing-generator;
+                                        confirming <=> root.generator-confirm;
+                                        edit-name <=> root.gen-edit-name;
+                                        edit-pattern <=> root.gen-edit-pattern;
+                                        edit-error: root.gen-edit-error;
+                                        new-name <=> root.gen-new-name;
+                                        new-pattern <=> root.gen-new-pattern;
+                                        new-error: root.gen-new-error;
+                                        pattern-title: @tr("What it generates");
+                                        add-text: @tr("Add generator");
+                                        delete-question: @tr("Delete this generator?");
+                                        empty-title: @tr("No generators");
+                                        empty-hint: @tr("Add a generator below or restore the default ones.");
+                                        hint: @tr("Your own generators are a name and a regular expression of fixed size, like {0}.", "[A-Z]{3}\\d[A-Z]\\d{2}");
+                                        message(code) => {
+                                            return root.gen-message(code);
                                         }
-                                        TextField {
-                                            horizontal-stretch: 1;
-                                            height: 30px;
-                                            boxed: true;
-                                            mono: true;
-                                            placeholder: @tr("Regular expression");
-                                            text <=> root.new-pattern;
+                                        summary(builtin) => {
+                                            return root.builtin-text(builtin);
                                         }
-                                        Button {
-                                            kind: ButtonKind.primary;
-                                            text: @tr("Add mask");
-                                            enabled: root.new-error == 0;
-                                            clicked => {
-                                                root.mask-add(root.new-name, root.new-pattern);
+                                        add(name, pattern) => {
+                                            root.generator-add(name, pattern);
+                                        }
+                                        save(index, name, pattern) => {
+                                            root.generator-edit(index, name, pattern);
+                                        }
+                                        delete(index) => {
+                                            root.generator-delete(index);
+                                            footer.show-toast(@tr("generator deleted"));
+                                            recorder.focus();
+                                        }
+                                        blur => {
+                                            recorder.focus();
+                                        }
+                                    }
+                                    SettingRow {
+                                        label: root.confirm-generators-restore ? @tr("Replace the list with the default generators?") : @tr("Default generators");
+                                        description: @tr("Brings back the generators Tex comes with. The ones you added or changed are lost.");
+                                        separator: false;
+                                        ConfirmButton {
+                                            kind: ButtonKind.secondary;
+                                            text: @tr("Restore…");
+                                            confirm-text: @tr("Restore");
+                                            cancel-text: @tr("Cancel");
+                                            armed <=> root.confirm-generators-restore;
+                                            confirmed => {
+                                                root.generators-restore();
+                                                footer.show-toast(@tr("defaults restored"));
                                             }
                                         }
-                                    }
-                                    Rectangle {
-                                        height: 6px;
-                                    }
-                                    if (root.new-name != "" || root.new-pattern != "") && root.new-error != 0: Text {
-                                        text: root.mask-message(root.new-error);
-                                        font-size: Tokens.size-desc;
-                                        color: Tokens.danger;
                                     }
                                 }
                             }
 
-                            if root.save-error != "": Text {
-                                text: @tr("Could not save the settings: {}", root.save-error);
-                                color: Tokens.danger;
-                                font-size: Tokens.size-desc;
-                                wrap: word-wrap;
+                            page-end := Rectangle {
+                                height: 0px;
                             }
                         }
                     }
@@ -1144,6 +1363,13 @@ export component SettingsWindow inherits Window {
                         viewport-height: flick.content-height;
                         visible-height: flick.height;
                     }
+                }
+
+                footer := Footer {
+                    padding-x: root.gutter;
+                    hints: root.recording || root.history-recording ? @tr("press the new shortcut · esc cancels")
+                        : root.editing-mask >= 0 || root.editing-generator >= 0 ? @tr("enter saves · esc cancels")
+                        : @tr("ctrl tab switches tabs · esc closes");
                 }
             }
         }
@@ -1156,7 +1382,7 @@ export component SettingsWindow inherits Window {
             ResizeEdge { x: parent.width - 10px; y: 0px; width: 10px; height: 10px; direction: 4; mouse-cursor: nesw-resize; resize(d) => { root.resize(d); } }
             ResizeEdge { x: 0px; y: 0px; width: 10px; height: 10px; direction: 5; mouse-cursor: nwse-resize; resize(d) => { root.resize(d); } }
             ResizeEdge { x: parent.width - 10px; y: parent.height - 10px; width: 10px; height: 10px; direction: 6; mouse-cursor: nwse-resize; resize(d) => { root.resize(d); } }
-            ResizeEdge { x: 0px; y: parent.height - 10px; width: 10px; height: 10px; direction: 7; mouse-cursor: nesw-resize; resize(d) => { root.resize(d); } }
+            ResizeEdge { x: 0px; y: 0px; width: 10px; height: 10px; direction: 7; mouse-cursor: nesw-resize; resize(d) => { root.resize(d); } }
         }
     }
 }

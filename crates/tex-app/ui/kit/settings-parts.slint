@@ -1,4 +1,7 @@
 import { Tokens } from "../theme.slint";
+import { FocusRing } from "focus.slint";
+import { Icon, Icons } from "icon.slint";
+import { Button, ButtonKind } from "button.slint";
 
 export component Kicker inherits Text {
     font-family: Tokens.mono-font;
@@ -8,16 +11,44 @@ export component Kicker inherits Text {
     color: Tokens.muted;
 }
 
+/// Wrapped text that reports its real height. A wrapped `Text` inside nested layouts can
+/// report one line, so this one gets its width from the parent and its height from the text.
+/// For the content of a scrolled page: in the window's own layout it grew without limit,
+/// and a plain `Text` is right there.
+export component Paragraph inherits Rectangle {
+    in property <string> text;
+    in property <length> font-size: Tokens.size-desc;
+    in property <int> font-weight: 400;
+    in property <color> ink: Tokens.muted;
+    height: label.preferred-height;
+    label := Text {
+        x: 0px;
+        width: parent.width;
+        text: root.text;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        color: root.ink;
+        wrap: word-wrap;
+    }
+}
+
 export component Section inherits VerticalLayout {
     in property <string> title;
+    in property <string> description;
     in property <bool> first;
-    padding-top: root.first ? 22px : 26px;
+    padding-top: root.first ? 22px : 28px;
     spacing: 0px;
     Kicker {
         text: root.title.to-uppercase();
     }
+    if root.description != "": VerticalLayout {
+        padding-top: 8px;
+        Paragraph {
+            text: root.description;
+        }
+    }
     Rectangle {
-        height: 6px;
+        height: root.description != "" ? 12px : 6px;
     }
     @children
 }
@@ -31,7 +62,7 @@ export component SettingRow inherits Rectangle {
     VerticalLayout {
         padding-top: 14px;
         padding-bottom: 14px;
-        spacing: 6px;
+        spacing: 8px;
         HorizontalLayout {
             spacing: 16px;
             VerticalLayout {
@@ -77,21 +108,28 @@ export component SettingRow inherits Rectangle {
 
 export component TextLink inherits Rectangle {
     in property <string> text;
+    in property <bool> danger: true;
     callback clicked();
+
+    property <bool> keyboard;
+
     horizontal-stretch: 0;
-    height: 22px;
+    height: 26px;
     border-radius: Tokens.radius-control;
-    background: touch.has-hover ? Tokens.danger-bg : transparent;
+    background: !touch.has-hover ? transparent : root.danger ? Tokens.danger-bg : Tokens.border-2;
     accessible-role: button;
     accessible-label: root.text;
+    accessible-action-default => {
+        root.clicked();
+    }
     HorizontalLayout {
-        padding-left: 6px;
-        padding-right: 6px;
+        padding-left: 8px;
+        padding-right: 8px;
         Text {
             text: root.text;
-            font-family: Tokens.mono-font;
-            font-size: Tokens.size-kicker;
-            color: Tokens.danger;
+            font-size: Tokens.size-button;
+            font-weight: 500;
+            color: root.danger ? Tokens.danger : Tokens.ink-2;
             vertical-alignment: center;
         }
     }
@@ -99,6 +137,97 @@ export component TextLink inherits Rectangle {
         mouse-cursor: pointer;
         clicked => {
             root.clicked();
+        }
+    }
+
+    focus := FocusScope {
+        focus-on-click: false;
+        key-pressed(event) => {
+            if event.text == " " || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+        focus-gained(reason) => {
+            root.keyboard = reason == FocusReason.tab-navigation;
+        }
+    }
+
+    FocusRing {
+        show: focus.has-focus && root.keyboard;
+    }
+}
+
+/// A button that asks before acting. The first click arms it: the same button becomes Cancel,
+/// so a double click or a second Enter never confirms, and the confirmation shows beside it.
+/// The caller turns its label into the question while `armed` holds.
+export component ConfirmButton inherits HorizontalLayout {
+    in property <string> text;
+    in property <string> confirm-text;
+    in property <string> cancel-text;
+    in property <ButtonKind> kind: ButtonKind.danger;
+    in property <bool> enabled: true;
+    in-out property <bool> armed;
+    callback confirmed();
+
+    spacing: 6px;
+
+    if root.armed: Button {
+        kind: ButtonKind.danger-filled;
+        text: root.confirm-text;
+        clicked => {
+            root.armed = false;
+            root.confirmed();
+        }
+    }
+    Button {
+        kind: root.armed ? ButtonKind.secondary : root.kind;
+        text: root.armed ? root.cancel-text : root.text;
+        enabled: root.enabled || root.armed;
+        clicked => {
+            root.armed = !root.armed;
+        }
+    }
+}
+
+/// A strip for a state the user has to know about: a warning, or a failure with `danger`.
+export component Notice inherits Rectangle {
+    in property <string> text;
+    in property <bool> danger;
+
+    background: root.danger ? Tokens.danger-bg : Tokens.banner;
+    border-radius: Tokens.radius-control;
+
+    HorizontalLayout {
+        padding-top: 8px;
+        padding-bottom: 8px;
+        padding-left: 12px;
+        padding-right: 8px;
+        spacing: 10px;
+        VerticalLayout {
+            alignment: center;
+            Icon {
+                width: 16px;
+                height: 16px;
+                source: Icons.warning;
+                tint: root.danger ? Tokens.danger : Tokens.banner-ink;
+            }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            Text {
+                text: root.text;
+                font-size: Tokens.size-desc;
+                font-weight: 500;
+                color: root.danger ? Tokens.ink : Tokens.banner-ink;
+                wrap: word-wrap;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            @children
         }
     }
 }

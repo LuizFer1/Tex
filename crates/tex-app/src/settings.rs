@@ -4,8 +4,10 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use serde::de::DeserializeOwned;
+use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 use tex_clipboard::{CaptureSettings, Retention};
+use tex_mask::{Builtin, GenSource};
 use toml::{Table, Value};
 
 use crate::shortcut::Shortcut;
@@ -16,15 +18,19 @@ const FALLBACK_HISTORY_HOTKEY: &str = "ctrl+shift+v";
 pub const ITEM_SIZES_MB: [u32; 5] = [1, 5, 10, 25, 50];
 pub const CLEANUP_DAYS: [u32; 3] = [3, 7, 30];
 pub const STORAGE_LIMITS_MB: [u32; 5] = [250, 500, 1024, 2048, 5120];
+pub const PASSWORD_LENGTHS: [u32; 6] = [12, 16, 20, 24, 32, 64];
 const MB: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Settings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub masks: Option<Vec<MaskEntry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generators: Option<Vec<GeneratorEntry>>,
     pub general: General,
     pub search: Search,
     pub clipboard: Clipboard,
+    pub generate: Generate,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -73,6 +79,25 @@ pub struct Clipboard {
 pub struct MaskEntry {
     pub name: String,
     pub pattern: String,
+}
+
+/// A generator as saved: a name and either a built-in kind or a pattern.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeneratorEntry {
+    pub name: String,
+    pub source: GenSource,
+}
+
+impl Serialize for GeneratorEntry {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut table = serializer.serialize_struct("GeneratorEntry", 2)?;
+        table.serialize_field("name", &self.name)?;
+        match &self.source {
+            GenSource::Builtin(builtin) => table.serialize_field("builtin", &builtin.key())?,
+            GenSource::Pattern(pattern) => table.serialize_field("pattern", pattern)?,
+        }
+        table.end()
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -193,6 +218,33 @@ impl Default for Clipboard {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Generate {
+    pub formatted: bool,
+    pub password_length: u32,
+    pub password_symbols: bool,
+}
+
+impl Default for Generate {
+    fn default() -> Self {
+        Self {
+            formatted: true,
+            password_length: 16,
+            password_symbols: true,
+        }
+    }
+}
+
+impl Generate {
+    pub fn options(&self) -> tex_mask::GenOptions {
+        tex_mask::GenOptions {
+            formatted: self.formatted,
+            password_length: self.password_length as usize,
+            password_symbols: self.password_symbols,
+        }
+    }
+}
+
 impl Clipboard {
     pub fn retention(&self) -> Retention {
         match self.cleanup {
@@ -239,11 +291,14 @@ impl Settings {
         let general = table.get("general").and_then(Value::as_table);
         let search = table.get("search").and_then(Value::as_table);
         let clipboard = table.get("clipboard").and_then(Value::as_table);
+        let generate = table.get("generate").and_then(Value::as_table);
         let g = General::default();
         let s = Search::default();
         let c = Clipboard::default();
+        let n = Generate::default();
         let mut settings = Settings {
             masks: read_masks(&table),
+            generators: read_generators(&table),
             general: General {
                 language: field(general, "language").unwrap_or(g.language),
                 theme: field(general, "theme").unwrap_or(g.theme),
@@ -282,6 +337,11 @@ impl Settings {
                 respect_exclusion: field(clipboard, "respect_exclusion")
                     .unwrap_or(c.respect_exclusion),
                 ignored_apps: field(clipboard, "ignored_apps").unwrap_or(c.ignored_apps),
+            },
+            generate: Generate {
+                formatted: field(generate, "formatted").unwrap_or(n.formatted),
+                password_length: field(generate, "password_length").unwrap_or(n.password_length),
+                password_symbols: field(generate, "password_symbols").unwrap_or(n.password_symbols),
             },
         };
         settings.normalize();
@@ -325,6 +385,39 @@ impl Settings {
         tex_mask::compile(&masks)
     }
 
+    /// The user's generators, or the factory ones (named for the language) while none were saved.
+    pub fn generator_entries(&self, english: bool) -> Vec<GeneratorEntry> {
+        self.generators.clone().unwrap_or_else(|| {
+            tex_mask::default_generators(english)
+                .into_iter()
+                .map(|spec| GeneratorEntry {
+                    name: spec.name,
+                    source: spec.source,
+                })
+                .collect()
+        })
+    }
+
+    pub fn set_generators(&mut self, entries: Vec<GeneratorEntry>) {
+        self.generators = Some(entries);
+    }
+
+    pub fn restore_generators(&mut self) {
+        self.generators = None;
+    }
+
+    pub fn compiled_generators(&self, english: bool) -> Vec<tex_mask::Generator> {
+        let specs: Vec<tex_mask::GenSpec> = self
+            .generator_entries(english)
+            .into_iter()
+            .map(|entry| tex_mask::GenSpec {
+                name: entry.name,
+                source: entry.source,
+            })
+            .collect();
+        tex_mask::compile_generators(&specs)
+    }
+
     /// The Windows key hook only runs once the onboarding is done.
     pub fn winkey_active(&self) -> bool {
         self.general.windows_key && self.general.onboarding_done
@@ -366,6 +459,9 @@ impl Settings {
             clipboard.capture_text = true;
             clipboard.capture_images = true;
         }
+        if !PASSWORD_LENGTHS.contains(&self.generate.password_length) {
+            self.generate.password_length = Generate::default().password_length;
+        }
     }
 }
 
@@ -388,6 +484,29 @@ fn read_masks(table: &Table) -> Option<Vec<MaskEntry>> {
             })
             .collect(),
     )
+}
+
+/// An array of tables, each with a text `name` and exactly one of a known `builtin` or a text
+/// `pattern`; other items are skipped.
+fn read_generators(table: &Table) -> Option<Vec<GeneratorEntry>> {
+    let entries = table.get("generators")?.as_array()?;
+    Some(
+        entries
+            .iter()
+            .filter_map(Value::as_table)
+            .filter_map(read_generator)
+            .collect(),
+    )
+}
+
+fn read_generator(entry: &Table) -> Option<GeneratorEntry> {
+    let name = entry.get("name")?.as_str()?.to_owned();
+    let source = match (entry.get("builtin"), entry.get("pattern")) {
+        (Some(builtin), None) => GenSource::Builtin(Builtin::from_key(builtin.as_str()?)?),
+        (None, Some(pattern)) => GenSource::Pattern(pattern.as_str()?.to_owned()),
+        _ => return None,
+    };
+    Some(GeneratorEntry { name, source })
 }
 
 fn canonical_hotkey(text: &str, default: &str) -> String {
@@ -839,5 +958,176 @@ ignored_apps = ['C:\Apps\KeePass.exe', 'keepass.exe', ' ', 'Code.exe', 'D:/Tools
         save(&path, &settings).unwrap();
         assert_eq!(load(&path), settings);
         fs::remove_dir_all(&folder).unwrap();
+    }
+
+    fn generator(name: &str, source: GenSource) -> GeneratorEntry {
+        GeneratorEntry {
+            name: name.into(),
+            source,
+        }
+    }
+
+    fn generator_names(settings: &Settings, english: bool) -> Vec<String> {
+        settings
+            .generator_entries(english)
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect()
+    }
+
+    #[test]
+    fn generators_are_absent_by_default_and_give_the_factory_ones() {
+        let settings = Settings::default();
+        assert_eq!(settings.generators, None);
+        assert_eq!(
+            generator_names(&settings, false),
+            ["cpf", "cnpj", "cnpja", "senha"]
+        );
+        let english = generator_names(&settings, true);
+        assert_eq!(english.last().map(String::as_str), Some("password"));
+        assert_eq!(settings.compiled_generators(false).len(), 4);
+    }
+
+    #[test]
+    fn saving_an_unrelated_setting_does_not_write_the_generators() {
+        let mut settings = Settings::from_toml("").unwrap();
+        settings.search.calculator = false;
+        assert!(!settings.to_toml().contains("generators"));
+        assert_eq!(
+            Settings::from_toml(&settings.to_toml()).unwrap().generators,
+            None
+        );
+    }
+
+    #[test]
+    fn edited_generators_survive_a_round_trip_and_an_empty_list_stays_empty() {
+        let mut settings = Settings::default();
+        settings.set_generators(vec![
+            generator("documento", GenSource::Builtin(Builtin::Cpf)),
+            generator("codigo", GenSource::Pattern(r"[A-Z]{3}-\d{2}".into())),
+        ]);
+        let text = settings.to_toml();
+        assert!(text.contains("[[generators]]"), "{text}");
+        assert!(text.contains(r#"builtin = "cpf""#), "{text}");
+        assert!(text.contains("pattern = "), "{text}");
+        let back = Settings::from_toml(&text).unwrap();
+        assert_eq!(
+            back.generator_entries(false),
+            settings.generator_entries(false)
+        );
+
+        settings.set_generators(Vec::new());
+        let back = Settings::from_toml(&settings.to_toml()).unwrap();
+        assert_eq!(back.generators, Some(Vec::new()));
+        assert!(back.generator_entries(false).is_empty());
+    }
+
+    #[test]
+    fn generators_and_masks_saved_together_keep_their_own_lists() {
+        let mut settings = Settings::default();
+        settings.set_masks(vec![MaskEntry {
+            name: "x".into(),
+            pattern: r"(\d)-(\d)".into(),
+        }]);
+        settings.set_generators(Vec::new());
+        let text = settings.to_toml();
+        let back = Settings::from_toml(&text).unwrap();
+        assert_eq!(back.generators, Some(Vec::new()), "{text}");
+        assert_eq!(back.masks, settings.masks, "{text}");
+
+        let mut settings = Settings::default();
+        settings.set_masks(Vec::new());
+        settings.set_generators(vec![generator(
+            "codigo",
+            GenSource::Pattern(r"\d{3}".into()),
+        )]);
+        let text = settings.to_toml();
+        let back = Settings::from_toml(&text).unwrap();
+        assert_eq!(back.masks, Some(Vec::new()), "{text}");
+        assert_eq!(back.generators, settings.generators, "{text}");
+    }
+
+    #[test]
+    fn restoring_the_generators_goes_back_to_absent() {
+        let mut settings = Settings::default();
+        settings.set_generators(Vec::new());
+        settings.restore_generators();
+        assert_eq!(settings.generators, None);
+    }
+
+    #[test]
+    fn a_bad_generator_entry_is_skipped() {
+        let text = r#"
+[[generators]]
+name = "ok"
+builtin = "cpf"
+
+[[generators]]
+name = "ambos"
+builtin = "cpf"
+pattern = "\\d{3}"
+
+[[generators]]
+name = "nenhum"
+
+[[generators]]
+name = "rg"
+builtin = "rg"
+
+[[generators]]
+name = 3
+builtin = "cpf"
+
+[[generators]]
+name = "tipo"
+builtin = "cpf"
+pattern = 3
+
+[[generators]]
+name = "padrao"
+pattern = "\\d{3}"
+"#;
+        let settings = Settings::from_toml(text).unwrap();
+        assert_eq!(generator_names(&settings, false), ["ok", "padrao"]);
+    }
+
+    #[test]
+    fn generate_defaults_and_round_trips() {
+        let settings = Settings::default();
+        assert_eq!(
+            settings.generate,
+            Generate {
+                formatted: true,
+                password_length: 16,
+                password_symbols: true,
+            }
+        );
+        let settings = Settings {
+            generate: Generate {
+                formatted: false,
+                password_length: 64,
+                password_symbols: false,
+            },
+            ..Settings::default()
+        };
+        let text = settings.to_toml();
+        assert!(text.contains("[generate]"), "{text}");
+        assert_eq!(Settings::from_toml(&text), Some(settings));
+    }
+
+    #[test]
+    fn an_unknown_password_length_falls_back_to_16() {
+        let settings = Settings::from_toml("[generate]\npassword_length = 13\n").unwrap();
+        assert_eq!(settings.generate.password_length, 16);
+        let settings = Settings::from_toml("[generate]\npassword_length = 24\n").unwrap();
+        assert_eq!(settings.generate.password_length, 24);
+        assert_eq!(
+            settings.generate.options(),
+            tex_mask::GenOptions {
+                formatted: true,
+                password_length: 24,
+                password_symbols: true,
+            }
+        );
     }
 }

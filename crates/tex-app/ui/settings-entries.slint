@@ -1,0 +1,379 @@
+import { Tokens } from "theme.slint";
+import { Icon, Icons, Button, ButtonKind, TextField, TextLink, Kicker, Paragraph } from "kit/kit.slint";
+
+// `builtin` is 0 for an entry made of a regular expression, else the code `summary` describes.
+// `error` is 0 when the entry works, else the code `message` explains.
+export struct EntryRow {
+    name: string,
+    pattern: string,
+    builtin: int,
+    error: int,
+}
+
+component EntryNote inherits HorizontalLayout {
+    in property <string> text;
+    padding-left: 12px;
+    padding-right: 12px;
+    padding-bottom: 10px;
+    spacing: 6px;
+    VerticalLayout {
+        alignment: center;
+        Icon {
+            width: 13px;
+            height: 13px;
+            source: Icons.warning;
+            tint: Tokens.danger;
+        }
+    }
+    Text {
+        horizontal-stretch: 1;
+        text: root.text;
+        font-size: Tokens.size-desc;
+        color: Tokens.danger;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}
+
+/// The list of masks or generators of the settings window, with the row that adds one at
+/// the end. A row is read, edited in place (Enter saves) or asks before it is deleted.
+export component EntryList inherits Rectangle {
+    in property <[EntryRow]> entries;
+    // -1 when no row is being edited
+    in-out property <int> editing: -1;
+    // -1 when no row is asking whether to delete it
+    in-out property <int> confirming: -1;
+    in-out property <string> edit-name;
+    in-out property <string> edit-pattern;
+    in property <int> edit-error;
+    in-out property <string> new-name;
+    in-out property <string> new-pattern;
+    in property <int> new-error;
+    in property <string> pattern-title;
+    in property <string> add-text;
+    in property <string> delete-question;
+    in property <string> empty-title;
+    in property <string> empty-hint;
+    in property <string> hint;
+    pure callback message(int) -> string;
+    pure callback summary(int) -> string;
+    callback add(string, string);
+    callback save(int, string, string);
+    callback delete(int);
+    // The new entry's fields gave up the focus: the window takes it back.
+    callback blur();
+
+    property <length> name-width: 120px;
+    property <length> gap: 10px;
+    property <length> inset: 12px;
+    // A boxed field starts this much before its text, so the text keeps the column.
+    property <length> field-inset: 8px;
+    property <length> field-gap: 8px;
+    property <length> name-field-width: root.name-width + root.gap - root.field-gap;
+    property <bool> typing: root.new-name != "" || root.new-pattern != "";
+
+    function try-save(index: int) {
+        if root.edit-error == 0 {
+            root.save(index, root.edit-name, root.edit-pattern);
+        }
+    }
+
+    function try-add() {
+        if root.new-error == 0 {
+            root.add(root.new-name, root.new-pattern);
+            new-name-field.focus();
+        }
+    }
+
+    background: Tokens.field;
+    border-width: Tokens.border-control;
+    border-color: Tokens.border;
+    border-radius: Tokens.radius-control;
+
+    VerticalLayout {
+        HorizontalLayout {
+            height: 30px;
+            padding-left: root.inset;
+            padding-right: root.inset;
+            spacing: root.gap;
+            Kicker {
+                width: root.name-width;
+                text: @tr("Name").to-uppercase();
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            Kicker {
+                horizontal-stretch: 1;
+                text: root.pattern-title.to-uppercase();
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+
+        if root.entries.length == 0: VerticalLayout {
+            Rectangle {
+                height: 1px;
+                background: Tokens.border-2;
+            }
+            VerticalLayout {
+                padding-top: 14px;
+                padding-bottom: 14px;
+                padding-left: root.inset;
+                padding-right: root.inset;
+                spacing: 3px;
+                Paragraph {
+                    text: root.empty-title;
+                    font-size: Tokens.size-label;
+                    ink: Tokens.ink;
+                }
+                Paragraph {
+                    text: root.empty-hint;
+                }
+            }
+        }
+
+        for entry[index] in root.entries: VerticalLayout {
+            Rectangle {
+                height: 1px;
+                background: Tokens.border-2;
+            }
+            if root.editing != index: HorizontalLayout {
+                property <bool> asking: root.confirming == index;
+                height: 44px;
+                padding-left: root.inset;
+                padding-right: 8px;
+                spacing: root.gap;
+                Text {
+                    width: root.name-width;
+                    text: entry.name;
+                    font-family: Tokens.mono-font;
+                    font-size: Tokens.size-body;
+                    font-weight: 600;
+                    color: entry.error != 0 && !asking ? Tokens.muted : Tokens.ink;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                if asking: Text {
+                    horizontal-stretch: 1;
+                    text: root.delete-question;
+                    font-size: Tokens.size-body;
+                    color: Tokens.ink;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                if !asking: Text {
+                    horizontal-stretch: 1;
+                    text: entry.builtin == 0 ? entry.pattern : root.summary(entry.builtin);
+                    font-family: entry.builtin == 0 ? Tokens.mono-font : Tokens.ui-font;
+                    font-size: entry.builtin == 0 ? Tokens.size-path : Tokens.size-body;
+                    color: entry.builtin == 0 ? Tokens.muted : Tokens.ink-2;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                // The same two controls in both states, so the focused one is never destroyed:
+                // Delete turns into Cancel under the pointer and Edit into the confirmation.
+                HorizontalLayout {
+                    horizontal-stretch: 0;
+                    spacing: 2px;
+                    VerticalLayout {
+                        alignment: center;
+                        Button {
+                            kind: asking ? ButtonKind.danger-filled : ButtonKind.secondary;
+                            text: asking ? @tr("Delete") : @tr("Edit");
+                            clicked => {
+                                if asking {
+                                    root.confirming = -1;
+                                    root.delete(index);
+                                } else {
+                                    root.confirming = -1;
+                                    root.edit-name = entry.name;
+                                    root.edit-pattern = entry.builtin == 0 ? entry.pattern : "";
+                                    root.editing = index;
+                                }
+                            }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        TextLink {
+                            danger: !asking;
+                            text: asking ? @tr("Cancel") : @tr("Delete");
+                            clicked => {
+                                root.confirming = asking ? -1 : index;
+                            }
+                        }
+                    }
+                }
+            }
+            if root.editing == index: HorizontalLayout {
+                height: 44px;
+                padding-left: root.inset - root.field-inset;
+                padding-right: 8px;
+                spacing: root.field-gap;
+                VerticalLayout {
+                    alignment: center;
+                    TextField {
+                        width: root.name-field-width;
+                        height: 30px;
+                        boxed: true;
+                        mono: true;
+                        ring: true;
+                        font-size: Tokens.size-body;
+                        invalid: root.edit-error > 0 && root.edit-error < 10;
+                        placeholder: @tr("Name");
+                        text <=> root.edit-name;
+                        init => {
+                            self.focus();
+                            self.select-all();
+                        }
+                        accepted => {
+                            root.try-save(index);
+                        }
+                    }
+                }
+                if entry.builtin == 0: VerticalLayout {
+                    horizontal-stretch: 1;
+                    alignment: center;
+                    TextField {
+                        height: 30px;
+                        boxed: true;
+                        mono: true;
+                        ring: true;
+                        font-size: Tokens.size-path;
+                        invalid: root.edit-error >= 10;
+                        placeholder: @tr("Regular expression");
+                        text <=> root.edit-pattern;
+                        accepted => {
+                            root.try-save(index);
+                        }
+                    }
+                }
+                if entry.builtin != 0: HorizontalLayout {
+                    horizontal-stretch: 1;
+                    padding-left: root.field-inset;
+                    Text {
+                        text: root.summary(entry.builtin);
+                        font-size: Tokens.size-body;
+                        color: Tokens.ink-2;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+                HorizontalLayout {
+                    horizontal-stretch: 0;
+                    spacing: 6px;
+                    VerticalLayout {
+                        alignment: center;
+                        Button {
+                            kind: ButtonKind.primary;
+                            text: @tr("Save");
+                            enabled: root.edit-error == 0;
+                            clicked => {
+                                root.try-save(index);
+                            }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Button {
+                            text: @tr("Cancel");
+                            clicked => {
+                                root.editing = -1;
+                            }
+                        }
+                    }
+                }
+            }
+            if root.editing == index && root.edit-error != 0: EntryNote {
+                text: root.message(root.edit-error);
+            }
+            if root.editing != index && entry.error != 0: EntryNote {
+                text: @tr("Not in use: {0}", root.message(entry.error));
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: Tokens.border;
+        }
+        FocusScope {
+            focus-on-click: false;
+            focus-on-tab-navigation: false;
+            key-pressed(event) => {
+                if event.text == Key.Escape {
+                    root.new-name = "";
+                    root.new-pattern = "";
+                    root.blur();
+                    return accept;
+                }
+                reject
+            }
+
+            VerticalLayout {
+                HorizontalLayout {
+                    height: 46px;
+                    padding-left: root.inset - root.field-inset;
+                    padding-right: 8px;
+                    spacing: root.field-gap;
+                    VerticalLayout {
+                        alignment: center;
+                        new-name-field := TextField {
+                            width: root.name-field-width;
+                            height: 30px;
+                            boxed: true;
+                            mono: true;
+                            ring: true;
+                            font-size: Tokens.size-body;
+                            invalid: root.typing && root.new-error > 0 && root.new-error < 10;
+                            placeholder: @tr("Name");
+                            text <=> root.new-name;
+                            accepted => {
+                                root.try-add();
+                            }
+                        }
+                    }
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        TextField {
+                            height: 30px;
+                            boxed: true;
+                            mono: true;
+                            ring: true;
+                            font-size: Tokens.size-path;
+                            invalid: root.typing && root.new-error >= 10;
+                            placeholder: @tr("Regular expression");
+                            text <=> root.new-pattern;
+                            accepted => {
+                                root.try-add();
+                            }
+                        }
+                    }
+                    VerticalLayout {
+                        horizontal-stretch: 0;
+                        alignment: center;
+                        Button {
+                            kind: ButtonKind.primary;
+                            text: root.add-text;
+                            enabled: root.new-error == 0;
+                            clicked => {
+                                root.try-add();
+                            }
+                        }
+                    }
+                }
+                if root.typing && root.new-error != 0: EntryNote {
+                    text: root.message(root.new-error);
+                }
+                if !(root.typing && root.new-error != 0) && root.hint != "": VerticalLayout {
+                    padding-left: root.inset;
+                    padding-right: root.inset;
+                    padding-bottom: 10px;
+                    Paragraph {
+                        text: root.hint;
+                    }
+                }
+            }
+        }
+    }
+}

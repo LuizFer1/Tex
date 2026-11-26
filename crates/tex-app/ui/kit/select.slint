@@ -63,6 +63,10 @@ export component Select inherits Rectangle {
         focus-on-click: false;
         enabled: root.enabled;
         key-pressed(event) => {
+            if event.text == Key.Escape && popup.is-open {
+                popup.close();
+                return accept;
+            }
             if event.text == Key.UpArrow {
                 root.choose(root.current-index - 1);
                 return accept;

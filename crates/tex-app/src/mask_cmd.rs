@@ -9,6 +9,7 @@ pub const MAX_CLIPS: usize = 10;
 pub enum Kind {
     Clean,
     Format,
+    Generate,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,6 +38,7 @@ pub struct View {
 pub enum Section {
     Masks,
     History,
+    Generators,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +46,8 @@ pub enum Row {
     Header(Section),
     Suggestion(usize),
     Clip(usize),
+    Generator(usize),
+    Again,
 }
 
 /// The command a query starts with: its word, followed by a space.
@@ -52,6 +56,7 @@ pub fn parse(query: &str) -> Option<Command> {
     let kind = match tex_index::fold(word).as_str() {
         "limpar" | "clean" => Kind::Clean,
         "formatar" | "maskup" => Kind::Format,
+        "gerar" | "generate" => Kind::Generate,
         _ => return None,
     };
     Some(Command {
@@ -67,7 +72,8 @@ fn split_term(rest: &str) -> (&str, &str) {
 }
 
 /// What the panel shows for `command`: the text it works on (typed, or the clip at `chosen`),
-/// the mask suggestions and the outcome when there is one.
+/// the mask suggestions and the outcome when there is one. Not used for `Kind::Generate`, which
+/// `gen_cmd::view` answers.
 pub fn view(command: &Command, masks: &[Compiled], clips: &[String], chosen: usize) -> View {
     let clip = clips.get(chosen).cloned().unwrap_or_default();
     let pick = |typed: &str| {
@@ -176,17 +182,22 @@ pub fn preview(text: &str, max: usize) -> String {
 pub enum Action {
     Copy,
     Choose(usize),
+    ChooseGenerator(usize),
+    Again,
     Nothing,
 }
 
 /// What Enter does on `selection`: copy the result (the card, or a clip that has one), complete
-/// the query with a suggestion (its mask index), or nothing.
+/// the query with a suggestion (its mask index), run a generator (its index), generate again,
+/// or nothing.
 pub fn action(selection: Option<Selection>, rows: &[Row], has_result: bool) -> Action {
     match selection {
         Some(Selection::Answer) if has_result => Action::Copy,
         Some(Selection::Row(index)) => match rows.get(index) {
             Some(Row::Suggestion(mask)) => Action::Choose(*mask),
             Some(Row::Clip(_)) if has_result => Action::Copy,
+            Some(Row::Generator(generator)) => Action::ChooseGenerator(*generator),
+            Some(Row::Again) if has_result => Action::Again,
             _ => Action::Nothing,
         },
         _ => Action::Nothing,
@@ -269,6 +280,31 @@ mod tests {
         assert_eq!(parse("limpar ").unwrap().rest, "");
         assert_eq!(parse("limparx 1"), None);
         assert_eq!(parse("abrir limpar"), None);
+        assert_eq!(parse("gerar cpf").unwrap().kind, Kind::Generate);
+        assert_eq!(parse("GENERATE ").unwrap().kind, Kind::Generate);
+        assert_eq!(parse("gerarx 1"), None);
+    }
+
+    #[test]
+    fn enter_on_a_generator_row_runs_it_and_again_repeats_the_card() {
+        let rows = [
+            Row::Again,
+            Row::Header(Section::Generators),
+            Row::Generator(2),
+        ];
+        assert_eq!(
+            action(Some(Selection::Row(2)), &rows, true),
+            Action::ChooseGenerator(2)
+        );
+        assert_eq!(action(Some(Selection::Row(0)), &rows, true), Action::Again);
+        assert_eq!(
+            action(Some(Selection::Row(0)), &rows, false),
+            Action::Nothing
+        );
+        assert_eq!(
+            action(Some(Selection::Row(1)), &rows, true),
+            Action::Nothing
+        );
     }
 
     #[test]

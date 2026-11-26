@@ -34,6 +34,7 @@ export struct MaskCard {
     output: string,
     mask: string,
     count: int,
+    generated: bool,
 }
 
 export struct MaskRow {
@@ -127,7 +128,7 @@ component MaskCardView inherits Rectangle {
     callback clicked();
     callback double-clicked();
     callback hovered();
-    property <string> caption: root.card.count > 1 ? root.card.mask + " · " + root.card.count + " " + @tr("occurrences") : root.card.mask;
+    property <string> caption: root.card.generated ? (root.card.count > 1 ? root.card.mask + " · " + @tr("{0} values", root.card.count) : root.card.mask) : (root.card.count > 1 ? root.card.mask + " · " + root.card.count + " " + @tr("occurrences") : root.card.mask);
 
     Rectangle {
         x: 8px;
@@ -208,7 +209,7 @@ component MaskItem inherits Rectangle {
         padding-top: 10px;
         spacing: 10px;
         Text {
-            text: (root.item.kind == 0 ? @tr("Masks") : @tr("Clipboard history")).to-uppercase();
+            text: (root.item.kind == 0 ? @tr("Masks") : root.item.kind == 4 ? @tr("Generators") : @tr("Clipboard history")).to-uppercase();
             font-family: Tokens.mono-font;
             font-size: Tokens.size-kicker;
             font-weight: 500;
@@ -236,7 +237,7 @@ component MaskItem inherits Rectangle {
             padding-right: 12px;
             spacing: 12px;
             Text {
-                text: root.item.label;
+                text: root.item.kind == 6 ? @tr("Generate again") : root.item.label;
                 horizontal-stretch: 1;
                 font-size: Tokens.size-result;
                 color: root.selected ? Tokens.on-action : Tokens.ink;
@@ -444,7 +445,7 @@ export component Popup inherits Window {
     in property <MaskCard> mask-card;
     in property <[MaskRow]> mask-rows;
     in property <int> mask-action;
-    property <string> mask-hints: root.mask-action == 1 ? @tr("enter copy result · esc close") : root.mask-action == 2 ? @tr("enter choose mask · esc close") : @tr("esc close");
+    property <string> mask-hints: root.mask-action == 1 ? @tr("enter copy result · esc close") : root.mask-action == 2 ? @tr("enter choose mask · esc close") : root.mask-action == 3 ? @tr("enter generate again · esc close") : root.mask-action == 4 ? @tr("enter choose generator · esc close") : @tr("esc close");
     property <length> answer-height: (root.has-answer || root.has-mask-card) ? 64px : 0px;
     property <bool> selected-readable: root.selected >= 0 && root.selected < root.rows.length && root.rows[root.selected].readable;
     property <bool> selected-suggested: root.selected >= 0 && root.selected < root.rows.length && root.rows[root.selected].suggested;

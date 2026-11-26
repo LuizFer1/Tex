@@ -57,9 +57,6 @@ msgstr "Sugerir apps mais usados"
 msgid "Shows the apps you open most through Tex when the search is empty."
 msgstr "Mostra os apps que você mais abre pelo Tex quando a pesquisa está vazia."
 
-msgid "Clear usage history"
-msgstr "Limpar histórico de uso"
-
 msgid "Suggestions"
 msgstr "Sugestões"
 
@@ -164,9 +161,6 @@ msgstr "Geral"
 
 msgid "Ignored apps"
 msgstr "Apps ignorados"
-
-msgid "Ignored folders"
-msgstr "Pastas ignoradas"
 
 msgid "Image"
 msgstr "Imagem"
@@ -300,9 +294,6 @@ msgstr "Onde está o cursor"
 msgid "Unreadable entry"
 msgstr "Item ilegível"
 
-msgid "Use at least one of Ctrl, Alt, Shift or Win plus a key. Esc cancels."
-msgstr "Use pelo menos um entre Ctrl, Alt, Shift ou Win mais uma tecla. Esc cancela."
-
 msgid "Using {0} of {1}"
 msgstr "Usando {0} de {1}"
 
@@ -332,9 +323,6 @@ msgstr "{0} MB"
 
 msgid "{0} × {1}"
 msgstr "{0} × {1}"
-
-msgid "recording… esc cancels"
-msgstr "gravando… esc cancela"
 
 msgid "Record"
 msgstr "Gravar"
@@ -480,9 +468,6 @@ msgstr "Restaurar"
 msgid "Close"
 msgstr "Fechar"
 
-msgid "Capture paused"
-msgstr "Captura pausada"
-
 msgid "Hi! I keep what you copy and find what you look for."
 msgstr "Oi! Eu guardo o que você copia e acho o que você procura."
 
@@ -513,9 +498,6 @@ msgstr "pronta · {0}"
 msgid "indexing {0}%"
 msgstr "indexando {0}%"
 
-msgid "failed: {0}"
-msgstr "falhou: {0}"
-
 msgid "Folders left out of the search"
 msgstr "Pastas que ficam fora da pesquisa"
 
@@ -524,9 +506,6 @@ msgstr "+ Adicionar"
 
 msgid "no ignored folders"
 msgstr "nenhuma pasta ignorada"
-
-msgid "remove"
-msgstr "remover"
 
 msgid "Cleanup"
 msgstr "Limpeza"
@@ -957,26 +936,14 @@ msgstr "domingo"
 msgid "Masks"
 msgstr "Máscaras"
 
-msgid "Current masks"
-msgstr "Máscaras atuais"
-
 msgid "Each mask is a name and a regular expression with groups of fixed size, like {0}."
 msgstr "Cada máscara é um nome e uma expressão regular com grupos de tamanho fixo, como {0}."
-
-msgid "Restore defaults"
-msgstr "Restaurar padrões"
-
-msgid "no masks"
-msgstr "nenhuma máscara"
 
 msgid "Name"
 msgstr "Nome"
 
 msgid "Regular expression"
 msgstr "Expressão regular"
-
-msgid "New mask"
-msgstr "Nova máscara"
 
 msgid "Add mask"
 msgstr "Adicionar máscara"
@@ -1016,3 +983,195 @@ msgstr "enter escolher máscara · esc fechar"
 
 msgid "esc close"
 msgstr "esc fechar"
+
+msgid "Generators"
+msgstr "Geradores"
+
+msgid "{0} values"
+msgstr "{0} valores"
+
+msgid "Generate again"
+msgstr "Gerar outro"
+
+msgid "enter generate again · esc close"
+msgstr "enter gerar outro · esc fechar"
+
+msgid "enter choose generator · esc close"
+msgstr "enter escolher gerador · esc fechar"
+
+msgid "Options"
+msgstr "Opções"
+
+msgid "CPF and CNPJ with punctuation"
+msgstr "CPF e CNPJ com pontuação"
+
+msgid "Off, they are generated with digits and letters only."
+msgstr "Desligado, saem só com números e letras."
+
+msgid "Password length"
+msgstr "Tamanho da senha"
+
+msgid "Symbols in passwords"
+msgstr "Símbolos na senha"
+
+msgid "Uses {0}"
+msgstr "Usa {0}"
+
+msgid "Valid CPF"
+msgstr "CPF válido"
+
+msgid "Valid CNPJ"
+msgstr "CNPJ válido"
+
+msgid "Valid alphanumeric CNPJ"
+msgstr "CNPJ alfanumérico válido"
+
+msgid "Password"
+msgstr "Senha"
+
+msgid "Another generator has this name"
+msgstr "Outro gerador tem esse nome"
+
+msgid "Use parts of a fixed size, like {0}"
+msgstr "Use partes de tamanho fixo, como {0}"
+
+msgid "Add at least one random part, like {0}"
+msgstr "Inclua ao menos uma parte aleatória, como {0}"
+
+msgid "Too long: up to 256 characters per value"
+msgstr "Longo demais: até 256 caracteres por valor"
+
+msgid "A part has no character that can be typed"
+msgstr "Uma parte não tem nenhum caractere digitável"
+
+msgid "Add generator"
+msgstr "Adicionar gerador"
+
+msgid "generate cpf"
+msgstr "gerar cpf"
+
+msgid "Use at least one of Ctrl, Alt, Shift or Win plus a key."
+msgstr "Use pelo menos um entre Ctrl, Alt, Shift ou Win mais uma tecla."
+
+msgid "recording…"
+msgstr "gravando…"
+
+msgid "press the new shortcut · esc cancels"
+msgstr "pressione o novo atalho · esc cancela"
+
+msgid "enter saves · esc cancels"
+msgstr "enter salva · esc cancela"
+
+msgid "ctrl tab switches tabs · esc closes"
+msgstr "ctrl tab troca de aba · esc fecha"
+
+msgid "At least one option always stays on."
+msgstr "Pelo menos uma opção fica sempre ligada."
+
+msgid "Extras"
+msgstr "Extras"
+
+msgid "Usage history"
+msgstr "Histórico de uso"
+
+msgid "Clear the usage history?"
+msgstr "Limpar o histórico de uso?"
+
+msgid "Clearing it forgets which apps you open most and lets the suggestions you removed show up again."
+msgstr "Limpar faz o Tex esquecer os apps que você mais abre e deixa as sugestões removidas voltarem a aparecer."
+
+msgid "Clear"
+msgstr "Limpar"
+
+msgid "usage history cleared"
+msgstr "histórico de uso limpo"
+
+msgid "What is searched"
+msgstr "O que entra na pesquisa"
+
+msgid "Remove"
+msgstr "Remover"
+
+msgid "failed"
+msgstr "falhou"
+
+msgid "History"
+msgstr "Histórico"
+
+msgid "What to capture"
+msgstr "O que capturar"
+
+msgid "Larger copies are not saved."
+msgstr "Cópias maiores não são salvas."
+
+msgid "history cleared"
+msgstr "histórico limpo"
+
+msgid "Available masks"
+msgstr "Máscaras disponíveis"
+
+msgid "Type clean or maskup in the search to take a mask off a text or to put one on. In the clipboard history, Ctrl+M does it with the selected entry."
+msgstr "Digite limpar ou formatar na pesquisa para tirar a máscara de um texto ou aplicar uma. No histórico do clipboard, Ctrl+M faz isso com o item selecionado."
+
+msgid "Delete this mask?"
+msgstr "Excluir esta máscara?"
+
+msgid "No masks"
+msgstr "Nenhuma máscara"
+
+msgid "Add a mask below or restore the default ones."
+msgstr "Adicione uma máscara abaixo ou restaure as máscaras padrão."
+
+msgid "mask deleted"
+msgstr "máscara excluída"
+
+msgid "Default masks"
+msgstr "Máscaras padrão"
+
+msgid "Replace the list with the default masks?"
+msgstr "Trocar a lista pelas máscaras padrão?"
+
+msgid "Brings back the masks Tex comes with. The ones you added or changed are lost."
+msgstr "Traz de volta as máscaras que vêm com o Tex. As que você adicionou ou alterou são perdidas."
+
+msgid "Restore…"
+msgstr "Restaurar…"
+
+msgid "defaults restored"
+msgstr "padrões restaurados"
+
+msgid "Not in use: {0}"
+msgstr "Fora de uso: {0}"
+
+msgid "Available generators"
+msgstr "Geradores disponíveis"
+
+msgid "Type {0} in the search to generate a value. A number after the name generates several, like {1}."
+msgstr "Digite {0} na pesquisa para gerar um valor. Um número depois do nome gera vários, como {1}."
+
+msgid "What it generates"
+msgstr "O que gera"
+
+msgid "Delete this generator?"
+msgstr "Excluir este gerador?"
+
+msgid "No generators"
+msgstr "Nenhum gerador"
+
+msgid "Add a generator below or restore the default ones."
+msgstr "Adicione um gerador abaixo ou restaure os geradores padrão."
+
+msgid "Your own generators are a name and a regular expression of fixed size, like {0}."
+msgstr "Seus geradores são um nome e uma expressão regular de tamanho fixo, como {0}."
+
+msgid "generator deleted"
+msgstr "gerador excluído"
+
+msgid "Default generators"
+msgstr "Geradores padrão"
+
+msgid "Replace the list with the default generators?"
+msgstr "Trocar a lista pelos geradores padrão?"
+
+msgid "Brings back the generators Tex comes with. The ones you added or changed are lost."
+msgstr "Traz de volta os geradores que vêm com o Tex. Os que você adicionou ou alterou são perdidos."

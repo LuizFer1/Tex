@@ -74,6 +74,7 @@ export component Footer inherits Rectangle {
     in property <string> hints;
     in property <string> status;
     in property <color> status-color: Tokens.muted;
+    in property <length> padding-x: 20px;
 
     property <string> toast;
 
@@ -93,8 +94,8 @@ export component Footer inherits Rectangle {
     }
 
     HorizontalLayout {
-        padding-left: 20px;
-        padding-right: 20px;
+        padding-left: root.padding-x;
+        padding-right: root.padding-x;
         spacing: 12px;
         Text {
             text: root.hints;
